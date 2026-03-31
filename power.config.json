@@ -1,0 +1,14 @@
+{
+  "version": "1.0",
+  "appId": "0338b339-b80b-4149-a508-66f4a4a1ea40",
+  "appDisplayName": "TimeFlow",
+  "region": "prod",
+  "environmentId": "cde065d4-dd32-efb8-848a-bc916bb2fd00",
+  "description": "",
+  "buildPath": "dist",
+  "buildEntryPoint": "index.html",
+  "localAppUrl": "http://localhost:5173",
+  "logoPath": "Default",
+  "connectionReferences": {},
+  "databaseReferences": {}
+}
