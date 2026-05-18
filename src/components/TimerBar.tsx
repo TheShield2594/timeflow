@@ -143,12 +143,6 @@ export const TimerBar: React.FC<Props> = ({
           </button>
         </div>
       </div>
-
-      {isRunning && (
-        <div className="timer-bar__pulse-bar">
-          <div className="timer-bar__pulse-inner" />
-        </div>
-      )}
     </div>
   );
 };
