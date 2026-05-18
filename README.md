@@ -16,7 +16,8 @@ Tracks time against projects and tasks, stores data in Microsoft Dataverse, and 
 | KPI strip (total, daily avg, sessions, projects) | ✅ |
 | Projects management (create projects + tasks) | ✅ |
 | Timer persists across page refresh | ✅ |
-| Dataverse backend (ready to wire up) | ✅ |
+| Per-user timer & data scoping | ✅ |
+| Dataverse backend wired (window.PowerApps connector) | ✅ |
 
 ---
 
@@ -59,6 +60,7 @@ In your Power Apps environment, create these tables (or use the Dataverse web UI
 | cr_name | Text | Required |
 | cr_color | Text | Hex color e.g. #6366f1 |
 | cr_description | Text (multiline) | Optional |
+| cr_ratio | Decimal | Optional — default ratio for new entries |
 | cr_isactive | Boolean | Default: true |
 
 **Table: cr_tasks**
@@ -66,6 +68,7 @@ In your Power Apps environment, create these tables (or use the Dataverse web UI
 |---|---|---|
 | cr_name | Text | Required |
 | cr_projectid | Lookup → cr_projects | Required |
+| cr_description | Text | Optional |
 | cr_isactive | Boolean | Default: true |
 
 **Table: cr_time_entries**
@@ -77,30 +80,25 @@ In your Power Apps environment, create these tables (or use the Dataverse web UI
 | cr_starttime | DateTime | Required |
 | cr_endtime | DateTime | Optional (null = running) |
 | cr_durationminutes | Whole Number | Optional |
+| cr_ratio | Decimal | Optional |
 | cr_date | Date Only | Required |
+| cr_userid | Text | Required — stamps the owning user (Entra ID) |
+| cr_userdisplayname | Text | Required — cached display name for reporting |
 
-### Step 3 — Wire up the Dataverse service
+### Step 3 — (Optional) Adjust the Dataverse field mapping
 
-Open `src/services/dataverseService.ts` and replace the `// TODO` comments with real connector calls.
-The file has detailed comments showing exactly what to replace.
+`src/services/dataverseService.ts` is already wired against
+`window.PowerApps.Connectors.MicrosoftDataverse` using OData-style queries and
+the `@odata.bind` form for lookup writes. If your Power Apps Code App SDK
+exposes a different convention (e.g., bare GUID lookup writes, or different
+primary-key column naming), tweak the `mapXxx` / `xxxToDataverse` helpers in
+that file — the rest of the app does not depend on those details.
 
-Example for `getProjects()`:
-```typescript
-// Remove the IS_LOCAL mock block and replace with:
-const connector = window.PowerApps.Connectors.MicrosoftDataverse;
-const result = await connector.listRecords("cr_projects", {
-  $filter: "cr_isactive eq true",
-  $orderby: "cr_name asc"
-});
-return result.value.map(r => ({
-  id: r.cr_projectsid,
-  name: r.cr_name,
-  color: r.cr_color,
-  description: r.cr_description,
-  isActive: r.cr_isactive,
-  createdAt: r.createdon,
-}));
-```
+User identity is resolved by `src/services/userService.ts`. It prefers
+`window.PowerApps.userInfo`, falls back to the `Office365Users.MyProfile`
+connector, and finally to a persistent local-dev user when neither is present.
+Time entries are filtered server-side by `cr_userid` so each user only sees
+their own records.
 
 ### Step 4 — Build and push
 ```bash
@@ -121,16 +119,21 @@ Or open Power Apps Studio and the app will appear in your environment.
 
 ```
 src/
-  types/index.ts          — TypeScript interfaces for all data models
+  types/
+    index.ts              — TypeScript interfaces for all data models
+    powerapps.d.ts        — window.PowerApps runtime type declarations
   services/
-    dataverseService.ts   — All Dataverse API calls (mock + real stubs)
+    dataverseService.ts   — Real Dataverse calls + localStorage mock fallback
+    userService.ts        — Current user (PowerApps userInfo / Office365Users / local)
+    csvExport.ts          — CSV export helper
   hooks/index.ts          — React hooks: useProjects, useTasks, useTimeEntries, useTimer
   components/
     TimerBar.tsx          — Sticky timer bar at the top
     TimesheetPage.tsx     — Day-grouped list of time entries
+    CalendarPage.tsx      — Week calendar with drag-to-create entries
     ReportsPage.tsx       — Dashboard with charts and KPIs
     ProjectsPage.tsx      — Project/task management
-  App.tsx                 — Root layout, sidebar, page routing
+  App.tsx                 — Root layout, sign-in bootstrap, page routing
   styles.css              — Full dark theme CSS (no external UI library needed)
   main.tsx                — React entry point
 ```

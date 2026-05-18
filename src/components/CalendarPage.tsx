@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type { TimeEntry, Project, Task } from "../types";
+import { getCurrentUser } from "../services/userService";
 
 interface Props {
   entries: TimeEntry[];
@@ -8,6 +9,7 @@ interface Props {
   onCreateEntry: (data: Omit<TimeEntry, "id">) => Promise<TimeEntry>;
   onEdit: (id: string, data: Partial<TimeEntry>) => Promise<TimeEntry>;
   onDelete: (id: string) => void;
+  onEnsureRangeLoaded?: (from: string, to: string) => void;
 }
 
 interface ModalDraft {
@@ -64,10 +66,19 @@ function toTimeInput(iso: string): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCreateEntry, onEdit, onDelete }) => {
+export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCreateEntry, onEdit, onDelete, onEnsureRangeLoaded }) => {
   const [anchor, setAnchor] = useState(() => new Date());
   const weekDays = useMemo(() => getWeekDays(anchor), [anchor]);
   const today = toDateStr(new Date());
+
+  // Make sure the data for the visible week is loaded — navigating backwards
+  // past the initial 90-day window will pull more entries from Dataverse.
+  useEffect(() => {
+    if (!onEnsureRangeLoaded || weekDays.length === 0) return;
+    const from = toDateStr(weekDays[0]);
+    const to = toDateStr(weekDays[weekDays.length - 1]);
+    onEnsureRangeLoaded(from, to);
+  }, [weekDays, onEnsureRangeLoaded]);
 
   const [modal, setModal] = useState<ModalDraft | null>(null);
   const [saving, setSaving] = useState(false);
@@ -173,6 +184,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
           date: modal.date,
         });
       } else {
+        const user = getCurrentUser();
         await onCreateEntry({
           projectId: modal.projectId,
           taskId: modal.taskId || undefined,
@@ -181,8 +193,8 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
           endTime: endDt.toISOString(),
           durationMinutes,
           date: modal.date,
-          userId: "current-user",
-          userDisplayName: "You",
+          userId: user.id,
+          userDisplayName: user.displayName,
         });
       }
       setModal(null);

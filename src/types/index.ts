@@ -55,3 +55,9 @@ export interface ProjectReport {
   entryCount: number;
   tasks: { taskId: string; taskName: string; minutes: number }[];
 }
+
+export interface CurrentUser {
+  id: string;
+  email: string;
+  displayName: string;
+}

@@ -1,26 +1,18 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type { TimeEntry, Project, Task } from "../types";
 import { formatMinutes } from "../hooks";
 import { exportToCSV, buildExportFilename } from "../services/csvExport";
+import {
+  DateRangeFilter,
+  DateRangeState,
+  resolveDateRange,
+} from "./DateRangeFilter";
 
 interface Props {
   entries: TimeEntry[];
   projects: Project[];
   tasks: Task[];
-}
-
-type Range = "7d" | "30d" | "thisMonth";
-
-function dateRange(range: Range): { from: string; to: string } {
-  const to = new Date();
-  const from = new Date();
-  if (range === "7d") from.setDate(from.getDate() - 6);
-  else if (range === "30d") from.setDate(from.getDate() - 29);
-  else { from.setDate(1); }
-  return {
-    from: from.toISOString().split("T")[0],
-    to: to.toISOString().split("T")[0],
-  };
+  onEnsureRangeLoaded?: (from: string, to: string) => void;
 }
 
 function getDaysInRange(from: string, to: string): string[] {
@@ -34,17 +26,22 @@ function getDaysInRange(from: string, to: string): string[] {
   return days;
 }
 
-export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks }) => {
-  const [range, setRange] = useState<Range>("7d");
-  const [customFrom, setCustomFrom] = useState("");
-  const [customTo, setCustomTo] = useState("");
-  const [showCustom, setShowCustom] = useState(false);
+const REPORTS_PRESETS = ["7d", "30d", "thisMonth"] as const;
+
+export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, onEnsureRangeLoaded }) => {
+  const [rangeState, setRangeState] = useState<DateRangeState>({
+    preset: "7d",
+    customFrom: "",
+    customTo: "",
+  });
   const [exporting, setExporting] = useState(false);
 
-  const { from, to } = useMemo(() => {
-    if (showCustom && customFrom && customTo) return { from: customFrom, to: customTo };
-    return dateRange(range);
-  }, [range, showCustom, customFrom, customTo]);
+  const { from, to } = useMemo(() => resolveDateRange(rangeState), [rangeState]);
+
+  // If the user picks a range that extends past what's cached, ask App to widen.
+  useEffect(() => {
+    onEnsureRangeLoaded?.(from, to);
+  }, [from, to, onEnsureRangeLoaded]);
 
   const filtered = useMemo(
     () => entries.filter((e) => e.date >= from && e.date <= to && e.durationMinutes),
@@ -114,62 +111,29 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks }) => {
 
   return (
     <div className="reports">
-      {/* Header */}
       <div className="reports__header">
         <h2 className="reports__title">Reports</h2>
-        <div className="reports__controls">
-          <div className="reports__range-tabs">
-            {(["7d", "30d", "thisMonth"] as Range[]).map((r) => (
-              <button
-                key={r}
-                className={`reports__tab ${!showCustom && range === r ? "reports__tab--active" : ""}`}
-                onClick={() => { setRange(r); setShowCustom(false); }}
-              >
-                {r === "7d" ? "Last 7 days" : r === "30d" ? "Last 30 days" : "This month"}
-              </button>
-            ))}
+        <DateRangeFilter
+          presets={[...REPORTS_PRESETS]}
+          value={rangeState}
+          onChange={setRangeState}
+          info={
+            rangeState.preset === "custom" && rangeState.customFrom && rangeState.customTo
+              ? `${filtered.length} entries · ${formatMinutes(totalMinutes)} total`
+              : undefined
+          }
+          rightSlot={
             <button
-              className={`reports__tab ${showCustom ? "reports__tab--active" : ""}`}
-              onClick={() => setShowCustom((v) => !v)}
+              className={`export-btn ${exporting ? "export-btn--loading" : ""}`}
+              onClick={handleExport}
+              disabled={filtered.length === 0 || exporting}
+              title="Export visible entries to CSV"
             >
-              Custom
+              {exporting ? "Exporting…" : "↓ Export CSV"}
             </button>
-          </div>
-          <button
-            className={`export-btn ${exporting ? "export-btn--loading" : ""}`}
-            onClick={handleExport}
-            disabled={filtered.length === 0 || exporting}
-            title="Export visible entries to CSV"
-          >
-            {exporting ? "Exporting…" : "↓ Export CSV"}
-          </button>
-        </div>
+          }
+        />
       </div>
-
-      {/* Custom date range */}
-      {showCustom && (
-        <div className="reports__custom-range">
-          <label className="custom-range__label">From</label>
-          <input
-            type="date"
-            className="custom-range__input"
-            value={customFrom}
-            onChange={(e) => setCustomFrom(e.target.value)}
-          />
-          <label className="custom-range__label">To</label>
-          <input
-            type="date"
-            className="custom-range__input"
-            value={customTo}
-            onChange={(e) => setCustomTo(e.target.value)}
-          />
-          {customFrom && customTo && (
-            <span className="custom-range__info">
-              {filtered.length} entries · {formatMinutes(totalMinutes)} total
-            </span>
-          )}
-        </div>
-      )}
 
       {/* KPI strip */}
       <div className="reports__kpis">
