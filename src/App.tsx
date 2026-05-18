@@ -69,6 +69,7 @@ const App: React.FC = () => {
           currentProjectId={timer.projectId}
           currentTaskId={timer.taskId}
           description={timer.description}
+          ratio={timer.ratio}
           onStart={start}
           onStop={stop}
           onUpdate={update}

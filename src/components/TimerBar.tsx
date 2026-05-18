@@ -10,27 +10,35 @@ interface Props {
   currentProjectId: string | null;
   currentTaskId: string | null;
   description: string;
-  onStart: (projectId: string, taskId: string | null, description: string) => void;
+  ratio?: number;
+  onStart: (projectId: string, taskId: string | null, description: string, ratio?: number) => void;
   onStop: () => void;
-  onUpdate: (patch: { description?: string; taskId?: string | null }) => void;
+  onUpdate: (patch: { description?: string; taskId?: string | null; ratio?: number }) => void;
 }
 
 
 export const TimerBar: React.FC<Props> = ({
   projects, tasks, isRunning, elapsed,
-  currentProjectId, currentTaskId, description,
+  currentProjectId, currentTaskId, description, ratio,
   onStart, onStop, onUpdate,
 }) => {
   const [selectedProject, setSelectedProject] = useState(currentProjectId || "");
   const [selectedTask, setSelectedTask] = useState(currentTaskId || "");
   const [desc, setDesc] = useState(description);
+  const [ratioInput, setRatioInput] = useState(ratio !== undefined ? String(ratio) : "");
 
   const projectTasks = tasks.filter((t) => t.projectId === (isRunning ? currentProjectId : selectedProject));
   const activeProject = projects.find((p) => p.id === (isRunning ? currentProjectId : selectedProject));
 
+  const parseRatio = (v: string): number | undefined => {
+    if (v.trim() === "") return undefined;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : undefined;
+  };
+
   const handleStart = () => {
     if (!selectedProject) return;
-    onStart(selectedProject, selectedTask || null, desc);
+    onStart(selectedProject, selectedTask || null, desc, parseRatio(ratioInput));
   };
 
   return (
@@ -46,6 +54,19 @@ export const TimerBar: React.FC<Props> = ({
             else setDesc(e.target.value);
           }}
           disabled={false}
+        />
+
+        {/* Ratio input */}
+        <input
+          className="timer-bar__ratio"
+          type="number"
+          step="any"
+          placeholder="Ratio"
+          value={isRunning ? (ratio !== undefined ? String(ratio) : "") : ratioInput}
+          onChange={(e) => {
+            if (isRunning) onUpdate({ ratio: parseRatio(e.target.value) });
+            else setRatioInput(e.target.value);
+          }}
         />
 
         {/* Project selector */}

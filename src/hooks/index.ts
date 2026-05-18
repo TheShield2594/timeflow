@@ -97,10 +97,10 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
   const [timer, setTimer] = useState<TimerState>(() => {
     try {
       return JSON.parse(localStorage.getItem(TIMER_KEY) || "null") || {
-        isRunning: false, startTime: null, projectId: null, taskId: null, description: "",
+        isRunning: false, startTime: null, projectId: null, taskId: null, description: "", ratio: undefined,
       };
     } catch {
-      return { isRunning: false, startTime: null, projectId: null, taskId: null, description: "" };
+      return { isRunning: false, startTime: null, projectId: null, taskId: null, description: "", ratio: undefined };
     }
   });
   const [elapsed, setElapsed] = useState(0);
@@ -121,13 +121,14 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [timer.isRunning, timer.startTime]);
 
-  const start = useCallback((projectId: string, taskId: string | null, description: string) => {
+  const start = useCallback((projectId: string, taskId: string | null, description: string, ratio?: number) => {
     const newTimer: TimerState = {
       isRunning: true,
       startTime: new Date().toISOString(),
       projectId,
       taskId,
       description,
+      ratio,
     };
     setTimer(newTimer);
     localStorage.setItem(TIMER_KEY, JSON.stringify(newTimer));
@@ -146,11 +147,12 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       startTime: timer.startTime,
       endTime,
       durationMinutes,
+      ratio: timer.ratio,
       date: timer.startTime.split("T")[0],
       userId: "current-user",
       userDisplayName: "You",
     });
-    const reset: TimerState = { isRunning: false, startTime: null, projectId: null, taskId: null, description: "" };
+    const reset: TimerState = { isRunning: false, startTime: null, projectId: null, taskId: null, description: "", ratio: undefined };
     setTimer(reset);
     localStorage.removeItem(TIMER_KEY);
     onStop(entry);

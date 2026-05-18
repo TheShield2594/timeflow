@@ -9,6 +9,7 @@ interface EditDraft {
   date: string;
   startTime: string; // HH:MM
   endTime: string;   // HH:MM
+  ratio: string;     // raw input; parsed on save
 }
 
 interface Props {
@@ -50,7 +51,7 @@ function friendlyDate(dateStr: string): string {
 export const TimesheetPage: React.FC<Props> = ({ entries, projects, tasks, onDelete, onEdit }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<EditDraft>({
-    description: "", projectId: "", taskId: "", date: "", startTime: "", endTime: "",
+    description: "", projectId: "", taskId: "", date: "", startTime: "", endTime: "", ratio: "",
   });
 
   const grouped = useMemo(() => groupByDate(entries), [entries]);
@@ -67,6 +68,7 @@ export const TimesheetPage: React.FC<Props> = ({ entries, projects, tasks, onDel
       date: entry.date,
       startTime: toTimeInput(entry.startTime),
       endTime: entry.endTime ? toTimeInput(entry.endTime) : "",
+      ratio: entry.ratio !== undefined ? String(entry.ratio) : "",
     });
     setEditingId(entry.id);
   };
@@ -78,6 +80,7 @@ export const TimesheetPage: React.FC<Props> = ({ entries, projects, tasks, onDel
     const durationMinutes = endDt
       ? Math.max(0, Math.round((endDt.getTime() - startDt.getTime()) / 60000))
       : undefined;
+    const ratioNum = draft.ratio.trim() === "" ? undefined : Number(draft.ratio);
     await onEdit(editingId, {
       description: draft.description || undefined,
       projectId: draft.projectId,
@@ -86,6 +89,7 @@ export const TimesheetPage: React.FC<Props> = ({ entries, projects, tasks, onDel
       startTime: startDt.toISOString(),
       endTime: endDt?.toISOString(),
       durationMinutes,
+      ratio: Number.isFinite(ratioNum) ? ratioNum : undefined,
     });
     setEditingId(null);
   };
@@ -177,6 +181,16 @@ export const TimesheetPage: React.FC<Props> = ({ entries, projects, tasks, onDel
                           onChange={(e) => setDraft((d) => ({ ...d, endTime: e.target.value }))}
                         />
                       </div>
+                      <div className="entry-edit-form__row">
+                        <input
+                          type="number"
+                          step="any"
+                          className="entry-edit-form__time-input"
+                          placeholder="Ratio (optional)"
+                          value={draft.ratio}
+                          onChange={(e) => setDraft((d) => ({ ...d, ratio: e.target.value }))}
+                        />
+                      </div>
                       <div className="entry-edit-form__actions">
                         <button
                           className="btn-primary"
@@ -221,6 +235,9 @@ export const TimesheetPage: React.FC<Props> = ({ entries, projects, tasks, onDel
                           )}
                           {task && (
                             <span className="badge badge--task">{task.name}</span>
+                          )}
+                          {entry.ratio !== undefined && (
+                            <span className="badge badge--task">Ratio: {entry.ratio}</span>
                           )}
                         </div>
                       </div>

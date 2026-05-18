@@ -30,13 +30,21 @@ export const ProjectsPage: React.FC<Props> = ({
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectDesc, setNewProjectDesc] = useState("");
   const [newProjectColor, setNewProjectColor] = useState(PALETTE[0]);
+  const [newProjectRatio, setNewProjectRatio] = useState("");
   const [addingTaskFor, setAddingTaskFor] = useState<string | null>(null);
   const [newTaskName, setNewTaskName] = useState("");
 
   const handleAddProject = async () => {
     if (!newProjectName.trim()) return;
-    await onAddProject({ name: newProjectName.trim(), description: newProjectDesc.trim(), color: newProjectColor, isActive: true });
-    setNewProjectName(""); setNewProjectDesc(""); setNewProjectColor(PALETTE[0]); setShowNewProject(false);
+    const ratioNum = newProjectRatio.trim() === "" ? undefined : Number(newProjectRatio);
+    await onAddProject({
+      name: newProjectName.trim(),
+      description: newProjectDesc.trim(),
+      color: newProjectColor,
+      ratio: Number.isFinite(ratioNum) ? ratioNum : undefined,
+      isActive: true,
+    });
+    setNewProjectName(""); setNewProjectDesc(""); setNewProjectColor(PALETTE[0]); setNewProjectRatio(""); setShowNewProject(false);
   };
 
   const handleAddTask = async (projectId: string) => {
@@ -70,6 +78,14 @@ export const ProjectsPage: React.FC<Props> = ({
             value={newProjectDesc}
             onChange={(e) => setNewProjectDesc(e.target.value)}
           />
+          <input
+            className="form-input"
+            type="number"
+            step="any"
+            placeholder="Ratio (optional, e.g. 1.25)"
+            value={newProjectRatio}
+            onChange={(e) => setNewProjectRatio(e.target.value)}
+          />
           <div className="color-picker">
             <span className="color-picker__label">Color</span>
             {PALETTE.map((c) => (
@@ -102,6 +118,9 @@ export const ProjectsPage: React.FC<Props> = ({
                     <div className="project-card__name">{project.name}</div>
                     {project.description && (
                       <div className="project-card__desc">{project.description}</div>
+                    )}
+                    {project.ratio !== undefined && (
+                      <div className="project-card__ratio">Ratio: {project.ratio}</div>
                     )}
                   </div>
                   <div className="project-card__total">{formatMinutes(totalMins)}</div>

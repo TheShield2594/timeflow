@@ -3,6 +3,7 @@ export interface Project {
   name: string;
   color: string;
   description?: string;
+  ratio?: number;
   isActive: boolean;
   createdAt: string;
 }
@@ -23,6 +24,7 @@ export interface TimeEntry {
   startTime: string;
   endTime?: string;
   durationMinutes?: number;
+  ratio?: number;
   date: string;
   userId: string;
   userDisplayName: string;
@@ -35,6 +37,7 @@ export interface TimerState {
   projectId: string | null;
   taskId: string | null;
   description: string;
+  ratio?: number;
 }
 
 export interface DailyReport {
