@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import type { Project, Task } from "../types";
 import { formatElapsed } from "../hooks";
 
@@ -40,6 +40,27 @@ export const TimerBar: React.FC<Props> = ({
     if (!selectedProject) return;
     onStart(selectedProject, selectedTask || null, desc, parseRatio(ratioInput));
   };
+
+  // Ctrl/Cmd + . toggles the timer. Start uses whatever's selected in the bar;
+  // if no project is picked, focus the project selector instead of failing silently.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "." || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+      e.preventDefault();
+      if (isRunning) {
+        onStop();
+        return;
+      }
+      if (selectedProject) {
+        handleStart();
+      } else {
+        const sel = document.querySelector<HTMLSelectElement>(".timer-bar__select");
+        sel?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isRunning, selectedProject, selectedTask, desc, ratioInput, onStart, onStop]);
 
   return (
     <div className="timer-bar">
@@ -116,6 +137,7 @@ export const TimerBar: React.FC<Props> = ({
             className={`timer-bar__btn ${isRunning ? "timer-bar__btn--stop" : "timer-bar__btn--start"}`}
             onClick={isRunning ? onStop : handleStart}
             disabled={!isRunning && !selectedProject}
+            title={isRunning ? "Stop timer (Ctrl/Cmd + .)" : "Start timer (Ctrl/Cmd + .)"}
           >
             {isRunning ? "■ Stop" : "▶ Start"}
           </button>

@@ -1,6 +1,11 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type { TimeEntry, Project, Task } from "../types";
 import { formatMinutes } from "../hooks";
+import {
+  DateRangeFilter,
+  DateRangeState,
+  resolveDateRange,
+} from "./DateRangeFilter";
 
 interface EditDraft {
   description: string;
@@ -18,7 +23,10 @@ interface Props {
   tasks: Task[];
   onDelete: (id: string) => void;
   onEdit: (id: string, data: Partial<TimeEntry>) => Promise<TimeEntry>;
+  onEnsureRangeLoaded?: (from: string, to: string) => void;
 }
+
+const TIMESHEET_PRESETS = ["7d", "30d", "90d", "thisMonth"] as const;
 
 function groupByDate(entries: TimeEntry[]): Map<string, TimeEntry[]> {
   const map = new Map<string, TimeEntry[]>();
@@ -48,16 +56,37 @@ function friendlyDate(dateStr: string): string {
   return dt.toLocaleDateString("en", { weekday: "long", month: "long", day: "numeric" });
 }
 
-export const TimesheetPage: React.FC<Props> = ({ entries, projects, tasks, onDelete, onEdit }) => {
+export const TimesheetPage: React.FC<Props> = ({ entries, projects, tasks, onDelete, onEdit, onEnsureRangeLoaded }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<EditDraft>({
     description: "", projectId: "", taskId: "", date: "", startTime: "", endTime: "", ratio: "",
   });
+  const [rangeState, setRangeState] = useState<DateRangeState>({
+    preset: "30d",
+    customFrom: "",
+    customTo: "",
+  });
 
-  const grouped = useMemo(() => groupByDate(entries), [entries]);
+  const { from, to } = useMemo(() => resolveDateRange(rangeState), [rangeState]);
+
+  useEffect(() => {
+    onEnsureRangeLoaded?.(from, to);
+  }, [from, to, onEnsureRangeLoaded]);
+
+  const filteredEntries = useMemo(
+    () => entries.filter((e) => e.date >= from && e.date <= to),
+    [entries, from, to]
+  );
+
+  const grouped = useMemo(() => groupByDate(filteredEntries), [filteredEntries]);
   const sortedDates = useMemo(
     () => [...grouped.keys()].sort((a, b) => b.localeCompare(a)),
     [grouped]
+  );
+
+  const totalMinutes = useMemo(
+    () => filteredEntries.reduce((s, e) => s + (e.durationMinutes || 0), 0),
+    [filteredEntries]
   );
 
   const startEdit = (entry: TimeEntry) => {
@@ -94,13 +123,33 @@ export const TimesheetPage: React.FC<Props> = ({ entries, projects, tasks, onDel
     setEditingId(null);
   };
 
-  if (entries.length === 0) {
+  const filter = (
+    <DateRangeFilter
+      presets={[...TIMESHEET_PRESETS]}
+      value={rangeState}
+      onChange={setRangeState}
+      info={
+        rangeState.preset === "custom" && rangeState.customFrom && rangeState.customTo
+          ? `${filteredEntries.length} entries · ${formatMinutes(totalMinutes)} total`
+          : undefined
+      }
+    />
+  );
+
+  if (filteredEntries.length === 0) {
     return (
       <div className="timesheet">
-        <h2 className="timesheet__title">Timesheet</h2>
+        <div className="reports__header">
+          <h2 className="timesheet__title">Timesheet</h2>
+          {filter}
+        </div>
         <div className="timesheet__empty">
           <div className="timesheet__empty-icon">⏱</div>
-          <p>No time entries yet. Start the timer to log your first session.</p>
+          <p>
+            {entries.length === 0
+              ? "No time entries yet. Start the timer to log your first session."
+              : "No entries in this range. Pick a wider window above."}
+          </p>
         </div>
       </div>
     );
@@ -108,7 +157,10 @@ export const TimesheetPage: React.FC<Props> = ({ entries, projects, tasks, onDel
 
   return (
     <div className="timesheet">
-      <h2 className="timesheet__title">Timesheet</h2>
+      <div className="reports__header">
+        <h2 className="timesheet__title">Timesheet</h2>
+        {filter}
+      </div>
 
       {sortedDates.map((date) => {
         const dayEntries = grouped.get(date)!;

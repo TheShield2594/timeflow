@@ -678,6 +678,107 @@ input, select { font-family: inherit; }
 .cal-modal__delete:hover { background: rgba(204,79,0,0.14); }
 
 /* =====================================================================
+   TOASTS
+   ===================================================================== */
+.toast-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 380px;
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--ev-blue);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  color: var(--text);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.toast--shown { opacity: 1; transform: translateY(0); }
+.toast--error   { border-left-color: var(--ev-pumpkin); }
+.toast--success { border-left-color: var(--ev-grass); }
+.toast--info    { border-left-color: var(--ev-blue); }
+.toast__message { flex: 1; line-height: 1.45; }
+.toast__close {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  line-height: 22px;
+  font-size: 18px;
+  color: var(--text-muted);
+  border-radius: 4px;
+  text-align: center;
+}
+.toast__close:hover { background: var(--surface-2); color: var(--text); }
+
+/* =====================================================================
+   MODAL — generic backdrop + idle prompt
+   ===================================================================== */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 45, 30, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+  padding: 20px;
+  backdrop-filter: blur(2px);
+}
+.idle-modal {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 24px;
+  max-width: 460px;
+  width: 100%;
+  border: 1px solid var(--border);
+}
+.idle-modal__title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+.idle-modal__body {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-bottom: 18px;
+  line-height: 1.55;
+}
+.idle-modal__body strong { color: var(--text); font-weight: 600; }
+.idle-modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.idle-modal__discard {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ev-pumpkin);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s;
+}
+.idle-modal__discard:hover { background: rgba(204,79,0,0.10); }
+
+/* =====================================================================
    SCROLLBAR
    ===================================================================== */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
