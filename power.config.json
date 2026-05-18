@@ -8,7 +8,7 @@
   "buildPath": "dist",
   "buildEntryPoint": "index.html",
   "localAppUrl": "http://localhost:5173",
-  "logoPath": "Default",
+  "logoPath": "src/everence-logo.png",
   "connectionReferences": {},
   "databaseReferences": {}
 }
