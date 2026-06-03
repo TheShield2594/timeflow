@@ -84,7 +84,7 @@ function mapProject(r: Raw): Project {
 
 function mapTask(r: Raw): Task {
   return {
-    id: (str(r, "ever_tasksid") ?? str(r, "ever_taskid") ?? str(r, "id")) as string,
+    id: (str(r, "ever_workitemsid") ?? str(r, "ever_workitemid") ?? str(r, "id")) as string,
     projectId: (str(r, "_ever_projectid_value") ?? str(r, "ever_projectid")) as string,
     name: str(r, "ever_name") ?? "",
     description: str(r, "ever_description"),
@@ -96,7 +96,7 @@ function mapEntry(r: Raw): TimeEntry {
   return {
     id: (str(r, "ever_timeentriesid") ?? str(r, "ever_timeentryid") ?? str(r, "id")) as string,
     projectId: (str(r, "_ever_projectid_value") ?? str(r, "ever_projectid")) as string,
-    taskId: str(r, "_ever_taskid_value") ?? str(r, "ever_taskid"),
+    taskId: str(r, "_ever_workitemid_value") ?? str(r, "ever_workitemid"),
     description: str(r, "ever_description"),
     startTime: str(r, "ever_starttime") ?? "",
     endTime: str(r, "ever_endtime"),
@@ -142,7 +142,7 @@ function entryToDataverse(e: Omit<TimeEntry, "id"> | Partial<TimeEntry>): Raw {
     out["ever_projectid@odata.bind"] = `/${TABLES.projects}(${e.projectId})`;
   }
   if ("taskId" in e) {
-    out["ever_taskid@odata.bind"] = e.taskId ? `/${TABLES.tasks}(${e.taskId})` : null;
+    out["ever_workitemid@odata.bind"] = e.taskId ? `/${TABLES.tasks}(${e.taskId})` : null;
   }
   return out;
 }
