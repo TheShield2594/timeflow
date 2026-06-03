@@ -29,7 +29,7 @@ import { getCurrentUser, isPowerAppsHost } from "./userService";
 const TABLES = {
   projects: "ever_projects",
   tasks: "ever_workitems",
-  entries: "ever_time_entries",
+  entries: "ever_timeentries",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -94,7 +94,7 @@ function mapTask(r: Raw): Task {
 
 function mapEntry(r: Raw): TimeEntry {
   return {
-    id: (str(r, "ever_time_entriesid") ?? str(r, "ever_time_entryid") ?? str(r, "id")) as string,
+    id: (str(r, "ever_timeentriesid") ?? str(r, "ever_timeentryid") ?? str(r, "id")) as string,
     projectId: (str(r, "_ever_projectid_value") ?? str(r, "ever_projectid")) as string,
     taskId: str(r, "_ever_taskid_value") ?? str(r, "ever_taskid"),
     description: str(r, "ever_description"),
