@@ -77,7 +77,7 @@ function mapProject(r: Raw): Project {
     description: str(r, "ever_description"),
     ratio: num(r, "ever_ratio"),
     jiraTicket: str(r, "ever_jiraticket"),
-    isActive: bool(r, "ever_isactive", true),
+    isActive: num(r, "statecode") === 0,
     createdAt: str(r, "createdon") ?? new Date().toISOString(),
   };
 }
@@ -88,7 +88,7 @@ function mapTask(r: Raw): Task {
     projectId: (str(r, "_ever_projectid_value") ?? str(r, "ever_projectid")) as string,
     name: str(r, "ever_name") ?? "",
     description: str(r, "ever_description"),
-    isActive: bool(r, "ever_isactive", true),
+    isActive: num(r, "statecode") === 0,
   };
 }
 
@@ -115,7 +115,6 @@ function projectToDataverse(p: Omit<Project, "id" | "createdAt"> | Partial<Proje
   if (p.description !== undefined) out.ever_description = p.description ?? null;
   if (p.ratio !== undefined) out.ever_ratio = p.ratio ?? null;
   if (p.jiraTicket !== undefined) out.ever_jiraticket = p.jiraTicket || null;
-  if (p.isActive !== undefined) out.ever_isactive = p.isActive;
   return out;
 }
 
@@ -123,7 +122,6 @@ function taskToDataverse(t: Omit<Task, "id"> | Partial<Task>): Raw {
   const out: Raw = {};
   if (t.name !== undefined) out.ever_name = t.name;
   if (t.description !== undefined) out.ever_description = t.description ?? null;
-  if (t.isActive !== undefined) out.ever_isactive = t.isActive;
   if (t.projectId !== undefined) {
     out["ever_projectid@odata.bind"] = `/${TABLES.projects}(${t.projectId})`;
   }
@@ -184,7 +182,7 @@ export async function getProjects(): Promise<Project[]> {
       .sort((a, b) => a.name.localeCompare(b.name));
   }
   const result = await dv().listRecords(TABLES.projects, {
-    $filter: "ever_isactive eq true",
+    $filter: "statecode eq 0",
     $orderby: "ever_name asc",
   });
   return result.value.map((r) => mapProject(r as Raw));
@@ -209,7 +207,7 @@ export async function getTasksForProject(projectId: string): Promise<Task[]> {
     return load<Task>(STORAGE_KEYS.tasks).filter((t) => t.projectId === projectId && t.isActive);
   }
   const result = await dv().listRecords(TABLES.tasks, {
-    $filter: `ever_isactive eq true and _ever_projectid_value eq ${projectId}`,
+    $filter: `statecode eq 0 and _ever_projectid_value eq ${projectId}`,
     $orderby: "ever_name asc",
   });
   return result.value.map((r) => mapTask(r as Raw));
@@ -220,7 +218,7 @@ export async function getAllTasks(): Promise<Task[]> {
     return load<Task>(STORAGE_KEYS.tasks).filter((t) => t.isActive);
   }
   const result = await dv().listRecords(TABLES.tasks, {
-    $filter: "ever_isactive eq true",
+    $filter: "statecode eq 0",
     $orderby: "ever_name asc",
   });
   return result.value.map((r) => mapTask(r as Raw));
