@@ -104,7 +104,7 @@ function mapEntry(r: Raw): TimeEntry {
     ratio: num(r, "ever_ratio"),
     date: str(r, "ever_date") ?? "",
     userId: str(r, "ever_userid") ?? "",
-    userDisplayName: str(r, "ever_userdisplayname") ?? "",
+    userDisplayName: str((r.ownerid as Raw) ?? {}, "fullname") ?? str(r, "ownerid_fullname") ?? "",
   };
 }
 
@@ -137,7 +137,6 @@ function entryToDataverse(e: Omit<TimeEntry, "id"> | Partial<TimeEntry>): Raw {
   if (e.ratio !== undefined) out.ever_ratio = e.ratio ?? null;
   if (e.date !== undefined) out.ever_date = e.date;
   if (e.userId !== undefined) out.ever_userid = e.userId;
-  if (e.userDisplayName !== undefined) out.ever_userdisplayname = e.userDisplayName;
   if (e.projectId !== undefined) {
     out["ever_projectid@odata.bind"] = `/${TABLES.projects}(${e.projectId})`;
   }
@@ -252,6 +251,7 @@ export async function getTimeEntries(opts: { from?: string; to?: string } = {}):
   const result = await dv().listRecords(TABLES.entries, {
     $filter: filters.join(" and "),
     $orderby: "ever_starttime desc",
+    $expand: "ownerid($select=fullname)",
   });
   return result.value.map((r) => mapEntry(r as Raw));
 }
