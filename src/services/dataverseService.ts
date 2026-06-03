@@ -7,10 +7,11 @@
  * with identical semantics.
  *
  * Dataverse tables (create in your environment before deploying):
- *   ever_projects        — Project records
- *   ever_tasks           — Task records (lookup → ever_projects)
- *   ever_time_entries    — Time Entry records (lookups → ever_projects, ever_tasks;
- *                          ever_userid, ever_userdisplayname for owner attribution)
+ *   ever_projects    — Project records
+ *   ever_workitems   — Work Item records (lookup → ever_projects)
+ *   ever_timeentries — Time Entry records (lookups → ever_projects, ever_workitems;
+ *                      ever_userid for user-scoped filtering; ownerid expanded
+ *                      via $select=fullname for display name attribution)
  *
  * Time entries are user-scoped: reads filter by ever_userid eq <current user>,
  * writes stamp the current user. The current user comes from userService —
@@ -62,11 +63,6 @@ function str(r: Raw, key: string): string | undefined {
 function num(r: Raw, key: string): number | undefined {
   const v = r[key];
   return typeof v === "number" && Number.isFinite(v) ? v : undefined;
-}
-
-function bool(r: Raw, key: string, fallback: boolean): boolean {
-  const v = r[key];
-  return typeof v === "boolean" ? v : fallback;
 }
 
 function mapProject(r: Raw): Project {
@@ -136,7 +132,7 @@ function entryToDataverse(e: Omit<TimeEntry, "id"> | Partial<TimeEntry>): Raw {
   if (e.durationMinutes !== undefined) out.ever_durationminutes = e.durationMinutes ?? null;
   if (e.ratio !== undefined) out.ever_ratio = e.ratio ?? null;
   if (e.date !== undefined) out.ever_date = e.date;
-  if (e.userId !== undefined) out.ever_userid = e.userId;
+  out.ever_userid = getCurrentUser().id;
   if (e.projectId !== undefined) {
     out["ever_projectid@odata.bind"] = `/${TABLES.projects}(${e.projectId})`;
   }
@@ -257,27 +253,35 @@ export async function getTimeEntries(opts: { from?: string; to?: string } = {}):
 }
 
 export async function createTimeEntry(data: Omit<TimeEntry, "id">): Promise<TimeEntry> {
+  const user = getCurrentUser();
+  const owned = { ...data, userId: user.id, userDisplayName: user.displayName };
   if (!isPowerAppsHost()) {
-    const entry: TimeEntry = { ...data, id: uuid() };
+    const entry: TimeEntry = { ...owned, id: uuid() };
     const all = load<TimeEntry>(STORAGE_KEYS.entries);
     persist(STORAGE_KEYS.entries, [...all, entry]);
     return entry;
   }
-  const created = await dv().createRecord(TABLES.entries, entryToDataverse(data));
-  return mapEntry(created as Raw);
+  const created = await dv().createRecord(TABLES.entries, entryToDataverse(owned));
+  const mapped = mapEntry(created as Raw);
+  if (!mapped.userDisplayName) mapped.userDisplayName = user.displayName;
+  return mapped;
 }
 
 export async function updateTimeEntry(id: string, data: Partial<TimeEntry>): Promise<TimeEntry> {
+  const user = getCurrentUser();
+  const owned = { ...data, userId: user.id, userDisplayName: user.displayName };
   if (!isPowerAppsHost()) {
     const all = load<TimeEntry>(STORAGE_KEYS.entries);
     const idx = all.findIndex((e) => e.id === id);
     if (idx === -1) throw new Error("Entry not found");
-    all[idx] = { ...all[idx], ...data };
+    all[idx] = { ...all[idx], ...owned };
     persist(STORAGE_KEYS.entries, all);
     return all[idx];
   }
-  const updated = await dv().updateRecord(TABLES.entries, id, entryToDataverse(data));
-  return mapEntry(updated as Raw);
+  const updated = await dv().updateRecord(TABLES.entries, id, entryToDataverse(owned));
+  const mapped = mapEntry(updated as Raw);
+  if (!mapped.userDisplayName) mapped.userDisplayName = user.displayName;
+  return mapped;
 }
 
 export async function deleteTimeEntry(id: string): Promise<void> {

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import type { Project, Task } from "../types";
-import { formatMinutes } from "../hooks";
+import { formatMinutes, parseRatioInput } from "../hooks";
 
 interface Props {
   projects: Project[];
@@ -37,12 +37,11 @@ export const ProjectsPage: React.FC<Props> = ({
 
   const handleAddProject = async () => {
     if (!newProjectName.trim()) return;
-    const ratioNum = newProjectRatio.trim() === "" ? undefined : Math.round(Number(newProjectRatio));
     await onAddProject({
       name: newProjectName.trim(),
       description: newProjectDesc.trim(),
       color: newProjectColor,
-      ratio: Number.isFinite(ratioNum) ? ratioNum : undefined,
+      ratio: parseRatioInput(newProjectRatio),
       jiraTicket: newProjectJira.trim() || undefined,
       isActive: true,
     });

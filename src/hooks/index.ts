@@ -288,3 +288,9 @@ export function formatMinutes(minutes: number): string {
   if (m === 0) return `${h}h`;
   return `${h}h ${m}m`;
 }
+
+export function parseRatioInput(v: string): number | undefined {
+  if (v.trim() === "") return undefined;
+  const n = Math.max(0, Math.round(Number(v)));
+  return Number.isFinite(n) ? n : undefined;
+}

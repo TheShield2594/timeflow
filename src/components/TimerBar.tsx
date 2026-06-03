@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import type { Project, Task } from "../types";
-import { formatElapsed } from "../hooks";
+import { formatElapsed, parseRatioInput } from "../hooks";
 
 interface Props {
   projects: Project[];
@@ -30,11 +30,7 @@ export const TimerBar: React.FC<Props> = ({
   const projectTasks = tasks.filter((t) => t.projectId === (isRunning ? currentProjectId : selectedProject));
   const activeProject = projects.find((p) => p.id === (isRunning ? currentProjectId : selectedProject));
 
-  const parseRatio = (v: string): number | undefined => {
-    if (v.trim() === "") return undefined;
-    const n = Math.round(Number(v));
-    return Number.isFinite(n) ? n : undefined;
-  };
+  const parseRatio = parseRatioInput;
 
   const handleStart = () => {
     if (!selectedProject) return;

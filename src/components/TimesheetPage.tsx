@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { TimeEntry, Project, Task } from "../types";
-import { formatMinutes } from "../hooks";
+import { formatMinutes, parseRatioInput } from "../hooks";
 import {
   DateRangeFilter,
   DateRangeState,
@@ -109,7 +109,7 @@ export const TimesheetPage: React.FC<Props> = ({ entries, projects, tasks, onDel
     const durationMinutes = endDt
       ? Math.max(0, Math.round((endDt.getTime() - startDt.getTime()) / 60000))
       : undefined;
-    const ratioNum = draft.ratio.trim() === "" ? undefined : Math.round(Number(draft.ratio));
+    const ratioNum = parseRatioInput(draft.ratio);
     await onEdit(editingId, {
       description: draft.description || undefined,
       projectId: draft.projectId,
