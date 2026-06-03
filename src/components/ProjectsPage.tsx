@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import type { Project, Task } from "../types";
-import { formatMinutes } from "../hooks";
+import { formatMinutes, parseRatioInput } from "../hooks";
 
 interface Props {
   projects: Project[];
@@ -31,20 +31,21 @@ export const ProjectsPage: React.FC<Props> = ({
   const [newProjectDesc, setNewProjectDesc] = useState("");
   const [newProjectColor, setNewProjectColor] = useState(PALETTE[0]);
   const [newProjectRatio, setNewProjectRatio] = useState("");
+  const [newProjectJira, setNewProjectJira] = useState("");
   const [addingTaskFor, setAddingTaskFor] = useState<string | null>(null);
   const [newTaskName, setNewTaskName] = useState("");
 
   const handleAddProject = async () => {
     if (!newProjectName.trim()) return;
-    const ratioNum = newProjectRatio.trim() === "" ? undefined : Number(newProjectRatio);
     await onAddProject({
       name: newProjectName.trim(),
       description: newProjectDesc.trim(),
       color: newProjectColor,
-      ratio: Number.isFinite(ratioNum) ? ratioNum : undefined,
+      ratio: parseRatioInput(newProjectRatio),
+      jiraTicket: newProjectJira.trim() || undefined,
       isActive: true,
     });
-    setNewProjectName(""); setNewProjectDesc(""); setNewProjectColor(PALETTE[0]); setNewProjectRatio(""); setShowNewProject(false);
+    setNewProjectName(""); setNewProjectDesc(""); setNewProjectColor(PALETTE[0]); setNewProjectRatio(""); setNewProjectJira(""); setShowNewProject(false);
   };
 
   const handleAddTask = async (projectId: string) => {
@@ -81,10 +82,17 @@ export const ProjectsPage: React.FC<Props> = ({
           <input
             className="form-input"
             type="number"
-            step="any"
-            placeholder="Ratio (optional, e.g. 1.25)"
+            step="1"
+            min="0"
+            placeholder="Ratio (optional, e.g. 2)"
             value={newProjectRatio}
             onChange={(e) => setNewProjectRatio(e.target.value)}
+          />
+          <input
+            className="form-input"
+            placeholder="Jira ticket (optional, e.g. PROJ-123)"
+            value={newProjectJira}
+            onChange={(e) => setNewProjectJira(e.target.value)}
           />
           <div className="color-picker">
             <span className="color-picker__label">Color</span>
@@ -121,6 +129,9 @@ export const ProjectsPage: React.FC<Props> = ({
                     )}
                     {project.ratio !== undefined && (
                       <div className="project-card__ratio">Ratio: {project.ratio}</div>
+                    )}
+                    {project.jiraTicket && (
+                      <div className="project-card__jira">Jira: {project.jiraTicket}</div>
                     )}
                   </div>
                   <div className="project-card__total">{formatMinutes(totalMins)}</div>

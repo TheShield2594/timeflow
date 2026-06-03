@@ -4,6 +4,7 @@ export interface Project {
   color: string;
   description?: string;
   ratio?: number;
+  jiraTicket?: string;
   isActive: boolean;
   createdAt: string;
 }
