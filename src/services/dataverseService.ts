@@ -28,7 +28,7 @@ import { getCurrentUser, isPowerAppsHost } from "./userService";
 // ---------------------------------------------------------------------------
 const TABLES = {
   projects: "ever_projects",
-  tasks: "ever_tasks",
+  tasks: "ever_workitems",
   entries: "ever_time_entries",
 } as const;
 
