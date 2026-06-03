@@ -76,6 +76,7 @@ function mapProject(r: Raw): Project {
     color: str(r, "cr_color") ?? "#6366f1",
     description: str(r, "cr_description"),
     ratio: num(r, "cr_ratio"),
+    jiraTicket: str(r, "cr_jiraticket"),
     isActive: bool(r, "cr_isactive", true),
     createdAt: str(r, "createdon") ?? new Date().toISOString(),
   };
@@ -113,6 +114,7 @@ function projectToDataverse(p: Omit<Project, "id" | "createdAt"> | Partial<Proje
   if (p.color !== undefined) out.cr_color = p.color;
   if (p.description !== undefined) out.cr_description = p.description ?? null;
   if (p.ratio !== undefined) out.cr_ratio = p.ratio ?? null;
+  if (p.jiraTicket !== undefined) out.cr_jiraticket = p.jiraTicket || null;
   if (p.isActive !== undefined) out.cr_isactive = p.isActive;
   return out;
 }

@@ -31,6 +31,7 @@ export const ProjectsPage: React.FC<Props> = ({
   const [newProjectDesc, setNewProjectDesc] = useState("");
   const [newProjectColor, setNewProjectColor] = useState(PALETTE[0]);
   const [newProjectRatio, setNewProjectRatio] = useState("");
+  const [newProjectJira, setNewProjectJira] = useState("");
   const [addingTaskFor, setAddingTaskFor] = useState<string | null>(null);
   const [newTaskName, setNewTaskName] = useState("");
 
@@ -42,9 +43,10 @@ export const ProjectsPage: React.FC<Props> = ({
       description: newProjectDesc.trim(),
       color: newProjectColor,
       ratio: Number.isFinite(ratioNum) ? ratioNum : undefined,
+      jiraTicket: newProjectJira.trim() || undefined,
       isActive: true,
     });
-    setNewProjectName(""); setNewProjectDesc(""); setNewProjectColor(PALETTE[0]); setNewProjectRatio(""); setShowNewProject(false);
+    setNewProjectName(""); setNewProjectDesc(""); setNewProjectColor(PALETTE[0]); setNewProjectRatio(""); setNewProjectJira(""); setShowNewProject(false);
   };
 
   const handleAddTask = async (projectId: string) => {
@@ -86,6 +88,12 @@ export const ProjectsPage: React.FC<Props> = ({
             value={newProjectRatio}
             onChange={(e) => setNewProjectRatio(e.target.value)}
           />
+          <input
+            className="form-input"
+            placeholder="Jira ticket (optional, e.g. PROJ-123)"
+            value={newProjectJira}
+            onChange={(e) => setNewProjectJira(e.target.value)}
+          />
           <div className="color-picker">
             <span className="color-picker__label">Color</span>
             {PALETTE.map((c) => (
@@ -121,6 +129,9 @@ export const ProjectsPage: React.FC<Props> = ({
                     )}
                     {project.ratio !== undefined && (
                       <div className="project-card__ratio">Ratio: {project.ratio}</div>
+                    )}
+                    {project.jiraTicket && (
+                      <div className="project-card__jira">Jira: {project.jiraTicket}</div>
                     )}
                   </div>
                   <div className="project-card__total">{formatMinutes(totalMins)}</div>
