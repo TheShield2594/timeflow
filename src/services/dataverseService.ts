@@ -7,12 +7,12 @@
  * with identical semantics.
  *
  * Dataverse tables (create in your environment before deploying):
- *   cr_projects        — Project records
- *   cr_tasks           — Task records (lookup → cr_projects)
- *   cr_time_entries    — Time Entry records (lookups → cr_projects, cr_tasks;
- *                        cr_userid, cr_userdisplayname for owner attribution)
+ *   ever_projects        — Project records
+ *   ever_tasks           — Task records (lookup → ever_projects)
+ *   ever_time_entries    — Time Entry records (lookups → ever_projects, ever_tasks;
+ *                          ever_userid, ever_userdisplayname for owner attribution)
  *
- * Time entries are user-scoped: reads filter by cr_userid eq <current user>,
+ * Time entries are user-scoped: reads filter by ever_userid eq <current user>,
  * writes stamp the current user. The current user comes from userService —
  * make sure initCurrentUser() has resolved before calling these functions.
  *
@@ -27,9 +27,9 @@ import { getCurrentUser, isPowerAppsHost } from "./userService";
 // Table + field naming
 // ---------------------------------------------------------------------------
 const TABLES = {
-  projects: "cr_projects",
-  tasks: "cr_tasks",
-  entries: "cr_time_entries",
+  projects: "ever_projects",
+  tasks: "ever_tasks",
+  entries: "ever_time_entries",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -71,80 +71,80 @@ function bool(r: Raw, key: string, fallback: boolean): boolean {
 
 function mapProject(r: Raw): Project {
   return {
-    id: (str(r, "cr_projectsid") ?? str(r, "cr_projectid") ?? str(r, "id")) as string,
-    name: str(r, "cr_name") ?? "",
-    color: str(r, "cr_color") ?? "#6366f1",
-    description: str(r, "cr_description"),
-    ratio: num(r, "cr_ratio"),
-    jiraTicket: str(r, "cr_jiraticket"),
-    isActive: bool(r, "cr_isactive", true),
+    id: (str(r, "ever_projectsid") ?? str(r, "ever_projectid") ?? str(r, "id")) as string,
+    name: str(r, "ever_name") ?? "",
+    color: str(r, "ever_color") ?? "#6366f1",
+    description: str(r, "ever_description"),
+    ratio: num(r, "ever_ratio"),
+    jiraTicket: str(r, "ever_jiraticket"),
+    isActive: bool(r, "ever_isactive", true),
     createdAt: str(r, "createdon") ?? new Date().toISOString(),
   };
 }
 
 function mapTask(r: Raw): Task {
   return {
-    id: (str(r, "cr_tasksid") ?? str(r, "cr_taskid") ?? str(r, "id")) as string,
-    projectId: (str(r, "_cr_projectid_value") ?? str(r, "cr_projectid")) as string,
-    name: str(r, "cr_name") ?? "",
-    description: str(r, "cr_description"),
-    isActive: bool(r, "cr_isactive", true),
+    id: (str(r, "ever_tasksid") ?? str(r, "ever_taskid") ?? str(r, "id")) as string,
+    projectId: (str(r, "_ever_projectid_value") ?? str(r, "ever_projectid")) as string,
+    name: str(r, "ever_name") ?? "",
+    description: str(r, "ever_description"),
+    isActive: bool(r, "ever_isactive", true),
   };
 }
 
 function mapEntry(r: Raw): TimeEntry {
   return {
-    id: (str(r, "cr_time_entriesid") ?? str(r, "cr_time_entryid") ?? str(r, "id")) as string,
-    projectId: (str(r, "_cr_projectid_value") ?? str(r, "cr_projectid")) as string,
-    taskId: str(r, "_cr_taskid_value") ?? str(r, "cr_taskid"),
-    description: str(r, "cr_description"),
-    startTime: str(r, "cr_starttime") ?? "",
-    endTime: str(r, "cr_endtime"),
-    durationMinutes: num(r, "cr_durationminutes"),
-    ratio: num(r, "cr_ratio"),
-    date: str(r, "cr_date") ?? "",
-    userId: str(r, "cr_userid") ?? "",
-    userDisplayName: str(r, "cr_userdisplayname") ?? "",
+    id: (str(r, "ever_time_entriesid") ?? str(r, "ever_time_entryid") ?? str(r, "id")) as string,
+    projectId: (str(r, "_ever_projectid_value") ?? str(r, "ever_projectid")) as string,
+    taskId: str(r, "_ever_taskid_value") ?? str(r, "ever_taskid"),
+    description: str(r, "ever_description"),
+    startTime: str(r, "ever_starttime") ?? "",
+    endTime: str(r, "ever_endtime"),
+    durationMinutes: num(r, "ever_durationminutes"),
+    ratio: num(r, "ever_ratio"),
+    date: str(r, "ever_date") ?? "",
+    userId: str(r, "ever_userid") ?? "",
+    userDisplayName: str(r, "ever_userdisplayname") ?? "",
   };
 }
 
 function projectToDataverse(p: Omit<Project, "id" | "createdAt"> | Partial<Project>): Raw {
   const out: Raw = {};
-  if (p.name !== undefined) out.cr_name = p.name;
-  if (p.color !== undefined) out.cr_color = p.color;
-  if (p.description !== undefined) out.cr_description = p.description ?? null;
-  if (p.ratio !== undefined) out.cr_ratio = p.ratio ?? null;
-  if (p.jiraTicket !== undefined) out.cr_jiraticket = p.jiraTicket || null;
-  if (p.isActive !== undefined) out.cr_isactive = p.isActive;
+  if (p.name !== undefined) out.ever_name = p.name;
+  if (p.color !== undefined) out.ever_color = p.color;
+  if (p.description !== undefined) out.ever_description = p.description ?? null;
+  if (p.ratio !== undefined) out.ever_ratio = p.ratio ?? null;
+  if (p.jiraTicket !== undefined) out.ever_jiraticket = p.jiraTicket || null;
+  if (p.isActive !== undefined) out.ever_isactive = p.isActive;
   return out;
 }
 
 function taskToDataverse(t: Omit<Task, "id"> | Partial<Task>): Raw {
   const out: Raw = {};
-  if (t.name !== undefined) out.cr_name = t.name;
-  if (t.description !== undefined) out.cr_description = t.description ?? null;
-  if (t.isActive !== undefined) out.cr_isactive = t.isActive;
+  if (t.name !== undefined) out.ever_name = t.name;
+  if (t.description !== undefined) out.ever_description = t.description ?? null;
+  if (t.isActive !== undefined) out.ever_isactive = t.isActive;
   if (t.projectId !== undefined) {
-    out["cr_projectid@odata.bind"] = `/${TABLES.projects}(${t.projectId})`;
+    out["ever_projectid@odata.bind"] = `/${TABLES.projects}(${t.projectId})`;
   }
   return out;
 }
 
 function entryToDataverse(e: Omit<TimeEntry, "id"> | Partial<TimeEntry>): Raw {
   const out: Raw = {};
-  if (e.description !== undefined) out.cr_description = e.description ?? null;
-  if (e.startTime !== undefined) out.cr_starttime = e.startTime;
-  if (e.endTime !== undefined) out.cr_endtime = e.endTime ?? null;
-  if (e.durationMinutes !== undefined) out.cr_durationminutes = e.durationMinutes ?? null;
-  if (e.ratio !== undefined) out.cr_ratio = e.ratio ?? null;
-  if (e.date !== undefined) out.cr_date = e.date;
-  if (e.userId !== undefined) out.cr_userid = e.userId;
-  if (e.userDisplayName !== undefined) out.cr_userdisplayname = e.userDisplayName;
+  if (e.description !== undefined) out.ever_description = e.description ?? null;
+  if (e.startTime !== undefined) out.ever_starttime = e.startTime;
+  if (e.endTime !== undefined) out.ever_endtime = e.endTime ?? null;
+  if (e.durationMinutes !== undefined) out.ever_durationminutes = e.durationMinutes ?? null;
+  if (e.ratio !== undefined) out.ever_ratio = e.ratio ?? null;
+  if (e.date !== undefined) out.ever_date = e.date;
+  if (e.userId !== undefined) out.ever_userid = e.userId;
+  if (e.userDisplayName !== undefined) out.ever_userdisplayname = e.userDisplayName;
   if (e.projectId !== undefined) {
-    out["cr_projectid@odata.bind"] = `/${TABLES.projects}(${e.projectId})`;
+    out["ever_projectid@odata.bind"] = `/${TABLES.projects}(${e.projectId})`;
   }
   if ("taskId" in e) {
-    out["cr_taskid@odata.bind"] = e.taskId ? `/${TABLES.tasks}(${e.taskId})` : null;
+    out["ever_taskid@odata.bind"] = e.taskId ? `/${TABLES.tasks}(${e.taskId})` : null;
   }
   return out;
 }
@@ -184,8 +184,8 @@ export async function getProjects(): Promise<Project[]> {
       .sort((a, b) => a.name.localeCompare(b.name));
   }
   const result = await dv().listRecords(TABLES.projects, {
-    $filter: "cr_isactive eq true",
-    $orderby: "cr_name asc",
+    $filter: "ever_isactive eq true",
+    $orderby: "ever_name asc",
   });
   return result.value.map((r) => mapProject(r as Raw));
 }
@@ -209,8 +209,8 @@ export async function getTasksForProject(projectId: string): Promise<Task[]> {
     return load<Task>(STORAGE_KEYS.tasks).filter((t) => t.projectId === projectId && t.isActive);
   }
   const result = await dv().listRecords(TABLES.tasks, {
-    $filter: `cr_isactive eq true and _cr_projectid_value eq ${projectId}`,
-    $orderby: "cr_name asc",
+    $filter: `ever_isactive eq true and _ever_projectid_value eq ${projectId}`,
+    $orderby: "ever_name asc",
   });
   return result.value.map((r) => mapTask(r as Raw));
 }
@@ -220,8 +220,8 @@ export async function getAllTasks(): Promise<Task[]> {
     return load<Task>(STORAGE_KEYS.tasks).filter((t) => t.isActive);
   }
   const result = await dv().listRecords(TABLES.tasks, {
-    $filter: "cr_isactive eq true",
-    $orderby: "cr_name asc",
+    $filter: "ever_isactive eq true",
+    $orderby: "ever_name asc",
   });
   return result.value.map((r) => mapTask(r as Raw));
 }
@@ -248,12 +248,12 @@ export async function getTimeEntries(opts: { from?: string; to?: string } = {}):
     if (opts.to) entries = entries.filter((e) => e.date <= opts.to!);
     return entries.sort((a, b) => b.startTime.localeCompare(a.startTime));
   }
-  const filters = [`cr_userid eq '${escapeOData(user.id)}'`];
-  if (opts.from) filters.push(`cr_date ge ${opts.from}`);
-  if (opts.to) filters.push(`cr_date le ${opts.to}`);
+  const filters = [`ever_userid eq '${escapeOData(user.id)}'`];
+  if (opts.from) filters.push(`ever_date ge ${opts.from}`);
+  if (opts.to) filters.push(`ever_date le ${opts.to}`);
   const result = await dv().listRecords(TABLES.entries, {
     $filter: filters.join(" and "),
-    $orderby: "cr_starttime desc",
+    $orderby: "ever_starttime desc",
   });
   return result.value.map((r) => mapEntry(r as Raw));
 }
