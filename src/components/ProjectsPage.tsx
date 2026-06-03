@@ -37,7 +37,7 @@ export const ProjectsPage: React.FC<Props> = ({
 
   const handleAddProject = async () => {
     if (!newProjectName.trim()) return;
-    const ratioNum = newProjectRatio.trim() === "" ? undefined : Number(newProjectRatio);
+    const ratioNum = newProjectRatio.trim() === "" ? undefined : Math.round(Number(newProjectRatio));
     await onAddProject({
       name: newProjectName.trim(),
       description: newProjectDesc.trim(),
@@ -83,8 +83,9 @@ export const ProjectsPage: React.FC<Props> = ({
           <input
             className="form-input"
             type="number"
-            step="any"
-            placeholder="Ratio (optional, e.g. 1.25)"
+            step="1"
+            min="0"
+            placeholder="Ratio (optional, e.g. 2)"
             value={newProjectRatio}
             onChange={(e) => setNewProjectRatio(e.target.value)}
           />
