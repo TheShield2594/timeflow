@@ -109,7 +109,7 @@ export const TimesheetPage: React.FC<Props> = ({ entries, projects, tasks, onDel
     const durationMinutes = endDt
       ? Math.max(0, Math.round((endDt.getTime() - startDt.getTime()) / 60000))
       : undefined;
-    const ratioNum = draft.ratio.trim() === "" ? undefined : Number(draft.ratio);
+    const ratioNum = draft.ratio.trim() === "" ? undefined : Math.round(Number(draft.ratio));
     await onEdit(editingId, {
       description: draft.description || undefined,
       projectId: draft.projectId,
@@ -236,7 +236,8 @@ export const TimesheetPage: React.FC<Props> = ({ entries, projects, tasks, onDel
                       <div className="entry-edit-form__row">
                         <input
                           type="number"
-                          step="any"
+                          step="1"
+                          min="0"
                           className="entry-edit-form__time-input"
                           placeholder="Ratio (optional)"
                           value={draft.ratio}

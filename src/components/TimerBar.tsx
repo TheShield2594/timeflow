@@ -32,7 +32,7 @@ export const TimerBar: React.FC<Props> = ({
 
   const parseRatio = (v: string): number | undefined => {
     if (v.trim() === "") return undefined;
-    const n = Number(v);
+    const n = Math.round(Number(v));
     return Number.isFinite(n) ? n : undefined;
   };
 
@@ -81,7 +81,8 @@ export const TimerBar: React.FC<Props> = ({
         <input
           className="timer-bar__ratio"
           type="number"
-          step="any"
+          step="1"
+          min="0"
           placeholder="Ratio"
           value={isRunning ? (ratio !== undefined ? String(ratio) : "") : ratioInput}
           onChange={(e) => {
