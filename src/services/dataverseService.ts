@@ -38,6 +38,11 @@ const SETS = {
 
 const ACCEPT = "application/json";
 const PREFER_RETURN = "return=representation";
+// PA-Dev org URL. Required by every *WithOrganization SDK call because the
+// "current environment" variants (CreateRecord, ListRecords, ...) fail with
+// "Invalid organization URL 'null' provided" when the connector can't infer
+// the org from the connection. See timeflow-dataverse-schema memory.
+const ORG_URL = "https://org010c8ca4.crm.dynamics.com";
 
 function escapeOData(value: string): string {
   return value.replace(/'/g, "''");
@@ -187,11 +192,13 @@ export async function getProjects(): Promise<Project[]> {
       .filter((p) => p.isActive)
       .sort((a, b) => a.name.localeCompare(b.name));
   }
-  const result = await MicrosoftDataverseService.ListRecords(
+  const result = await MicrosoftDataverseService.ListRecordsWithOrganization(
+    ORG_URL,
     SETS.projects,
     undefined, // prefer
     ACCEPT,
     undefined, // x-ms-odata-metadata-full
+    undefined, // MSCRM.IncludeMipSensitivityLabel
     undefined, // $select
     "statecode eq 0",
     "ever_name asc",
@@ -207,9 +214,10 @@ export async function createProject(data: Omit<Project, "id" | "createdAt">): Pr
     persist(STORAGE_KEYS.projects, [...all, project]);
     return project;
   }
-  const result = await MicrosoftDataverseService.CreateRecord(
+  const result = await MicrosoftDataverseService.CreateRecordWithOrganization(
     PREFER_RETURN,
     ACCEPT,
+    ORG_URL,
     SETS.projects,
     projectToDataverse(data),
   );
@@ -226,9 +234,10 @@ export async function updateProject(id: string, data: Partial<Project>): Promise
     persist(STORAGE_KEYS.projects, all);
     return all[idx];
   }
-  const result = await MicrosoftDataverseService.UpdateRecord(
+  const result = await MicrosoftDataverseService.UpdateRecordWithOrganization(
     PREFER_RETURN,
     ACCEPT,
+    ORG_URL,
     SETS.projects,
     id,
     projectToDataverse(data),
@@ -244,10 +253,12 @@ export async function getTasksForProject(projectId: string): Promise<Task[]> {
   if (!isPowerAppsHost()) {
     return load<Task>(STORAGE_KEYS.tasks).filter((t) => t.projectId === projectId && t.isActive);
   }
-  const result = await MicrosoftDataverseService.ListRecords(
+  const result = await MicrosoftDataverseService.ListRecordsWithOrganization(
+    ORG_URL,
     SETS.tasks,
     undefined,
     ACCEPT,
+    undefined,
     undefined,
     undefined,
     `statecode eq 0 and _ever_project_value eq ${projectId}`,
@@ -261,10 +272,12 @@ export async function getAllTasks(): Promise<Task[]> {
   if (!isPowerAppsHost()) {
     return load<Task>(STORAGE_KEYS.tasks).filter((t) => t.isActive);
   }
-  const result = await MicrosoftDataverseService.ListRecords(
+  const result = await MicrosoftDataverseService.ListRecordsWithOrganization(
+    ORG_URL,
     SETS.tasks,
     undefined,
     ACCEPT,
+    undefined,
     undefined,
     undefined,
     "statecode eq 0",
@@ -281,9 +294,10 @@ export async function createTask(data: Omit<Task, "id">): Promise<Task> {
     persist(STORAGE_KEYS.tasks, [...all, task]);
     return task;
   }
-  const result = await MicrosoftDataverseService.CreateRecord(
+  const result = await MicrosoftDataverseService.CreateRecordWithOrganization(
     PREFER_RETURN,
     ACCEPT,
+    ORG_URL,
     SETS.tasks,
     taskToDataverse(data),
   );
@@ -305,10 +319,12 @@ export async function getTimeEntries(opts: { from?: string; to?: string } = {}):
   const filters = [`ever_userid eq '${escapeOData(user.id)}'`];
   if (opts.from) filters.push(`ever_date ge ${opts.from}`);
   if (opts.to) filters.push(`ever_date le ${opts.to}`);
-  const result = await MicrosoftDataverseService.ListRecords(
+  const result = await MicrosoftDataverseService.ListRecordsWithOrganization(
+    ORG_URL,
     SETS.entries,
     undefined,
     ACCEPT,
+    undefined,
     undefined,
     undefined,
     filters.join(" and "),
@@ -328,9 +344,10 @@ export async function createTimeEntry(data: Omit<TimeEntry, "id">): Promise<Time
     persist(STORAGE_KEYS.entries, [...all, entry]);
     return entry;
   }
-  const result = await MicrosoftDataverseService.CreateRecord(
+  const result = await MicrosoftDataverseService.CreateRecordWithOrganization(
     PREFER_RETURN,
     ACCEPT,
+    ORG_URL,
     SETS.entries,
     entryToDataverse(owned),
   );
@@ -351,9 +368,10 @@ export async function updateTimeEntry(id: string, data: Partial<TimeEntry>): Pro
     persist(STORAGE_KEYS.entries, all);
     return all[idx];
   }
-  const result = await MicrosoftDataverseService.UpdateRecord(
+  const result = await MicrosoftDataverseService.UpdateRecordWithOrganization(
     PREFER_RETURN,
     ACCEPT,
+    ORG_URL,
     SETS.entries,
     id,
     entryToDataverse(owned),
@@ -370,6 +388,6 @@ export async function deleteTimeEntry(id: string): Promise<void> {
     persist(STORAGE_KEYS.entries, all);
     return;
   }
-  const result = await MicrosoftDataverseService.DeleteRecord(SETS.entries, id);
+  const result = await MicrosoftDataverseService.DeleteRecordWithOrganization(ORG_URL, SETS.entries, id);
   unwrap(result, "Delete entry");
 }
