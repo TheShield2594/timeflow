@@ -80,7 +80,7 @@ const AppContent: React.FC = () => {
     });
   }, []);
 
-  const { projects, addProject } = useProjects();
+  const { projects, addProject, editProject } = useProjects();
   const { tasks, addTask } = useTasks();
   const { entries, loading, deleteEntry, editEntry, createEntry, refresh } = useTimeEntries(loadedRange.from, loadedRange.to);
 
@@ -189,6 +189,7 @@ const AppContent: React.FC = () => {
           onStart={start}
           onStop={stop}
           onUpdate={update}
+          onAddTask={addTask}
         />
 
         <div className="main__content">
@@ -226,6 +227,7 @@ const AppContent: React.FC = () => {
               tasks={tasks}
               totalMinutesByProject={totalMinutesByProject}
               onAddProject={addProject}
+              onEditProject={editProject}
               onAddTask={addTask}
             />
           )}

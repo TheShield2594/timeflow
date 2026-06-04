@@ -26,6 +26,7 @@ export interface TimeEntry {
   endTime?: string;
   durationMinutes?: number;
   ratio?: number;
+  jiraTicket?: string;
   date: string;
   userId: string;
   userDisplayName: string;

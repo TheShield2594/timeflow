@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import type { Project, Task } from "../types";
 import { formatElapsed, parseRatioInput } from "../hooks";
 
+const NEW_TASK_OPTION = "__new_task__";
+
 interface Props {
   projects: Project[];
   tasks: Task[];
@@ -14,18 +16,22 @@ interface Props {
   onStart: (projectId: string, taskId: string | null, description: string, ratio?: number) => void;
   onStop: () => void;
   onUpdate: (patch: { description?: string; taskId?: string | null; ratio?: number }) => void;
+  onAddTask: (data: Omit<Task, "id">) => Promise<Task>;
 }
 
 
 export const TimerBar: React.FC<Props> = ({
   projects, tasks, isRunning, elapsed,
   currentProjectId, currentTaskId, description, ratio,
-  onStart, onStop, onUpdate,
+  onStart, onStop, onUpdate, onAddTask,
 }) => {
   const [selectedProject, setSelectedProject] = useState(currentProjectId || "");
   const [selectedTask, setSelectedTask] = useState(currentTaskId || "");
   const [desc, setDesc] = useState(description);
   const [ratioInput, setRatioInput] = useState(ratio !== undefined ? String(ratio) : "");
+  const [newTaskName, setNewTaskName] = useState("");
+  const [addingNewTask, setAddingNewTask] = useState(false);
+  const [savingTask, setSavingTask] = useState(false);
 
   const projectTasks = tasks.filter((t) => t.projectId === (isRunning ? currentProjectId : selectedProject));
   const activeProject = projects.find((p) => p.id === (isRunning ? currentProjectId : selectedProject));
@@ -35,6 +41,25 @@ export const TimerBar: React.FC<Props> = ({
   const handleStart = () => {
     if (!selectedProject) return;
     onStart(selectedProject, selectedTask || null, desc, parseRatio(ratioInput));
+  };
+
+  const handleCreateTask = async () => {
+    const name = newTaskName.trim();
+    const projectId = isRunning ? currentProjectId : selectedProject;
+    if (!name || !projectId) return;
+    setSavingTask(true);
+    try {
+      const task = await onAddTask({ projectId, name, isActive: true });
+      if (isRunning) {
+        onUpdate({ taskId: task.id });
+      } else {
+        setSelectedTask(task.id);
+      }
+      setAddingNewTask(false);
+      setNewTaskName("");
+    } finally {
+      setSavingTask(false);
+    }
   };
 
   // Ctrl/Cmd + . toggles the timer. Start uses whatever's selected in the bar;
@@ -94,24 +119,67 @@ export const TimerBar: React.FC<Props> = ({
               <select
                 className="timer-bar__select"
                 value={selectedProject}
-                onChange={(e) => { setSelectedProject(e.target.value); setSelectedTask(""); }}
+                onChange={(e) => {
+                  setSelectedProject(e.target.value);
+                  setSelectedTask("");
+                  setAddingNewTask(false);
+                  setNewTaskName("");
+                }}
               >
                 <option value="">Select project…</option>
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
-              {selectedProject && (
+              {selectedProject && !addingNewTask && (
                 <select
                   className="timer-bar__select"
                   value={selectedTask}
-                  onChange={(e) => setSelectedTask(e.target.value)}
+                  onChange={(e) => {
+                    if (e.target.value === NEW_TASK_OPTION) {
+                      setAddingNewTask(true);
+                      setNewTaskName("");
+                    } else {
+                      setSelectedTask(e.target.value);
+                    }
+                  }}
                 >
                   <option value="">No task</option>
                   {projectTasks.map((t) => (
                     <option key={t.id} value={t.id}>{t.name}</option>
                   ))}
+                  <option value={NEW_TASK_OPTION}>+ New task…</option>
                 </select>
+              )}
+              {selectedProject && addingNewTask && (
+                <div className="timer-bar__new-task">
+                  <input
+                    className="timer-bar__new-task-input"
+                    placeholder="New task name"
+                    value={newTaskName}
+                    onChange={(e) => setNewTaskName(e.target.value)}
+                    onKeyDown={async (e) => {
+                      if (e.key === "Enter") await handleCreateTask();
+                      if (e.key === "Escape") { setAddingNewTask(false); setNewTaskName(""); }
+                    }}
+                    autoFocus
+                  />
+                  <button
+                    className="timer-bar__new-task-ok"
+                    onClick={handleCreateTask}
+                    disabled={!newTaskName.trim() || savingTask}
+                    title="Create task"
+                  >
+                    ✓
+                  </button>
+                  <button
+                    className="timer-bar__new-task-cancel"
+                    onClick={() => { setAddingNewTask(false); setNewTaskName(""); }}
+                    title="Cancel"
+                  >
+                    ×
+                  </button>
+                </div>
               )}
             </>
           ) : (

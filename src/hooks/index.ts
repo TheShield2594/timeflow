@@ -52,7 +52,22 @@ export function useProjects() {
     }
   }, [toast]);
 
-  return { projects, loading, refresh, addProject };
+  const editProject = useCallback(async (id: string, data: Partial<Project>) => {
+    const snapshot = projects.find((p) => p.id === id);
+    if (!snapshot) throw new Error("Project not found");
+    setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, ...data } : p)));
+    try {
+      const updated = await svc.updateProject(id, data);
+      setProjects((prev) => prev.map((p) => (p.id === id ? updated : p)));
+      return updated;
+    } catch (err) {
+      setProjects((prev) => prev.map((p) => (p.id === id ? snapshot : p)));
+      toast(`Could not save project: ${errMsg(err)}`, "error");
+      throw err;
+    }
+  }, [projects, toast]);
+
+  return { projects, loading, refresh, addProject, editProject };
 }
 
 // ---------------------------------------------------------------------------

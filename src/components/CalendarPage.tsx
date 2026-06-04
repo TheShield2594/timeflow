@@ -20,6 +20,7 @@ interface ModalDraft {
   description: string;
   projectId: string;
   taskId: string;
+  jiraTicket: string;
 }
 
 // Hours displayed: 7 AM to 9 PM
@@ -148,6 +149,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
       description: "",
       projectId: "",
       taskId: "",
+      jiraTicket: "",
     });
   };
 
@@ -162,6 +164,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
       description: entry.description || "",
       projectId: entry.projectId,
       taskId: entry.taskId || "",
+      jiraTicket: entry.jiraTicket || "",
     });
   };
 
@@ -178,6 +181,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
           projectId: modal.projectId,
           taskId: modal.taskId || undefined,
           description: modal.description || undefined,
+          jiraTicket: modal.jiraTicket.trim() || undefined,
           startTime: startDt.toISOString(),
           endTime: endDt.toISOString(),
           durationMinutes,
@@ -189,6 +193,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
           projectId: modal.projectId,
           taskId: modal.taskId || undefined,
           description: modal.description || undefined,
+          jiraTicket: modal.jiraTicket.trim() || undefined,
           startTime: startDt.toISOString(),
           endTime: endDt.toISOString(),
           durationMinutes,
@@ -252,6 +257,12 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
                   ))}
                 </select>
               )}
+              <input
+                className="form-input"
+                placeholder="Jira ticket (optional, e.g. PROJ-123)"
+                value={modal.jiraTicket}
+                onChange={(e) => setModal((d) => d && ({ ...d, jiraTicket: e.target.value }))}
+              />
               <div className="cal-modal__time-row">
                 <div className="cal-modal__time-group">
                   <label className="cal-modal__label">Date</label>

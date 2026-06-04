@@ -7,6 +7,7 @@ interface Props {
   tasks: Task[];
   totalMinutesByProject: Map<string, number>;
   onAddProject: (data: Omit<Project, "id" | "createdAt">) => Promise<Project>;
+  onEditProject: (id: string, data: Partial<Project>) => Promise<Project>;
   onAddTask: (data: Omit<Task, "id">) => Promise<Task>;
 }
 
@@ -23,29 +24,57 @@ const PALETTE = [
   "#F3AE00", // lemon
 ];
 
+interface FormDraft {
+  editingId: string | null;
+  name: string;
+  description: string;
+  color: string;
+  ratio: string;
+  jiraTicket: string;
+}
+
+const EMPTY_DRAFT: FormDraft = {
+  editingId: null,
+  name: "",
+  description: "",
+  color: PALETTE[0],
+  ratio: "",
+  jiraTicket: "",
+};
+
 export const ProjectsPage: React.FC<Props> = ({
-  projects, tasks, totalMinutesByProject, onAddProject, onAddTask,
+  projects, tasks, totalMinutesByProject, onAddProject, onEditProject, onAddTask,
 }) => {
-  const [showNewProject, setShowNewProject] = useState(false);
-  const [newProjectName, setNewProjectName] = useState("");
-  const [newProjectDesc, setNewProjectDesc] = useState("");
-  const [newProjectColor, setNewProjectColor] = useState(PALETTE[0]);
-  const [newProjectRatio, setNewProjectRatio] = useState("");
-  const [newProjectJira, setNewProjectJira] = useState("");
+  const [draft, setDraft] = useState<FormDraft | null>(null);
   const [addingTaskFor, setAddingTaskFor] = useState<string | null>(null);
   const [newTaskName, setNewTaskName] = useState("");
 
-  const handleAddProject = async () => {
-    if (!newProjectName.trim()) return;
-    await onAddProject({
-      name: newProjectName.trim(),
-      description: newProjectDesc.trim(),
-      color: newProjectColor,
-      ratio: parseRatioInput(newProjectRatio),
-      jiraTicket: newProjectJira.trim() || undefined,
+  const startNew = () => setDraft({ ...EMPTY_DRAFT });
+  const startEdit = (p: Project) => setDraft({
+    editingId: p.id,
+    name: p.name,
+    description: p.description ?? "",
+    color: p.color,
+    ratio: p.ratio !== undefined ? String(p.ratio) : "",
+    jiraTicket: p.jiraTicket ?? "",
+  });
+
+  const handleSave = async () => {
+    if (!draft || !draft.name.trim()) return;
+    const payload = {
+      name: draft.name.trim(),
+      description: draft.description.trim(),
+      color: draft.color,
+      ratio: parseRatioInput(draft.ratio),
+      jiraTicket: draft.jiraTicket.trim() || undefined,
       isActive: true,
-    });
-    setNewProjectName(""); setNewProjectDesc(""); setNewProjectColor(PALETTE[0]); setNewProjectRatio(""); setNewProjectJira(""); setShowNewProject(false);
+    };
+    if (draft.editingId) {
+      await onEditProject(draft.editingId, payload);
+    } else {
+      await onAddProject(payload);
+    }
+    setDraft(null);
   };
 
   const handleAddTask = async (projectId: string) => {
@@ -58,26 +87,28 @@ export const ProjectsPage: React.FC<Props> = ({
     <div className="projects-page">
       <div className="projects-page__header">
         <h2 className="projects-page__title">Projects</h2>
-        <button className="btn-primary" onClick={() => setShowNewProject(true)}>
+        <button className="btn-primary" onClick={startNew}>
           + New Project
         </button>
       </div>
 
-      {showNewProject && (
+      {draft && (
         <div className="new-project-form">
-          <h3 className="new-project-form__title">New Project</h3>
+          <h3 className="new-project-form__title">
+            {draft.editingId ? "Edit Project" : "New Project"}
+          </h3>
           <input
             className="form-input"
             placeholder="Project name"
-            value={newProjectName}
-            onChange={(e) => setNewProjectName(e.target.value)}
+            value={draft.name}
+            onChange={(e) => setDraft((d) => d && ({ ...d, name: e.target.value }))}
             autoFocus
           />
           <input
             className="form-input"
             placeholder="Description (optional)"
-            value={newProjectDesc}
-            onChange={(e) => setNewProjectDesc(e.target.value)}
+            value={draft.description}
+            onChange={(e) => setDraft((d) => d && ({ ...d, description: e.target.value }))}
           />
           <input
             className="form-input"
@@ -85,29 +116,31 @@ export const ProjectsPage: React.FC<Props> = ({
             step="1"
             min="0"
             placeholder="Ratio (optional, e.g. 2)"
-            value={newProjectRatio}
-            onChange={(e) => setNewProjectRatio(e.target.value)}
+            value={draft.ratio}
+            onChange={(e) => setDraft((d) => d && ({ ...d, ratio: e.target.value }))}
           />
           <input
             className="form-input"
             placeholder="Jira ticket (optional, e.g. PROJ-123)"
-            value={newProjectJira}
-            onChange={(e) => setNewProjectJira(e.target.value)}
+            value={draft.jiraTicket}
+            onChange={(e) => setDraft((d) => d && ({ ...d, jiraTicket: e.target.value }))}
           />
           <div className="color-picker">
             <span className="color-picker__label">Color</span>
             {PALETTE.map((c) => (
               <button
                 key={c}
-                className={`color-picker__swatch ${newProjectColor === c ? "color-picker__swatch--active" : ""}`}
+                className={`color-picker__swatch ${draft.color === c ? "color-picker__swatch--active" : ""}`}
                 style={{ background: c }}
-                onClick={() => setNewProjectColor(c)}
+                onClick={() => setDraft((d) => d && ({ ...d, color: c }))}
               />
             ))}
           </div>
           <div className="new-project-form__actions">
-            <button className="btn-primary" onClick={handleAddProject}>Create</button>
-            <button className="btn-ghost" onClick={() => setShowNewProject(false)}>Cancel</button>
+            <button className="btn-primary" onClick={handleSave}>
+              {draft.editingId ? "Save Changes" : "Create"}
+            </button>
+            <button className="btn-ghost" onClick={() => setDraft(null)}>Cancel</button>
           </div>
         </div>
       )}
@@ -134,7 +167,16 @@ export const ProjectsPage: React.FC<Props> = ({
                       <div className="project-card__jira">Jira: {project.jiraTicket}</div>
                     )}
                   </div>
-                  <div className="project-card__total">{formatMinutes(totalMins)}</div>
+                  <div className="project-card__top-right">
+                    <div className="project-card__total">{formatMinutes(totalMins)}</div>
+                    <button
+                      className="project-card__edit"
+                      onClick={() => startEdit(project)}
+                      title="Edit project"
+                    >
+                      Edit
+                    </button>
+                  </div>
                 </div>
 
                 <div className="project-card__tasks">
