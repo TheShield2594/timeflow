@@ -9,6 +9,16 @@
   "buildEntryPoint": "index.html",
   "localAppUrl": "http://localhost:5173",
   "logoPath": "src/everence-logo.png",
-  "connectionReferences": {},
+  "connectionReferences": {
+    "477239d1-6a26-4c78-8e92-9f330d5e35ca": {
+      "id": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+      "displayName": "Microsoft Dataverse",
+      "dataSources": [
+        "commondataserviceforapps"
+      ],
+      "authenticationType": "Oauth",
+      "dataSets": {}
+    }
+  },
   "databaseReferences": {}
 }
