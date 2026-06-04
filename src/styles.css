@@ -102,9 +102,7 @@ input, select { font-family: inherit; }
   width: 100%;
   max-width: 150px;
   display: block;
-  /* Invert black background logo to work on dark sidebar */
-  filter: brightness(0) invert(1);
-  opacity: 0.90;
+  opacity: 0.95;
 }
 
 .sidebar__nav {
