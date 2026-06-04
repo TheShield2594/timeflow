@@ -81,7 +81,7 @@ function mapProject(r: Raw): Project {
 function mapTask(r: Raw): Task {
   return {
     id: (str(r, "ever_workitemsid") ?? str(r, "ever_workitemid") ?? str(r, "id")) as string,
-    projectId: (str(r, "_ever_projectid_value") ?? str(r, "ever_projectid")) as string,
+    projectId: (str(r, "_ever_project_value") ?? str(r, "ever_project")) as string,
     name: str(r, "ever_name") ?? "",
     description: str(r, "ever_description"),
     isActive: num(r, "statecode") === 0,
@@ -91,13 +91,14 @@ function mapTask(r: Raw): Task {
 function mapEntry(r: Raw): TimeEntry {
   return {
     id: (str(r, "ever_timeentriesid") ?? str(r, "ever_timeentryid") ?? str(r, "id")) as string,
-    projectId: (str(r, "_ever_projectid_value") ?? str(r, "ever_projectid")) as string,
-    taskId: str(r, "_ever_workitemid_value") ?? str(r, "ever_workitemid"),
+    projectId: (str(r, "_ever_project_value") ?? str(r, "ever_project")) as string,
+    taskId: str(r, "_ever_workitem_value") ?? str(r, "ever_workitem"),
     description: str(r, "ever_description"),
     startTime: str(r, "ever_starttime") ?? "",
     endTime: str(r, "ever_endtime"),
     durationMinutes: num(r, "ever_durationminutes"),
     ratio: num(r, "ever_ratio"),
+    jiraTicket: str(r, "ever_jiraticket"),
     date: str(r, "ever_date") ?? "",
     userId: str(r, "ever_userid") ?? "",
     userDisplayName: str((r.ownerid as Raw) ?? {}, "fullname") ?? str(r, "ownerid_fullname") ?? "",
@@ -119,7 +120,7 @@ function taskToDataverse(t: Omit<Task, "id"> | Partial<Task>): Raw {
   if (t.name !== undefined) out.ever_name = t.name;
   if (t.description !== undefined) out.ever_description = t.description ?? null;
   if (t.projectId !== undefined) {
-    out["ever_projectid@odata.bind"] = `/${TABLES.projects}(${t.projectId})`;
+    out["ever_project@odata.bind"] = `/${TABLES.projects}(${t.projectId})`;
   }
   return out;
 }
@@ -131,13 +132,14 @@ function entryToDataverse(e: Omit<TimeEntry, "id"> | Partial<TimeEntry>): Raw {
   if (e.endTime !== undefined) out.ever_endtime = e.endTime ?? null;
   if (e.durationMinutes !== undefined) out.ever_durationminutes = e.durationMinutes ?? null;
   if (e.ratio !== undefined) out.ever_ratio = e.ratio ?? null;
+  if (e.jiraTicket !== undefined) out.ever_jiraticket = e.jiraTicket || null;
   if (e.date !== undefined) out.ever_date = e.date;
   out.ever_userid = getCurrentUser().id;
   if (e.projectId !== undefined) {
-    out["ever_projectid@odata.bind"] = `/${TABLES.projects}(${e.projectId})`;
+    out["ever_project@odata.bind"] = `/${TABLES.projects}(${e.projectId})`;
   }
   if ("taskId" in e) {
-    out["ever_workitemid@odata.bind"] = e.taskId ? `/${TABLES.tasks}(${e.taskId})` : null;
+    out["ever_workitem@odata.bind"] = e.taskId ? `/${TABLES.tasks}(${e.taskId})` : null;
   }
   return out;
 }
@@ -194,6 +196,19 @@ export async function createProject(data: Omit<Project, "id" | "createdAt">): Pr
   return mapProject(created as Raw);
 }
 
+export async function updateProject(id: string, data: Partial<Project>): Promise<Project> {
+  if (!isPowerAppsHost()) {
+    const all = load<Project>(STORAGE_KEYS.projects);
+    const idx = all.findIndex((p) => p.id === id);
+    if (idx === -1) throw new Error("Project not found");
+    all[idx] = { ...all[idx], ...data };
+    persist(STORAGE_KEYS.projects, all);
+    return all[idx];
+  }
+  const updated = await dv().updateRecord(TABLES.projects, id, projectToDataverse(data));
+  return mapProject(updated as Raw);
+}
+
 // ---------------------------------------------------------------------------
 // Tasks
 // ---------------------------------------------------------------------------
@@ -202,7 +217,7 @@ export async function getTasksForProject(projectId: string): Promise<Task[]> {
     return load<Task>(STORAGE_KEYS.tasks).filter((t) => t.projectId === projectId && t.isActive);
   }
   const result = await dv().listRecords(TABLES.tasks, {
-    $filter: `statecode eq 0 and _ever_projectid_value eq ${projectId}`,
+    $filter: `statecode eq 0 and _ever_project_value eq ${projectId}`,
     $orderby: "ever_name asc",
   });
   return result.value.map((r) => mapTask(r as Raw));
