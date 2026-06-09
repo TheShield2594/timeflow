@@ -333,12 +333,18 @@ export async function getTimeEntries(opts: { from?: string; to?: string } = {}):
     undefined,
     filters.join(" and "),
     "ever_starttime desc",
-    // owninguser is the denormalized FK to systemuser auto-populated when
-    // ownerid is a user. Avoids the polymorphic-principal cast headache.
-    "owninguser($select=fullname)",
+    // No $expand for owner — userDisplayName is filled in below from the
+    // current user when ids match, which covers this single-user app.
   );
   const env = unwrap(result, "List entries") as unknown as ListEnvelope<Raw>;
-  return (env?.value ?? []).map(mapEntry);
+  const me = user;
+  return (env?.value ?? []).map((r) => {
+    const entry = mapEntry(r);
+    if (!entry.userDisplayName && entry.userId === me.id) {
+      entry.userDisplayName = me.displayName;
+    }
+    return entry;
+  });
 }
 
 export async function createTimeEntry(data: Omit<TimeEntry, "id">): Promise<TimeEntry> {
