@@ -64,6 +64,25 @@ function unwrap<T>(result: { success: boolean; data: T; error?: unknown }, op: s
 // The ListRecords response is an OData v9 envelope with a `value` array.
 interface ListEnvelope<T> { value: T[]; "@odata.nextLink"?: string }
 
+// Returns true if val looks like a meaningful field value (not "" / null / undefined).
+function isFilled(val: unknown): boolean {
+  if (val === undefined || val === null) return false;
+  if (typeof val === "string") return val.length > 0;
+  return true;
+}
+
+// Overlay mapped onto input: keep mapped fields where present, otherwise fall
+// back to whatever we sent. Covers the case where the Dataverse connector
+// silently drops the response body despite prefer=return=representation, which
+// would otherwise replace the user's optimistic record with empty fields.
+function mergeOver<T extends object>(input: T, mapped: T): T {
+  const out: Record<string, unknown> = { ...(input as Record<string, unknown>) };
+  for (const [k, v] of Object.entries(mapped as Record<string, unknown>)) {
+    if (isFilled(v)) out[k] = v;
+  }
+  return out as T;
+}
+
 // ---------------------------------------------------------------------------
 // Dataverse <-> model mapping
 // ---------------------------------------------------------------------------
@@ -226,7 +245,8 @@ export async function createProject(data: Omit<Project, "id" | "createdAt">): Pr
     projectToDataverse(data),
   );
   const created = unwrap(result, "Create project") as unknown as Raw;
-  return mapProject(created ?? {});
+  const inputAsProject: Project = { ...data, id: "", createdAt: new Date().toISOString() };
+  return mergeOver(inputAsProject, mapProject(created ?? {}));
 }
 
 export async function updateProject(id: string, data: Partial<Project>): Promise<Project> {
@@ -247,7 +267,10 @@ export async function updateProject(id: string, data: Partial<Project>): Promise
     projectToDataverse(data),
   );
   const updated = unwrap(result, "Update project") as unknown as Raw;
-  return mapProject(updated ?? {});
+  // Patch needs all fields populated for the UI to render correctly even when
+  // the connector returns an empty body.
+  const inputAsProject = { ...data, id } as Project;
+  return mergeOver(inputAsProject, mapProject(updated ?? {}));
 }
 
 // ---------------------------------------------------------------------------
@@ -306,7 +329,8 @@ export async function createTask(data: Omit<Task, "id">): Promise<Task> {
     taskToDataverse(data),
   );
   const created = unwrap(result, "Create task") as unknown as Raw;
-  return mapTask(created ?? {});
+  const inputAsTask: Task = { ...data, id: "" };
+  return mergeOver(inputAsTask, mapTask(created ?? {}));
 }
 
 // ---------------------------------------------------------------------------
@@ -364,9 +388,10 @@ export async function createTimeEntry(data: Omit<TimeEntry, "id">): Promise<Time
     entryToDataverse(owned),
   );
   const created = unwrap(result, "Create entry") as unknown as Raw;
-  const mapped = mapEntry(created ?? {});
-  if (!mapped.userDisplayName) mapped.userDisplayName = user.displayName;
-  return mapped;
+  const inputAsEntry: TimeEntry = { ...owned, id: "" };
+  const merged = mergeOver(inputAsEntry, mapEntry(created ?? {}));
+  if (!merged.userDisplayName) merged.userDisplayName = user.displayName;
+  return merged;
 }
 
 export async function updateTimeEntry(id: string, data: Partial<TimeEntry>): Promise<TimeEntry> {
@@ -389,9 +414,10 @@ export async function updateTimeEntry(id: string, data: Partial<TimeEntry>): Pro
     entryToDataverse(owned),
   );
   const updated = unwrap(result, "Update entry") as unknown as Raw;
-  const mapped = mapEntry(updated ?? {});
-  if (!mapped.userDisplayName) mapped.userDisplayName = user.displayName;
-  return mapped;
+  const inputAsEntry = { ...owned, id } as TimeEntry;
+  const merged = mergeOver(inputAsEntry, mapEntry(updated ?? {}));
+  if (!merged.userDisplayName) merged.userDisplayName = user.displayName;
+  return merged;
 }
 
 export async function deleteTimeEntry(id: string): Promise<void> {
