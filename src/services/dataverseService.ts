@@ -130,6 +130,11 @@ function mapTask(r: Raw): Task {
 }
 
 function mapEntry(r: Raw): TimeEntry {
+  // Dataverse can return ever_date either as "YYYY-MM-DD" or as a full ISO
+  // timestamp ("YYYY-MM-DDT00:00:00Z") depending on the column's behavior.
+  // The rest of the app keys calendar/timesheet rows off "YYYY-MM-DD", so
+  // anything past the "T" must be stripped.
+  const rawDate = str(r, "ever_date") ?? "";
   return {
     id: (str(r, "ever_timeentriesid") ?? str(r, "id")) as string,
     projectId: str(r, "_ever_project_value") ?? "",
@@ -140,7 +145,7 @@ function mapEntry(r: Raw): TimeEntry {
     durationMinutes: num(r, "ever_durationminutes"),
     ratio: num(r, "ever_ratio"),
     jiraTicket: str(r, "ever_jiraticket"),
-    date: str(r, "ever_date") ?? "",
+    date: rawDate.split("T")[0],
     userId: str(r, "ever_userid") ?? "",
     userDisplayName:
       str((r.owninguser as Raw) ?? {}, "fullname") ??
