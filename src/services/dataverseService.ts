@@ -116,7 +116,7 @@ function mapEntry(r: Raw): TimeEntry {
     date: str(r, "ever_date") ?? "",
     userId: str(r, "ever_userid") ?? "",
     userDisplayName:
-      str((r.ownerid_systemuser as Raw) ?? {}, "fullname") ??
+      str((r.owninguser as Raw) ?? {}, "fullname") ??
       str((r.ownerid as Raw) ?? {}, "fullname") ??
       str(r, "ownerid_fullname") ??
       "",
@@ -333,9 +333,9 @@ export async function getTimeEntries(opts: { from?: string; to?: string } = {}):
     undefined,
     filters.join(" and "),
     "ever_starttime desc",
-    // ownerid is polymorphic (principal = user OR team); fullname only exists
-    // on systemuser, so we have to expand the systemuser-cast relationship.
-    "ownerid_systemuser($select=fullname)",
+    // owninguser is the denormalized FK to systemuser auto-populated when
+    // ownerid is a user. Avoids the polymorphic-principal cast headache.
+    "owninguser($select=fullname)",
   );
   const env = unwrap(result, "List entries") as unknown as ListEnvelope<Raw>;
   return (env?.value ?? []).map(mapEntry);
