@@ -44,10 +44,6 @@ const PREFER_RETURN = "return=representation";
 // the org from the connection. See timeflow-dataverse-schema memory.
 const ORG_URL = "https://org010c8ca4.crm.dynamics.com";
 
-function escapeOData(value: string): string {
-  return value.replace(/'/g, "''");
-}
-
 // ---------------------------------------------------------------------------
 // SDK result helpers — every call returns { success, data, error? }; unwrap
 // or throw so the calling hooks can keep using try/catch.
@@ -353,9 +349,15 @@ export async function getTimeEntries(opts: { from?: string; to?: string } = {}):
     if (opts.to) entries = entries.filter((e) => e.date <= opts.to!);
     return entries.sort((a, b) => b.startTime.localeCompare(a.startTime));
   }
-  const filters = [`ever_userid eq '${escapeOData(user.id)}'`];
+  // No ever_userid filter — rely on Dataverse owner-based row security so
+  // the user sees their own records. Our column-level ever_userid filter
+  // was rejecting valid rows whose stored id didn't match the SDK's reported
+  // ctx.user.objectId (the SDK has returned slightly different identifiers
+  // across sessions, which we can't reconcile from this layer).
+  const filters: string[] = [];
   if (opts.from) filters.push(`ever_date ge ${opts.from}`);
   if (opts.to) filters.push(`ever_date le ${opts.to}`);
+  const filterStr = filters.length ? filters.join(" and ") : undefined;
   const result = await MicrosoftDataverseService.ListRecordsWithOrganization(
     ORG_URL,
     SETS.entries,
@@ -364,7 +366,7 @@ export async function getTimeEntries(opts: { from?: string; to?: string } = {}):
     undefined,
     undefined,
     undefined,
-    filters.join(" and "),
+    filterStr,
     "ever_starttime desc",
     // No $expand for owner — userDisplayName is filled in below from the
     // current user when ids match, which covers this single-user app.
