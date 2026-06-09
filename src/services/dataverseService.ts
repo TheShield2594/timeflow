@@ -62,7 +62,19 @@ function unwrap<T>(result: { success: boolean; data: T; error?: unknown }, op: s
 }
 
 // The ListRecords response is an OData v9 envelope with a `value` array.
-interface ListEnvelope<T> { value: T[]; "@odata.nextLink"?: string }
+// Each item is wrapped by the SDK as `{ dynamicProperties: { ...row } }`.
+interface DynItem { dynamicProperties?: Raw }
+interface ListEnvelope { value?: DynItem[]; "@odata.nextLink"?: string }
+
+// The SDK wraps Dataverse rows (both list items and create/update responses)
+// in a `dynamicProperties` object. Peel that off so the mappers see the row.
+function unwrapRow(x: unknown): Raw {
+  if (!x || typeof x !== "object") return {};
+  const obj = x as Raw;
+  const dyn = obj.dynamicProperties;
+  if (dyn && typeof dyn === "object") return dyn as Raw;
+  return obj;
+}
 
 // Returns true if val looks like a meaningful field value (not "" / null / undefined).
 function isFilled(val: unknown): boolean {
@@ -226,8 +238,8 @@ export async function getProjects(): Promise<Project[]> {
     "statecode eq 0",
     "ever_name asc",
   );
-  const env = unwrap(result, "List projects") as unknown as ListEnvelope<Raw>;
-  return (env?.value ?? []).map(mapProject);
+  const env = unwrap(result, "List projects") as unknown as ListEnvelope;
+  return (env?.value ?? []).map((r) => mapProject(unwrapRow(r)));
 }
 
 export async function createProject(data: Omit<Project, "id" | "createdAt">): Promise<Project> {
@@ -244,9 +256,8 @@ export async function createProject(data: Omit<Project, "id" | "createdAt">): Pr
     SETS.projects,
     projectToDataverse(data),
   );
-  const created = unwrap(result, "Create project") as unknown as Raw;
   const inputAsProject: Project = { ...data, id: "", createdAt: new Date().toISOString() };
-  return mergeOver(inputAsProject, mapProject(created ?? {}));
+  return mergeOver(inputAsProject, mapProject(unwrapRow(unwrap(result, "Create project"))));
 }
 
 export async function updateProject(id: string, data: Partial<Project>): Promise<Project> {
@@ -266,11 +277,10 @@ export async function updateProject(id: string, data: Partial<Project>): Promise
     id,
     projectToDataverse(data),
   );
-  const updated = unwrap(result, "Update project") as unknown as Raw;
   // Patch needs all fields populated for the UI to render correctly even when
   // the connector returns an empty body.
   const inputAsProject = { ...data, id } as Project;
-  return mergeOver(inputAsProject, mapProject(updated ?? {}));
+  return mergeOver(inputAsProject, mapProject(unwrapRow(unwrap(result, "Update project"))));
 }
 
 // ---------------------------------------------------------------------------
@@ -291,8 +301,8 @@ export async function getTasksForProject(projectId: string): Promise<Task[]> {
     `statecode eq 0 and _ever_project_value eq ${projectId}`,
     "ever_name asc",
   );
-  const env = unwrap(result, "List tasks") as unknown as ListEnvelope<Raw>;
-  return (env?.value ?? []).map(mapTask);
+  const env = unwrap(result, "List tasks") as unknown as ListEnvelope;
+  return (env?.value ?? []).map((r) => mapTask(unwrapRow(r)));
 }
 
 export async function getAllTasks(): Promise<Task[]> {
@@ -310,8 +320,8 @@ export async function getAllTasks(): Promise<Task[]> {
     "statecode eq 0",
     "ever_name asc",
   );
-  const env = unwrap(result, "List tasks") as unknown as ListEnvelope<Raw>;
-  return (env?.value ?? []).map(mapTask);
+  const env = unwrap(result, "List tasks") as unknown as ListEnvelope;
+  return (env?.value ?? []).map((r) => mapTask(unwrapRow(r)));
 }
 
 export async function createTask(data: Omit<Task, "id">): Promise<Task> {
@@ -328,9 +338,8 @@ export async function createTask(data: Omit<Task, "id">): Promise<Task> {
     SETS.tasks,
     taskToDataverse(data),
   );
-  const created = unwrap(result, "Create task") as unknown as Raw;
   const inputAsTask: Task = { ...data, id: "" };
-  return mergeOver(inputAsTask, mapTask(created ?? {}));
+  return mergeOver(inputAsTask, mapTask(unwrapRow(unwrap(result, "Create task"))));
 }
 
 // ---------------------------------------------------------------------------
@@ -360,10 +369,10 @@ export async function getTimeEntries(opts: { from?: string; to?: string } = {}):
     // No $expand for owner — userDisplayName is filled in below from the
     // current user when ids match, which covers this single-user app.
   );
-  const env = unwrap(result, "List entries") as unknown as ListEnvelope<Raw>;
+  const env = unwrap(result, "List entries") as unknown as ListEnvelope;
   const me = user;
   return (env?.value ?? []).map((r) => {
-    const entry = mapEntry(r);
+    const entry = mapEntry(unwrapRow(r));
     if (!entry.userDisplayName && entry.userId === me.id) {
       entry.userDisplayName = me.displayName;
     }
@@ -387,9 +396,8 @@ export async function createTimeEntry(data: Omit<TimeEntry, "id">): Promise<Time
     SETS.entries,
     entryToDataverse(owned),
   );
-  const created = unwrap(result, "Create entry") as unknown as Raw;
   const inputAsEntry: TimeEntry = { ...owned, id: "" };
-  const merged = mergeOver(inputAsEntry, mapEntry(created ?? {}));
+  const merged = mergeOver(inputAsEntry, mapEntry(unwrapRow(unwrap(result, "Create entry"))));
   if (!merged.userDisplayName) merged.userDisplayName = user.displayName;
   return merged;
 }
@@ -413,9 +421,8 @@ export async function updateTimeEntry(id: string, data: Partial<TimeEntry>): Pro
     id,
     entryToDataverse(owned),
   );
-  const updated = unwrap(result, "Update entry") as unknown as Raw;
   const inputAsEntry = { ...owned, id } as TimeEntry;
-  const merged = mergeOver(inputAsEntry, mapEntry(updated ?? {}));
+  const merged = mergeOver(inputAsEntry, mapEntry(unwrapRow(unwrap(result, "Update entry"))));
   if (!merged.userDisplayName) merged.userDisplayName = user.displayName;
   return merged;
 }
