@@ -1,5 +1,20 @@
 
 /* =====================================================================
+   TYPEFACE — Outfit (self-hosted variable font, latin subset)
+   Bundled locally so no user request metadata leaks to a font CDN and
+   the app keeps its typeface in offline/locked-down Dataverse hosts.
+   Falls back to the system stack for non-latin glyphs.
+   ===================================================================== */
+@font-face {
+  font-family: "Outfit";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./assets/fonts/outfit-latin-var.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* =====================================================================
    EVERENCE BRAND TOKENS
    Primary:   Green #719500 | Lime #B5BF00 | Robin #4DC5E2 | Blue #0080BD | Pumpkin #CC4F00
    Secondary: Forest #225433 | Grass #358450 | Navy #003346 | Royal #00739f | Lemon #F3AE00
@@ -839,7 +854,12 @@ input, select { font-family: inherit; }
 .timesheet__day:nth-child(5) { animation-delay: 160ms; }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important; /* stop infinite pulse/shimmer loops */
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* =====================================================================
@@ -1037,4 +1057,14 @@ input, select { font-family: inherit; }
   .kpi-card__value { font-size: 19px; }
   .calendar__day-name { font-size: 9px; letter-spacing: 0.3px; }
   .calendar__day-num { font-size: 14px; width: 26px; height: 26px; }
+}
+
+/* Keyboard focus for calendar interactive regions */
+.calendar__day-col--clickable:focus-visible {
+  outline: 2px solid var(--ev-green);
+  outline-offset: -2px;
+}
+.cal-entry--clickable:focus-visible {
+  outline: 2px solid var(--ev-green);
+  outline-offset: 1px;
 }

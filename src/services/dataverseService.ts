@@ -44,7 +44,7 @@ const PREFER_RETURN = "return=representation";
 // the org from the connection. Override per environment with
 // VITE_DATAVERSE_ORG_URL in a .env file; falls back to the PA-Dev org.
 const ORG_URL: string =
-  (import.meta.env.VITE_DATAVERSE_ORG_URL as string | undefined) ??
+  (import.meta.env.VITE_DATAVERSE_ORG_URL as string | undefined)?.trim() ||
   "https://org010c8ca4.crm.dynamics.com";
 
 // ---------------------------------------------------------------------------
@@ -103,6 +103,13 @@ async function listAllPages(entitySet: string, filter: string | undefined, order
     for (const item of env?.value ?? []) rows.push(unwrapRow(item));
     skiptoken = extractSkipToken(env?.["@odata.nextLink"]);
     if (!skiptoken) break;
+  }
+  if (skiptoken) {
+    // Fail loudly rather than silently return a partial dataset — totals and
+    // exports computed from truncated data would be wrong without warning.
+    throw new Error(
+      `Loading ${entitySet} exceeded ${MAX_PAGES} pages; narrow the date range and try again.`
+    );
   }
   return rows;
 }

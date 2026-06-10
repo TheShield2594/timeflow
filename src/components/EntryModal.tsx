@@ -46,16 +46,24 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
     [tasks, draft.projectId]
   );
 
+  // While a save is in flight, ignore every close/dismiss path so the modal
+  // can't be torn down (or the entry deleted) mid-request.
+  const safeClose = () => { if (!saving) onClose(); };
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") safeClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, saving]);
 
   const startDt = draft.date && draft.startTime ? new Date(`${draft.date}T${draft.startTime}:00`) : null;
-  const endDt = draft.date && draft.endTime ? new Date(`${draft.date}T${draft.endTime}:00`) : null;
+  // An end of 00:00 means "midnight at the END of this day" — build it on the
+  // next day so 23:30 → 00:00 is a valid 30-minute entry, not a negative one.
+  const endDt = draft.date && draft.endTime
+    ? new Date(new Date(`${draft.date}T${draft.endTime}:00`).getTime() + (draft.endTime === "00:00" ? 24 * 60 * 60 * 1000 : 0))
+    : null;
   const durationMinutes = startDt && endDt
     ? Math.round((endDt.getTime() - startDt.getTime()) / 60000)
     : null;
@@ -92,11 +100,11 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
   };
 
   return (
-    <div className="cal-modal-overlay" onClick={onClose}>
+    <div className="cal-modal-overlay" onClick={safeClose}>
       <div className="cal-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
         <div className="cal-modal__header">
           <h3 className="cal-modal__title">{title}</h3>
-          <button className="cal-modal__close" onClick={onClose} aria-label="Close">
+          <button className="cal-modal__close" onClick={safeClose} disabled={saving} aria-label="Close">
             <IconX />
           </button>
         </div>
@@ -210,9 +218,9 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
           <button className="btn-primary" onClick={handleSave} disabled={!canSave}>
             {saving ? "Saving…" : "Save"}
           </button>
-          <button className="btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn-ghost" onClick={safeClose} disabled={saving}>Cancel</button>
           {onDelete && (
-            <button className="cal-modal__delete" onClick={onDelete}>Delete</button>
+            <button className="cal-modal__delete" onClick={() => { if (!saving) onDelete(); }} disabled={saving}>Delete</button>
           )}
         </div>
       </div>

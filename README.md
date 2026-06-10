@@ -60,6 +60,7 @@ The app expects these tables (logical names singular, entity-set names get the
 `-es` pluralization, e.g. `ever_projects` → `ever_projectses`):
 
 **Table: ever_projects**
+
 | Column | Type | Notes |
 |---|---|---|
 | ever_name | Text | Required |
@@ -69,6 +70,7 @@ The app expects these tables (logical names singular, entity-set names get the
 | ever_jiraticket | Text | Optional |
 
 **Table: ever_workitems** (tasks)
+
 | Column | Type | Notes |
 |---|---|---|
 | ever_name | Text | Required |
@@ -76,6 +78,7 @@ The app expects these tables (logical names singular, entity-set names get the
 | ever_description | Text | Optional |
 
 **Table: ever_timeentries**
+
 | Column | Type | Notes |
 |---|---|---|
 | ever_project | Lookup → ever_projects | Required |
@@ -159,7 +162,7 @@ src/
 - **Adding fields**: Add columns to your Dataverse tables and update the TypeScript types + service layer.
 - **Auth**: Power Apps Code Apps use Zero-config Microsoft Entra ID auth — no extra setup needed.
 - **Sharing**: Deploy to your Power Apps environment and share with users as you would any Power App.
-- **Power Automate**: Add approval flows or Teams notifications by connecting Power Automate to the `cr_time_entries` table on create/update triggers.
+- **Power Automate**: Add approval flows or Teams notifications by connecting Power Automate to the `ever_timeentries` table on create/update triggers.
 
 ---
 

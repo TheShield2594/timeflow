@@ -97,8 +97,16 @@ function layoutDay(items: Omit<Positioned, "col" | "cols">[]): Positioned[] {
 export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCreateEntry, onEdit, onDelete, onEnsureRangeLoaded }) => {
   const [anchor, setAnchor] = useState(() => new Date());
   const weekDays = useMemo(() => getWeekDays(anchor), [anchor]);
-  const today = localDateStr();
   const bodyRef = useRef<HTMLDivElement>(null);
+
+  // Re-render once a minute so the now-line, the running entry's height and
+  // the "today" highlight stay current during long-lived sessions.
+  const [tick, setTick] = useState(() => Date.now());
+  useEffect(() => {
+    const handle = setInterval(() => setTick(Date.now()), 60_000);
+    return () => clearInterval(handle);
+  }, []);
+  const today = localDateStr(new Date(tick));
 
   // Land the scroll position at the start of the workday on first render.
   useEffect(() => {
@@ -130,7 +138,8 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
   // Running entries (no endTime) are drawn up to "now".
   const positionedByDate = useMemo(() => {
     const byDate = new Map<string, Omit<Positioned, "col" | "cols">[]>();
-    const nowMin = minutesOfDay(new Date().toISOString());
+    const nowDate = new Date(tick);
+    const nowMin = nowDate.getHours() * 60 + nowDate.getMinutes();
     entries.forEach((e) => {
       if (!e.startTime) return;
       const running = !e.endTime;
@@ -149,7 +158,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
     const out = new Map<string, Positioned[]>();
     byDate.forEach((items, date) => out.set(date, layoutDay(items)));
     return out;
-  }, [entries, today]);
+  }, [entries, today, tick]);
 
   const dayTotals = useMemo(() => {
     const map = new Map<string, number>();
@@ -178,16 +187,11 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
     return slots;
   }, []);
 
-  const now = new Date();
+  const now = new Date(tick);
   const nowTop = (now.getHours() * 60 + now.getMinutes()) * PX_PER_MIN;
 
-  // Click empty slot → create
-  const handleSlotClick = (e: React.MouseEvent<HTMLDivElement>, dayStr: string) => {
-    if ((e.target as HTMLElement).closest(".cal-entry")) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const y = e.clientY - rect.top;
-    const slotIdx = Math.max(0, Math.min(Math.floor(y / SLOT_HEIGHT), TOTAL_SLOTS - 1));
-    const totalMins = slotIdx * 30;
+  // Open the create modal for a day, starting at the given minutes-of-day.
+  const openCreate = (dayStr: string, totalMins: number) => {
     const hour = Math.floor(totalMins / 60);
     const minute = totalMins % 60;
     const endTotalMins = Math.min(totalMins + 60, 24 * 60 - 30);
@@ -208,8 +212,26 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
     });
   };
 
-  // Click existing entry → edit
-  const handleEntryClick = (e: React.MouseEvent, entry: TimeEntry) => {
+  // Click empty slot → create
+  const handleSlotClick = (e: React.MouseEvent<HTMLDivElement>, dayStr: string) => {
+    if ((e.target as HTMLElement).closest(".cal-entry")) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const slotIdx = Math.max(0, Math.min(Math.floor(y / SLOT_HEIGHT), TOTAL_SLOTS - 1));
+    openCreate(dayStr, slotIdx * 30);
+  };
+
+  // Keyboard on a day column → create at 9 AM (no pointer position to map).
+  const handleColKeyDown = (e: React.KeyboardEvent<HTMLDivElement>, dayStr: string) => {
+    if (e.target !== e.currentTarget) return; // let entry keys be handled by the entry
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      openCreate(dayStr, 9 * 60);
+    }
+  };
+
+  // Click or keyboard-activate existing entry → edit
+  const handleEntryClick = (e: React.MouseEvent | React.KeyboardEvent, entry: TimeEntry) => {
     e.stopPropagation();
     setModal({
       editingId: entry.id,
@@ -315,6 +337,10 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
                 key={ds}
                 className={`calendar__day-col calendar__day-col--clickable ${isToday ? "calendar__day-col--today" : ""}`}
                 onClick={(e) => handleSlotClick(e, ds)}
+                onKeyDown={(e) => handleColKeyDown(e, ds)}
+                role="button"
+                tabIndex={0}
+                aria-label={`Log time on ${day.toLocaleDateString("en", { weekday: "long", month: "long", day: "numeric" })}`}
                 title="Click to log time"
               >
                 {/* Slot lines */}
@@ -352,6 +378,15 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
                         borderLeft: `3px solid ${color}`,
                       }}
                       onClick={(e) => handleEntryClick(e, entry)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          handleEntryClick(e, entry);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`${running ? "Running session" : "Edit entry"}: ${entry.description || project?.name || "Untitled"}`}
                       title={running ? "Timer running" : "Click to edit"}
                     >
                       <div className="cal-entry__name" style={{ color }}>

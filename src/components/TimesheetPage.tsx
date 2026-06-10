@@ -41,12 +41,16 @@ function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" });
 }
 
-/** Default draft for a new manual entry: today, last full hour. */
+/** Default draft for a new manual entry: the last full hour. Between 00:00
+ *  and 00:59 that hour is yesterday 23:00–00:00 (midnight-end = next-day
+ *  midnight, which EntryModal understands). */
 function newEntryDraft(): EntryDraft {
   const now = new Date();
-  const startHour = Math.max(now.getHours() - 1, 0);
+  const isPastMidnight = now.getHours() === 0;
+  const date = isPastMidnight ? new Date(now.getTime() - 24 * 60 * 60 * 1000) : now;
+  const startHour = isPastMidnight ? 23 : now.getHours() - 1;
   return {
-    date: localDateStr(now),
+    date: localDateStr(date),
     startTime: `${String(startHour).padStart(2, "0")}:00`,
     endTime: `${String(now.getHours()).padStart(2, "0")}:00`,
     description: "",
@@ -155,6 +159,7 @@ export const TimesheetPage: React.FC<Props> = ({
           <input
             className="search-box__input"
             placeholder="Search description, project, task, ticket…"
+            aria-label="Search entries by description, project, task, or ticket"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -267,14 +272,18 @@ export const TimesheetPage: React.FC<Props> = ({
                           </span>
                         </div>
                       </div>
-                      <button
-                        className="entry-row__edit"
-                        onClick={() => openEdit(entry)}
-                        title="Edit entry"
-                        aria-label="Edit entry"
-                      >
-                        <IconPencil />
-                      </button>
+                      {/* Running sessions are owned by the timer bar — only
+                          completed entries are editable here. */}
+                      {entry.endTime && (
+                        <button
+                          className="entry-row__edit"
+                          onClick={() => openEdit(entry)}
+                          title="Edit entry"
+                          aria-label="Edit entry"
+                        >
+                          <IconPencil />
+                        </button>
+                      )}
                       <button
                         className="entry-row__delete"
                         onClick={() => onDelete(entry.id)}
