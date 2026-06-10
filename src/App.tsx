@@ -5,10 +5,12 @@ import { ReportsPage } from "./components/ReportsPage";
 import { ProjectsPage } from "./components/ProjectsPage";
 import { CalendarPage } from "./components/CalendarPage";
 import { IdleModal } from "./components/IdleModal";
+import { IconTimesheet, IconCalendar, IconChart, IconFolder } from "./components/Icons";
 import { useProjects, useTasks, useTimeEntries, useTimer } from "./hooks";
 import { useActivityTracker, useTimerSafetyMonitor, MAX_DURATION_MS } from "./hooks/useTimerSafety";
 import { initCurrentUser } from "./services/userService";
 import { ToastProvider, useToast } from "./contexts/ToastContext";
+import { localDateStr, localDateDaysAgo } from "./utils/dates";
 import logoUrl from "./everence-logo.png";
 
 import type { TimeEntry, CurrentUser } from "./types";
@@ -19,20 +21,32 @@ type Page = "timesheet" | "calendar" | "reports" | "projects";
 // the loaded window to widen via ensureRangeLoaded.
 const INITIAL_DAYS_LOADED = 90;
 
-function isoDaysAgo(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d.toISOString().split("T")[0];
-}
-
-function todayIso(): string {
-  return new Date().toISOString().split("T")[0];
-}
-
 interface IdleAlert {
   lastActiveAt: number;
   startTime: string;
 }
+
+const NAV_ITEMS: { key: Page; label: string; icon: React.ReactNode }[] = [
+  { key: "timesheet", label: "Timesheet", icon: <IconTimesheet /> },
+  { key: "calendar", label: "Calendar", icon: <IconCalendar /> },
+  { key: "reports", label: "Reports", icon: <IconChart /> },
+  { key: "projects", label: "Projects", icon: <IconFolder /> },
+];
+
+/** Skeleton shown only on the very first data load — shaped like the timesheet. */
+const PageSkeleton: React.FC = () => (
+  <div className="page-skeleton" aria-hidden="true">
+    <div className="skeleton skeleton--title" />
+    {[0, 1, 2].map((g) => (
+      <div key={g} className="page-skeleton__group">
+        <div className="skeleton skeleton--label" />
+        {[0, 1].map((r) => (
+          <div key={r} className="skeleton skeleton--row" />
+        ))}
+      </div>
+    ))}
+  </div>
+);
 
 const App: React.FC = () => {
   const [user, setUser] = useState<CurrentUser | null>(null);
@@ -64,8 +78,8 @@ const AppContent: React.FC = () => {
   const toast = useToast();
 
   const [loadedRange, setLoadedRange] = useState(() => ({
-    from: isoDaysAgo(INITIAL_DAYS_LOADED - 1),
-    to: todayIso(),
+    from: localDateDaysAgo(INITIAL_DAYS_LOADED - 1),
+    to: localDateStr(),
   }));
 
   // Pages call this when their UI needs data outside the currently loaded
@@ -90,6 +104,24 @@ const AppContent: React.FC = () => {
   );
 
   const { timer, elapsed, start, stop, stopAt, cancel, update } = useTimer(handleNewEntry);
+
+  // Delete with an undo window: the row disappears optimistically, and the
+  // toast lets the user re-create it (server-side it's a fresh record).
+  const deleteWithUndo = useCallback(async (id: string) => {
+    const snapshot = entries.find((e) => e.id === id);
+    try {
+      await deleteEntry(id);
+    } catch {
+      return; // deleteEntry already rolled back and toasted
+    }
+    if (snapshot) {
+      const { id: _omit, ...data } = snapshot;
+      toast("Entry deleted.", "info", {
+        label: "Undo",
+        onAction: () => { createEntry(data).catch(() => { /* toasted by hook */ }); },
+      });
+    }
+  }, [entries, deleteEntry, createEntry, toast]);
 
   const lastActivity = useActivityTracker();
 
@@ -155,23 +187,22 @@ const AppContent: React.FC = () => {
           <img src={logoUrl} alt="Everence" className="sidebar__logo-img" />
         </div>
         <nav className="sidebar__nav">
-          {(["timesheet", "calendar", "reports", "projects"] as Page[]).map((p) => (
+          {NAV_ITEMS.map(({ key, label, icon }) => (
             <button
-              key={p}
-              className={`sidebar__link ${page === p ? "sidebar__link--active" : ""}`}
-              onClick={() => setPage(p)}
+              key={key}
+              className={`sidebar__link ${page === key ? "sidebar__link--active" : ""}`}
+              onClick={() => setPage(key)}
+              title={label}
             >
-              <span className="sidebar__link-icon">
-                {p === "timesheet" ? "📋" : p === "calendar" ? "📅" : p === "reports" ? "📊" : "📁"}
-              </span>
-              {p.charAt(0).toUpperCase() + p.slice(1)}
+              <span className="sidebar__link-icon">{icon}</span>
+              <span className="sidebar__link-label">{label}</span>
             </button>
           ))}
         </nav>
         {timer.isRunning && (
           <div className="sidebar__running">
             <div className="sidebar__running-dot" />
-            <span>Timer running</span>
+            <span className="sidebar__running-label">Timer running</span>
           </div>
         )}
       </aside>
@@ -194,14 +225,15 @@ const AppContent: React.FC = () => {
 
         <div className="main__content">
           {loading ? (
-            <div className="loading">Loading…</div>
+            <PageSkeleton />
           ) : page === "timesheet" ? (
             <TimesheetPage
               entries={entries}
               projects={projects}
               tasks={tasks}
-              onDelete={deleteEntry}
+              onDelete={deleteWithUndo}
               onEdit={editEntry}
+              onCreate={createEntry}
               onEnsureRangeLoaded={ensureRangeLoaded}
             />
           ) : page === "calendar" ? (
@@ -211,7 +243,7 @@ const AppContent: React.FC = () => {
               tasks={tasks}
               onCreateEntry={createEntry}
               onEdit={editEntry}
-              onDelete={deleteEntry}
+              onDelete={deleteWithUndo}
               onEnsureRangeLoaded={ensureRangeLoaded}
             />
           ) : page === "reports" ? (

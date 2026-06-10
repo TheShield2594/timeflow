@@ -1,21 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { TimeEntry, Project, Task } from "../types";
-import { formatMinutes, parseRatioInput } from "../hooks";
+import { formatMinutes } from "../hooks";
+import { getCurrentUser } from "../services/userService";
+import { friendlyDate, localDateStr, toTimeInput } from "../utils/dates";
+import { EntryModal, EntryDraft, EntrySaveData } from "./EntryModal";
+import { IconClock, IconPencil, IconPlus, IconSearch, IconX } from "./Icons";
 import {
   DateRangeFilter,
   DateRangeState,
   resolveDateRange,
 } from "./DateRangeFilter";
-
-interface EditDraft {
-  description: string;
-  projectId: string;
-  taskId: string;
-  date: string;
-  startTime: string; // HH:MM
-  endTime: string;   // HH:MM
-  ratio: string;     // raw input; parsed on save
-}
 
 interface Props {
   entries: TimeEntry[];
@@ -23,10 +17,16 @@ interface Props {
   tasks: Task[];
   onDelete: (id: string) => void;
   onEdit: (id: string, data: Partial<TimeEntry>) => Promise<TimeEntry>;
+  onCreate: (data: Omit<TimeEntry, "id">) => Promise<TimeEntry>;
   onEnsureRangeLoaded?: (from: string, to: string) => void;
 }
 
 const TIMESHEET_PRESETS = ["7d", "30d", "90d", "thisMonth"] as const;
+
+interface ModalState {
+  editingId: string | null; // null = create
+  draft: EntryDraft;
+}
 
 function groupByDate(entries: TimeEntry[]): Map<string, TimeEntry[]> {
   const map = new Map<string, TimeEntry[]>();
@@ -41,26 +41,32 @@ function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" });
 }
 
-function toTimeInput(iso: string): string {
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+/** Default draft for a new manual entry: the last full hour. Between 00:00
+ *  and 00:59 that hour is yesterday 23:00–00:00 (midnight-end = next-day
+ *  midnight, which EntryModal understands). */
+function newEntryDraft(): EntryDraft {
+  const now = new Date();
+  const isPastMidnight = now.getHours() === 0;
+  const date = isPastMidnight ? new Date(now.getTime() - 24 * 60 * 60 * 1000) : now;
+  const startHour = isPastMidnight ? 23 : now.getHours() - 1;
+  return {
+    date: localDateStr(date),
+    startTime: `${String(startHour).padStart(2, "0")}:00`,
+    endTime: `${String(now.getHours()).padStart(2, "0")}:00`,
+    description: "",
+    projectId: "",
+    taskId: "",
+    jiraTicket: "",
+    ratio: "",
+  };
 }
 
-function friendlyDate(dateStr: string): string {
-  const dt = new Date(dateStr + "T00:00:00");
-  const today = new Date();
-  const yesterday = new Date();
-  yesterday.setDate(today.getDate() - 1);
-  if (dateStr === today.toISOString().split("T")[0]) return "Today";
-  if (dateStr === yesterday.toISOString().split("T")[0]) return "Yesterday";
-  return dt.toLocaleDateString("en", { weekday: "long", month: "long", day: "numeric" });
-}
-
-export const TimesheetPage: React.FC<Props> = ({ entries, projects, tasks, onDelete, onEdit, onEnsureRangeLoaded }) => {
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<EditDraft>({
-    description: "", projectId: "", taskId: "", date: "", startTime: "", endTime: "", ratio: "",
-  });
+export const TimesheetPage: React.FC<Props> = ({
+  entries, projects, tasks, onDelete, onEdit, onCreate, onEnsureRangeLoaded,
+}) => {
+  const [modal, setModal] = useState<ModalState | null>(null);
+  const [search, setSearch] = useState("");
+  const [projectFilter, setProjectFilter] = useState("");
   const [rangeState, setRangeState] = useState<DateRangeState>({
     preset: "30d",
     customFrom: "",
@@ -73,10 +79,18 @@ export const TimesheetPage: React.FC<Props> = ({ entries, projects, tasks, onDel
     onEnsureRangeLoaded?.(from, to);
   }, [from, to, onEnsureRangeLoaded]);
 
-  const filteredEntries = useMemo(
-    () => entries.filter((e) => e.date >= from && e.date <= to),
-    [entries, from, to]
-  );
+  const filteredEntries = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return entries.filter((e) => {
+      if (e.date < from || e.date > to) return false;
+      if (projectFilter && e.projectId !== projectFilter) return false;
+      if (!q) return true;
+      const project = projects.find((p) => p.id === e.projectId);
+      const task = tasks.find((t) => t.id === e.taskId);
+      return [e.description, project?.name, task?.name, e.jiraTicket]
+        .some((s) => s?.toLowerCase().includes(q));
+    });
+  }, [entries, from, to, search, projectFilter, projects, tasks]);
 
   const grouped = useMemo(() => groupByDate(filteredEntries), [filteredEntries]);
   const sortedDates = useMemo(
@@ -89,245 +103,203 @@ export const TimesheetPage: React.FC<Props> = ({ entries, projects, tasks, onDel
     [filteredEntries]
   );
 
-  const startEdit = (entry: TimeEntry) => {
-    setDraft({
-      description: entry.description || "",
-      projectId: entry.projectId,
-      taskId: entry.taskId || "",
-      date: entry.date,
-      startTime: toTimeInput(entry.startTime),
-      endTime: entry.endTime ? toTimeInput(entry.endTime) : "",
-      ratio: entry.ratio !== undefined ? String(entry.ratio) : "",
+  const openNew = () => setModal({ editingId: null, draft: newEntryDraft() });
+
+  const openEdit = (entry: TimeEntry) => {
+    setModal({
+      editingId: entry.id,
+      draft: {
+        date: entry.date,
+        startTime: toTimeInput(entry.startTime),
+        endTime: entry.endTime ? toTimeInput(entry.endTime) : "",
+        description: entry.description || "",
+        projectId: entry.projectId,
+        taskId: entry.taskId || "",
+        jiraTicket: entry.jiraTicket || "",
+        ratio: entry.ratio !== undefined ? String(entry.ratio) : "",
+      },
     });
-    setEditingId(entry.id);
   };
 
-  const saveEdit = async () => {
-    if (!editingId || !draft.projectId) return;
-    const startDt = new Date(`${draft.date}T${draft.startTime}:00`);
-    const endDt = draft.endTime ? new Date(`${draft.date}T${draft.endTime}:00`) : undefined;
-    const durationMinutes = endDt
-      ? Math.max(0, Math.round((endDt.getTime() - startDt.getTime()) / 60000))
-      : undefined;
-    const ratioNum = parseRatioInput(draft.ratio);
-    await onEdit(editingId, {
-      description: draft.description || undefined,
-      projectId: draft.projectId,
-      taskId: draft.taskId || undefined,
-      date: draft.date,
-      startTime: startDt.toISOString(),
-      endTime: endDt?.toISOString(),
-      durationMinutes,
-      ratio: Number.isFinite(ratioNum) ? ratioNum : undefined,
-    });
-    setEditingId(null);
+  const handleModalSave = async (data: EntrySaveData) => {
+    if (modal?.editingId) {
+      await onEdit(modal.editingId, data);
+    } else {
+      const user = getCurrentUser();
+      await onCreate({ ...data, userId: user.id, userDisplayName: user.displayName });
+    }
   };
 
-  const filter = (
-    <DateRangeFilter
-      presets={[...TIMESHEET_PRESETS]}
-      value={rangeState}
-      onChange={setRangeState}
-      info={
-        rangeState.preset === "custom" && rangeState.customFrom && rangeState.customTo
-          ? `${filteredEntries.length} entries · ${formatMinutes(totalMinutes)} total`
-          : undefined
-      }
-    />
-  );
-
-  if (filteredEntries.length === 0) {
-    return (
-      <div className="timesheet">
-        <div className="reports__header">
-          <h2 className="timesheet__title">Timesheet</h2>
-          {filter}
-        </div>
-        <div className="timesheet__empty">
-          <div className="timesheet__empty-icon">⏱</div>
-          <p>
-            {entries.length === 0
-              ? "No time entries yet. Start the timer to log your first session."
-              : "No entries in this range. Pick a wider window above."}
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const hasActiveFilter = search.trim() !== "" || projectFilter !== "";
 
   return (
     <div className="timesheet">
       <div className="reports__header">
         <h2 className="timesheet__title">Timesheet</h2>
-        {filter}
+        <DateRangeFilter
+          presets={[...TIMESHEET_PRESETS]}
+          value={rangeState}
+          onChange={setRangeState}
+          info={
+            rangeState.preset === "custom" && rangeState.customFrom && rangeState.customTo
+              ? `${filteredEntries.length} entries · ${formatMinutes(totalMinutes)} total`
+              : undefined
+          }
+          rightSlot={
+            <button className="btn-primary btn-icon" onClick={openNew}>
+              <IconPlus /> Add entry
+            </button>
+          }
+        />
       </div>
 
-      {sortedDates.map((date) => {
-        const dayEntries = grouped.get(date)!;
-        const dayTotal = dayEntries.reduce((s, e) => s + (e.durationMinutes || 0), 0);
+      <div className="timesheet__toolbar">
+        <div className="search-box">
+          <IconSearch className="search-box__icon" />
+          <input
+            className="search-box__input"
+            placeholder="Search description, project, task, ticket…"
+            aria-label="Search entries by description, project, task, or ticket"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {search && (
+            <button className="search-box__clear" onClick={() => setSearch("")} aria-label="Clear search">
+              <IconX size={13} />
+            </button>
+          )}
+        </div>
+        <select
+          className="timesheet__project-filter"
+          value={projectFilter}
+          onChange={(e) => setProjectFilter(e.target.value)}
+          aria-label="Filter by project"
+        >
+          <option value="">All projects</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+        <span className="timesheet__toolbar-total">{formatMinutes(totalMinutes)} total</span>
+      </div>
 
-        return (
-          <div key={date} className="timesheet__day">
-            <div className="timesheet__day-header">
-              <span className="timesheet__day-label">{friendlyDate(date)}</span>
-              <span className="timesheet__day-total">{formatMinutes(dayTotal)}</span>
-            </div>
+      {modal && (
+        <EntryModal
+          title={modal.editingId ? "Edit Entry" : "Add Entry"}
+          initial={modal.draft}
+          projects={projects}
+          tasks={tasks}
+          onSave={handleModalSave}
+          onDelete={modal.editingId ? () => { onDelete(modal.editingId!); setModal(null); } : undefined}
+          onClose={() => setModal(null)}
+        />
+      )}
 
-            <div className="timesheet__entries">
-              {dayEntries.map((entry) => {
-                const project = projects.find((p) => p.id === entry.projectId);
-                const task = tasks.find((t) => t.id === entry.taskId);
-                const isEditing = editingId === entry.id;
-                const draftTasks = tasks.filter((t) => t.projectId === draft.projectId);
+      {filteredEntries.length === 0 ? (
+        <div className="timesheet__empty">
+          <IconClock size={44} className="timesheet__empty-icon" />
+          <p>
+            {entries.length === 0
+              ? "No time entries yet. Start the timer or add one manually."
+              : hasActiveFilter
+                ? "Nothing matches these filters."
+                : "No entries in this range. Pick a wider window above."}
+          </p>
+          {entries.length === 0 && (
+            <button className="btn-primary btn-icon" onClick={openNew}>
+              <IconPlus /> Add your first entry
+            </button>
+          )}
+        </div>
+      ) : (
+        sortedDates.map((date) => {
+          const dayEntries = grouped.get(date)!;
+          const dayTotal = dayEntries.reduce((s, e) => s + (e.durationMinutes || 0), 0);
 
-                if (isEditing) {
+          return (
+            <div key={date} className="timesheet__day">
+              <div className="timesheet__day-header">
+                <span className="timesheet__day-label">{friendlyDate(date)}</span>
+                <span className="timesheet__day-total">{formatMinutes(dayTotal)}</span>
+              </div>
+
+              <div className="timesheet__entries">
+                {dayEntries.map((entry) => {
+                  const project = projects.find((p) => p.id === entry.projectId);
+                  const task = tasks.find((t) => t.id === entry.taskId);
+
                   return (
-                    <div key={entry.id} className="entry-edit-form">
-                      <input
-                        className="form-input"
-                        placeholder="Description (optional)"
-                        value={draft.description}
-                        onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
-                        autoFocus
+                    <div key={entry.id} className="entry-row">
+                      <div
+                        className="entry-row__accent"
+                        style={{ background: project?.color || "#6366f1" }}
                       />
-                      <div className="entry-edit-form__row">
-                        <select
-                          className="entry-edit-form__select"
-                          value={draft.projectId}
-                          onChange={(e) => setDraft((d) => ({ ...d, projectId: e.target.value, taskId: "" }))}
-                        >
-                          <option value="">Select project…</option>
-                          {projects.map((p) => (
-                            <option key={p.id} value={p.id}>{p.name}</option>
-                          ))}
-                        </select>
-                        <select
-                          className="entry-edit-form__select"
-                          value={draft.taskId}
-                          onChange={(e) => setDraft((d) => ({ ...d, taskId: e.target.value }))}
-                        >
-                          <option value="">No task</option>
-                          {draftTasks.map((t) => (
-                            <option key={t.id} value={t.id}>{t.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="entry-edit-form__row">
-                        <input
-                          type="date"
-                          className="entry-edit-form__time-input"
-                          value={draft.date}
-                          onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))}
-                        />
-                        <input
-                          type="time"
-                          className="entry-edit-form__time-input"
-                          value={draft.startTime}
-                          onChange={(e) => setDraft((d) => ({ ...d, startTime: e.target.value }))}
-                        />
-                        <span className="entry-edit-form__sep">–</span>
-                        <input
-                          type="time"
-                          className="entry-edit-form__time-input"
-                          value={draft.endTime}
-                          onChange={(e) => setDraft((d) => ({ ...d, endTime: e.target.value }))}
-                        />
-                      </div>
-                      <div className="entry-edit-form__row">
-                        <input
-                          type="number"
-                          step="1"
-                          min="0"
-                          className="entry-edit-form__time-input"
-                          placeholder="Ratio (optional)"
-                          value={draft.ratio}
-                          onChange={(e) => setDraft((d) => ({ ...d, ratio: e.target.value }))}
-                        />
-                      </div>
-                      <div className="entry-edit-form__actions">
-                        <button
-                          className="btn-primary"
-                          onClick={saveEdit}
-                          disabled={!draft.projectId}
-                        >
-                          Save
-                        </button>
-                        <button className="btn-ghost" onClick={() => setEditingId(null)}>
-                          Cancel
-                        </button>
-                        <button
-                          className="entry-edit-form__delete"
-                          onClick={() => { onDelete(entry.id); setEditingId(null); }}
-                        >
-                          Delete entry
-                        </button>
-                      </div>
-                    </div>
-                  );
-                }
-
-                return (
-                  <div key={entry.id} className="entry-row">
-                    <div
-                      className="entry-row__accent"
-                      style={{ background: project?.color || "#6366f1" }}
-                    />
-                    <div className="entry-row__body">
-                      <div className="entry-row__top">
-                        <span className="entry-row__desc">
-                          {entry.description || <em className="entry-row__no-desc">No description</em>}
-                        </span>
-                        <div className="entry-row__badges">
-                          {project && (
-                            <span
-                              className="badge"
-                              style={{ background: project.color + "22", color: project.color, border: `1px solid ${project.color}44` }}
-                            >
-                              {project.name}
-                            </span>
-                          )}
-                          {task && (
-                            <span className="badge badge--task">{task.name}</span>
-                          )}
-                          {entry.ratio !== undefined && (
-                            <span className="badge badge--task">Ratio: {entry.ratio}</span>
-                          )}
+                      <div className="entry-row__body">
+                        <div className="entry-row__top">
+                          <span className="entry-row__desc">
+                            {entry.description || <em className="entry-row__no-desc">No description</em>}
+                          </span>
+                          <div className="entry-row__badges">
+                            {project && (
+                              <span
+                                className="badge"
+                                style={{ background: project.color + "22", color: project.color, border: `1px solid ${project.color}44` }}
+                              >
+                                {project.name}
+                              </span>
+                            )}
+                            {task && (
+                              <span className="badge badge--task">{task.name}</span>
+                            )}
+                            {entry.jiraTicket && (
+                              <span className="badge badge--task">{entry.jiraTicket}</span>
+                            )}
+                            {entry.ratio !== undefined && (
+                              <span className="badge badge--task">Ratio: {entry.ratio}</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="entry-row__bottom">
+                          <span className="entry-row__times">
+                            {formatTime(entry.startTime)}
+                            {entry.endTime && <> – {formatTime(entry.endTime)}</>}
+                          </span>
+                          <span className="entry-row__duration">
+                            {entry.endTime
+                              ? formatMinutes(entry.durationMinutes ?? 0)
+                              : <span className="entry-row__running">Running…</span>
+                            }
+                          </span>
                         </div>
                       </div>
-                      <div className="entry-row__bottom">
-                        <span className="entry-row__times">
-                          {formatTime(entry.startTime)}
-                          {entry.endTime && <> – {formatTime(entry.endTime)}</>}
-                        </span>
-                        <span className="entry-row__duration">
-                          {entry.endTime
-                            ? formatMinutes(entry.durationMinutes ?? 0)
-                            : <span className="entry-row__running">● Running…</span>
-                          }
-                        </span>
-                      </div>
+                      {/* Running sessions are owned by the timer bar — only
+                          completed entries are editable here. */}
+                      {entry.endTime && (
+                        <button
+                          className="entry-row__edit"
+                          onClick={() => openEdit(entry)}
+                          title="Edit entry"
+                          aria-label="Edit entry"
+                        >
+                          <IconPencil />
+                        </button>
+                      )}
+                      <button
+                        className="entry-row__delete"
+                        onClick={() => onDelete(entry.id)}
+                        title="Delete entry"
+                        aria-label="Delete entry"
+                      >
+                        <IconX />
+                      </button>
                     </div>
-                    <button
-                      className="entry-row__edit"
-                      onClick={() => startEdit(entry)}
-                      title="Edit entry"
-                    >
-                      ✎
-                    </button>
-                    <button
-                      className="entry-row__delete"
-                      onClick={() => onDelete(entry.id)}
-                      title="Delete entry"
-                    >
-                      ×
-                    </button>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })
+      )}
     </div>
   );
 };

@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type { Project, Task } from "../types";
 import { formatElapsed, parseRatioInput } from "../hooks";
+import { IconCheck, IconPlay, IconStop, IconX } from "./Icons";
 
 const NEW_TASK_OPTION = "__new_task__";
 
@@ -35,6 +36,19 @@ export const TimerBar: React.FC<Props> = ({
 
   const projectTasks = tasks.filter((t) => t.projectId === (isRunning ? currentProjectId : selectedProject));
   const activeProject = projects.find((p) => p.id === (isRunning ? currentProjectId : selectedProject));
+
+  // When a session ends, clear the per-session fields so the bar doesn't
+  // resurrect stale pre-start text. The project stays selected — starting
+  // another session on the same project is the common case.
+  const wasRunning = useRef(isRunning);
+  useEffect(() => {
+    if (wasRunning.current && !isRunning) {
+      setDesc("");
+      setRatioInput("");
+      setSelectedTask("");
+    }
+    wasRunning.current = isRunning;
+  }, [isRunning]);
 
   const parseRatio = parseRatioInput;
 
@@ -169,15 +183,17 @@ export const TimerBar: React.FC<Props> = ({
                     onClick={handleCreateTask}
                     disabled={!newTaskName.trim() || savingTask}
                     title="Create task"
+                    aria-label="Create task"
                   >
-                    ✓
+                    <IconCheck />
                   </button>
                   <button
                     className="timer-bar__new-task-cancel"
                     onClick={() => { setAddingNewTask(false); setNewTaskName(""); }}
                     title="Cancel"
+                    aria-label="Cancel"
                   >
-                    ×
+                    <IconX />
                   </button>
                 </div>
               )}
@@ -199,12 +215,12 @@ export const TimerBar: React.FC<Props> = ({
             <span className="timer-bar__elapsed">{formatElapsed(elapsed)}</span>
           )}
           <button
-            className={`timer-bar__btn ${isRunning ? "timer-bar__btn--stop" : "timer-bar__btn--start"}`}
+            className={`timer-bar__btn btn-icon ${isRunning ? "timer-bar__btn--stop" : "timer-bar__btn--start"}`}
             onClick={isRunning ? onStop : handleStart}
             disabled={!isRunning && !selectedProject}
             title={isRunning ? "Stop timer (Ctrl/Cmd + .)" : "Start timer (Ctrl/Cmd + .)"}
           >
-            {isRunning ? "■ Stop" : "▶ Start"}
+            {isRunning ? <><IconStop /> Stop</> : <><IconPlay /> Start</>}
           </button>
         </div>
       </div>

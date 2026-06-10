@@ -1,4 +1,5 @@
 import type { TimeEntry, Project, Task } from "../types";
+import { localDateStr } from "../utils/dates";
 
 function escapeCSV(value: string | number | undefined | null): string {
   if (value === null || value === undefined) return "";
@@ -36,6 +37,8 @@ export function exportToCSV(
     "Project",
     "Task",
     "Description",
+    "Jira Ticket",
+    "Ratio",
     "User",
   ];
 
@@ -58,6 +61,8 @@ export function exportToCSV(
         escapeCSV(project?.name),
         escapeCSV(task?.name),
         escapeCSV(e.description),
+        escapeCSV(e.jiraTicket),
+        escapeCSV(e.ratio),
         escapeCSV(e.userDisplayName),
       ].join(",");
     });
@@ -75,7 +80,7 @@ export function exportToCSV(
 }
 
 export function buildExportFilename(from?: string, to?: string): string {
-  const today = new Date().toISOString().split("T")[0];
+  const today = localDateStr();
   if (from && to) return `timeflow-${from}-to-${to}.csv`;
   return `timeflow-${today}.csv`;
 }

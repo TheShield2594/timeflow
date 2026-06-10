@@ -3,6 +3,7 @@ import type { Project, Task, TimeEntry, TimerState } from "../types";
 import * as svc from "../services/dataverseService";
 import { getCurrentUser } from "../services/userService";
 import { useToast } from "../contexts/ToastContext";
+import { localDateStr } from "../utils/dates";
 
 // Stable identifier prefix for optimistic records — replaced once the server
 // confirms the write. Useful in case anything looks for "real" IDs.
@@ -105,6 +106,9 @@ export function useTasks() {
 // ---------------------------------------------------------------------------
 export function useTimeEntries(from?: string, to?: string) {
   const [entries, setEntries] = useState<TimeEntry[]>([]);
+  // `loading` is true only until the FIRST load completes. Later refreshes
+  // (range widening, post-save refetch) keep showing the data we already
+  // have instead of blanking the page.
   const [loading, setLoading] = useState(true);
   const toast = useToast();
 
@@ -113,14 +117,21 @@ export function useTimeEntries(from?: string, to?: string) {
   const entriesRef = useRef<TimeEntry[]>([]);
   useEffect(() => { entriesRef.current = entries; }, [entries]);
 
+  // Monotonic sequence so an older in-flight refresh can't overwrite the
+  // result of a newer one (range changes can fire requests back-to-back).
+  const seqRef = useRef(0);
+
   const refresh = useCallback(async () => {
-    setLoading(true);
+    const seq = ++seqRef.current;
     try {
-      setEntries(await svc.getTimeEntries({ from, to }));
+      const data = await svc.getTimeEntries({ from, to });
+      if (seq !== seqRef.current) return;
+      setEntries(data);
     } catch (err) {
+      if (seq !== seqRef.current) return;
       toast(`Could not load entries: ${errMsg(err)}`, "error");
     } finally {
-      setLoading(false);
+      if (seq === seqRef.current) setLoading(false);
     }
   }, [from, to, toast]);
 
@@ -252,7 +263,10 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
         endTime: endIso,
         durationMinutes,
         ratio: timer.ratio,
-        date: timer.startTime.split("T")[0],
+        // Stamp the LOCAL calendar day the session started — startTime is a
+        // UTC ISO string, so splitting it would shift evening sessions to
+        // the next day for users west of UTC.
+        date: localDateStr(new Date(timer.startTime)),
         userId: user.id,
         userDisplayName: user.displayName,
       });

@@ -38,11 +38,14 @@ const SETS = {
 
 const ACCEPT = "application/json";
 const PREFER_RETURN = "return=representation";
-// PA-Dev org URL. Required by every *WithOrganization SDK call because the
+// Org URL. Required by every *WithOrganization SDK call because the
 // "current environment" variants (CreateRecord, ListRecords, ...) fail with
 // "Invalid organization URL 'null' provided" when the connector can't infer
-// the org from the connection. See timeflow-dataverse-schema memory.
-const ORG_URL = "https://org010c8ca4.crm.dynamics.com";
+// the org from the connection. Override per environment with
+// VITE_DATAVERSE_ORG_URL in a .env file; falls back to the PA-Dev org.
+const ORG_URL: string =
+  (import.meta.env.VITE_DATAVERSE_ORG_URL as string | undefined)?.trim() ||
+  "https://org010c8ca4.crm.dynamics.com";
 
 // ---------------------------------------------------------------------------
 // SDK result helpers — every call returns { success, data, error? }; unwrap
@@ -61,6 +64,55 @@ function unwrap<T>(result: { success: boolean; data: T; error?: unknown }, op: s
 // Each item is wrapped by the SDK as `{ dynamicProperties: { ...row } }`.
 interface DynItem { dynamicProperties?: Raw }
 interface ListEnvelope { value?: DynItem[]; "@odata.nextLink"?: string }
+
+// Dataverse caps list responses (default 5,000 rows) and signals more data via
+// @odata.nextLink. Pull the $skiptoken out of that link so we can keep paging
+// through the SDK, which accepts $skiptoken but not a raw nextLink URL.
+function extractSkipToken(nextLink?: string): string | undefined {
+  if (!nextLink) return undefined;
+  try {
+    return new URL(nextLink).searchParams.get("$skiptoken") ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// Hard ceiling so a misbehaving nextLink can never loop forever.
+const MAX_PAGES = 20;
+
+async function listAllPages(entitySet: string, filter: string | undefined, orderby: string): Promise<Raw[]> {
+  const rows: Raw[] = [];
+  let skiptoken: string | undefined;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const result = await MicrosoftDataverseService.ListRecordsWithOrganization(
+      ORG_URL,
+      entitySet,
+      undefined, // prefer
+      ACCEPT,
+      undefined, // x-ms-odata-metadata-full
+      undefined, // MSCRM.IncludeMipSensitivityLabel
+      undefined, // $select
+      filter,
+      orderby,
+      undefined, // $expand
+      undefined, // fetchXml
+      undefined, // $top
+      skiptoken,
+    );
+    const env = unwrap(result, `List ${entitySet}`) as unknown as ListEnvelope;
+    for (const item of env?.value ?? []) rows.push(unwrapRow(item));
+    skiptoken = extractSkipToken(env?.["@odata.nextLink"]);
+    if (!skiptoken) break;
+  }
+  if (skiptoken) {
+    // Fail loudly rather than silently return a partial dataset — totals and
+    // exports computed from truncated data would be wrong without warning.
+    throw new Error(
+      `Loading ${entitySet} exceeded ${MAX_PAGES} pages; narrow the date range and try again.`
+    );
+  }
+  return rows;
+}
 
 // The SDK wraps Dataverse rows (both list items and create/update responses)
 // in a `dynamicProperties` object. Peel that off so the mappers see the row.
@@ -228,19 +280,8 @@ export async function getProjects(): Promise<Project[]> {
       .filter((p) => p.isActive)
       .sort((a, b) => a.name.localeCompare(b.name));
   }
-  const result = await MicrosoftDataverseService.ListRecordsWithOrganization(
-    ORG_URL,
-    SETS.projects,
-    undefined, // prefer
-    ACCEPT,
-    undefined, // x-ms-odata-metadata-full
-    undefined, // MSCRM.IncludeMipSensitivityLabel
-    undefined, // $select
-    "statecode eq 0",
-    "ever_name asc",
-  );
-  const env = unwrap(result, "List projects") as unknown as ListEnvelope;
-  return (env?.value ?? []).map((r) => mapProject(unwrapRow(r)));
+  const rows = await listAllPages(SETS.projects, "statecode eq 0", "ever_name asc");
+  return rows.map(mapProject);
 }
 
 export async function createProject(data: Omit<Project, "id" | "createdAt">): Promise<Project> {
@@ -291,38 +332,16 @@ export async function getTasksForProject(projectId: string): Promise<Task[]> {
   if (!isPowerAppsHost()) {
     return load<Task>(STORAGE_KEYS.tasks).filter((t) => t.projectId === projectId && t.isActive);
   }
-  const result = await MicrosoftDataverseService.ListRecordsWithOrganization(
-    ORG_URL,
-    SETS.tasks,
-    undefined,
-    ACCEPT,
-    undefined,
-    undefined,
-    undefined,
-    `statecode eq 0 and _ever_project_value eq ${projectId}`,
-    "ever_name asc",
-  );
-  const env = unwrap(result, "List tasks") as unknown as ListEnvelope;
-  return (env?.value ?? []).map((r) => mapTask(unwrapRow(r)));
+  const rows = await listAllPages(SETS.tasks, `statecode eq 0 and _ever_project_value eq ${projectId}`, "ever_name asc");
+  return rows.map(mapTask);
 }
 
 export async function getAllTasks(): Promise<Task[]> {
   if (!isPowerAppsHost()) {
     return load<Task>(STORAGE_KEYS.tasks).filter((t) => t.isActive);
   }
-  const result = await MicrosoftDataverseService.ListRecordsWithOrganization(
-    ORG_URL,
-    SETS.tasks,
-    undefined,
-    ACCEPT,
-    undefined,
-    undefined,
-    undefined,
-    "statecode eq 0",
-    "ever_name asc",
-  );
-  const env = unwrap(result, "List tasks") as unknown as ListEnvelope;
-  return (env?.value ?? []).map((r) => mapTask(unwrapRow(r)));
+  const rows = await listAllPages(SETS.tasks, "statecode eq 0", "ever_name asc");
+  return rows.map(mapTask);
 }
 
 export async function createTask(data: Omit<Task, "id">): Promise<Task> {
@@ -363,25 +382,13 @@ export async function getTimeEntries(opts: { from?: string; to?: string } = {}):
   if (opts.from) filters.push(`ever_date ge ${opts.from}`);
   if (opts.to) filters.push(`ever_date le ${opts.to}`);
   const filterStr = filters.length ? filters.join(" and ") : undefined;
-  const result = await MicrosoftDataverseService.ListRecordsWithOrganization(
-    ORG_URL,
-    SETS.entries,
-    undefined,
-    ACCEPT,
-    undefined,
-    undefined,
-    undefined,
-    filterStr,
-    "ever_starttime desc",
-    // No $expand for owner — userDisplayName is filled in below from the
-    // current user when ids match, which covers this single-user app.
-  );
-  const env = unwrap(result, "List entries") as unknown as ListEnvelope;
-  const me = user;
-  return (env?.value ?? []).map((r) => {
-    const entry = mapEntry(unwrapRow(r));
-    if (!entry.userDisplayName && entry.userId === me.id) {
-      entry.userDisplayName = me.displayName;
+  // No $expand for owner — userDisplayName is filled in below from the
+  // current user when ids match, which covers this single-user app.
+  const rows = await listAllPages(SETS.entries, filterStr, "ever_starttime desc");
+  return rows.map((r) => {
+    const entry = mapEntry(r);
+    if (!entry.userDisplayName && entry.userId === user.id) {
+      entry.userDisplayName = user.displayName;
     }
     return entry;
   });

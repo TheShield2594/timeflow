@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import type { Project, Task } from "../types";
 import { formatMinutes, parseRatioInput } from "../hooks";
+import { IconCheck, IconPlus, IconX } from "./Icons";
 
 interface Props {
   projects: Project[];
@@ -87,8 +88,8 @@ export const ProjectsPage: React.FC<Props> = ({
     <div className="projects-page">
       <div className="projects-page__header">
         <h2 className="projects-page__title">Projects</h2>
-        <button className="btn-primary" onClick={startNew}>
-          + New Project
+        <button className="btn-primary btn-icon" onClick={startNew}>
+          <IconPlus /> New Project
         </button>
       </div>
 
@@ -133,6 +134,7 @@ export const ProjectsPage: React.FC<Props> = ({
                 className={`color-picker__swatch ${draft.color === c ? "color-picker__swatch--active" : ""}`}
                 style={{ background: c }}
                 onClick={() => setDraft((d) => d && ({ ...d, color: c }))}
+                aria-label={`Color ${c}`}
               />
             ))}
           </div>
@@ -193,12 +195,12 @@ export const ProjectsPage: React.FC<Props> = ({
                         onKeyDown={(e) => e.key === "Enter" && handleAddTask(project.id)}
                         autoFocus
                       />
-                      <button className="inline-task-form__ok" onClick={() => handleAddTask(project.id)}>✓</button>
-                      <button className="inline-task-form__cancel" onClick={() => setAddingTaskFor(null)}>×</button>
+                      <button className="inline-task-form__ok" onClick={() => handleAddTask(project.id)} aria-label="Add task"><IconCheck size={14} /></button>
+                      <button className="inline-task-form__cancel" onClick={() => setAddingTaskFor(null)} aria-label="Cancel"><IconX size={14} /></button>
                     </div>
                   ) : (
                     <button className="task-chip task-chip--add" onClick={() => { setAddingTaskFor(project.id); setNewTaskName(""); }}>
-                      + Task
+                      <IconPlus size={11} /> Task
                     </button>
                   )}
                 </div>
