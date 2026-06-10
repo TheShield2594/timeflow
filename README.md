@@ -9,15 +9,19 @@ Tracks time against projects and tasks, stores data in Microsoft Dataverse, and 
 
 | Feature | Status |
 |---|---|
-| ▶ / ■ Timer (start / stop) | ✅ |
+| Timer (start / stop, Ctrl/Cmd + .) | ✅ |
 | Project & task tagging | ✅ |
-| Timesheet view (grouped by day) | ✅ |
-| Reports dashboard (daily bar chart, project %, top tasks) | ✅ |
-| KPI strip (total, daily avg, sessions, projects) | ✅ |
+| Timesheet view (grouped by day, search + project filter) | ✅ |
+| Manual entry creation (timesheet + calendar click-to-log) | ✅ |
+| Week calendar (24h grid, overlap layout, running session) | ✅ |
+| Reports dashboard (daily/weekly bar chart, project %, top tasks) | ✅ |
+| KPI strip (total, avg per active day, sessions, projects) | ✅ |
 | Projects management (create projects + tasks) | ✅ |
 | Timer persists across page refresh | ✅ |
-| Per-user timer & data scoping | ✅ |
-| Dataverse backend wired (window.PowerApps connector) | ✅ |
+| Idle detection + 12h auto-stop safety net | ✅ |
+| Delete with Undo | ✅ |
+| CSV export (incl. Jira ticket + ratio) | ✅ |
+| Dataverse backend wired (@microsoft/power-apps SDK) | ✅ |
 
 ---
 
@@ -52,53 +56,62 @@ pac auth create --url https://YOUR_ORG.crm.dynamics.com
 
 ### Step 2 — Create Dataverse tables
 
-In your Power Apps environment, create these tables (or use the Dataverse web UI / import a solution):
+The app expects these tables (logical names singular, entity-set names get the
+`-es` pluralization, e.g. `ever_projects` → `ever_projectses`):
 
-**Table: cr_projects**
+**Table: ever_projects**
 | Column | Type | Notes |
 |---|---|---|
-| cr_name | Text | Required |
-| cr_color | Text | Hex color e.g. #6366f1 |
-| cr_description | Text (multiline) | Optional |
-| cr_ratio | Decimal | Optional — default ratio for new entries |
-| cr_isactive | Boolean | Default: true |
+| ever_name | Text | Required |
+| ever_color | Text | Hex color e.g. #719500 |
+| ever_description | Text (multiline) | Optional |
+| ever_ratio | Decimal | Optional — default ratio for new entries |
+| ever_jiraticket | Text | Optional |
 
-**Table: cr_tasks**
+**Table: ever_workitems** (tasks)
 | Column | Type | Notes |
 |---|---|---|
-| cr_name | Text | Required |
-| cr_projectid | Lookup → cr_projects | Required |
-| cr_description | Text | Optional |
-| cr_isactive | Boolean | Default: true |
+| ever_name | Text | Required |
+| ever_project | Lookup → ever_projects | Required |
+| ever_description | Text | Optional |
 
-**Table: cr_time_entries**
+**Table: ever_timeentries**
 | Column | Type | Notes |
 |---|---|---|
-| cr_projectid | Lookup → cr_projects | Required |
-| cr_taskid | Lookup → cr_tasks | Optional |
-| cr_description | Text | Optional |
-| cr_starttime | DateTime | Required |
-| cr_endtime | DateTime | Optional (null = running) |
-| cr_durationminutes | Whole Number | Optional |
-| cr_ratio | Decimal | Optional |
-| cr_date | Date Only | Required |
-| cr_userid | Text | Required — stamps the owning user (Entra ID) |
-| cr_userdisplayname | Text | Required — cached display name for reporting |
+| ever_project | Lookup → ever_projects | Required |
+| ever_workitem | Lookup → ever_workitems | Optional |
+| ever_description | Text | Optional |
+| ever_starttime | DateTime | Required |
+| ever_endtime | DateTime | Optional (null = running) |
+| ever_durationminutes | Whole Number | Optional |
+| ever_ratio | Decimal | Optional |
+| ever_jiraticket | Text | Optional |
+| ever_date | Date Only | Required |
+| ever_userid | Text | Stamped with the Entra ID object id on write |
 
-### Step 3 — (Optional) Adjust the Dataverse field mapping
+Active/inactive state uses the standard Dataverse `statecode` column.
 
-`src/services/dataverseService.ts` is already wired against
-`window.PowerApps.Connectors.MicrosoftDataverse` using OData-style queries and
-the `@odata.bind` form for lookup writes. If your Power Apps Code App SDK
-exposes a different convention (e.g., bare GUID lookup writes, or different
-primary-key column naming), tweak the `mapXxx` / `xxxToDataverse` helpers in
-that file — the rest of the app does not depend on those details.
+> **Row security matters.** The app does NOT filter entries by `ever_userid`
+> on reads (the SDK has returned inconsistent user ids across sessions).
+> Per-user data isolation relies on Dataverse **owner-based row security** —
+> make sure the `ever_timeentries` table is configured with user-level
+> ownership and user-scope read privileges, or every user will see all rows.
 
-User identity is resolved by `src/services/userService.ts`. It prefers
-`window.PowerApps.userInfo`, falls back to the `Office365Users.MyProfile`
-connector, and finally to a persistent local-dev user when neither is present.
-Time entries are filtered server-side by `cr_userid` so each user only sees
-their own records.
+### Step 3 — (Optional) Point at a different environment
+
+`src/services/dataverseService.ts` talks to Dataverse through the
+`@microsoft/power-apps` SDK code generated in `src/generated/`. The org URL
+defaults to the dev environment and can be overridden with
+`VITE_DATAVERSE_ORG_URL` in a `.env` file.
+
+Lookup writes use the `@odata.bind` form with entity-set paths
+(`ever_project@odata.bind: /ever_projectses(<guid>)`); reads surface lookups
+as `_ever_project_value`. The mapping lives in the `mapXxx` /
+`xxxToDataverse` helpers — the rest of the app does not depend on those
+details.
+
+User identity is resolved by `src/services/userService.ts` via the SDK's
+`getContext()`, with a persistent local-dev fallback for `npm run dev`.
 
 ### Step 4 — Build and push
 ```bash

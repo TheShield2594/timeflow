@@ -1,4 +1,5 @@
 import React from "react";
+import { localDateStr } from "../utils/dates";
 
 export type DateRangePreset = "7d" | "30d" | "90d" | "thisMonth" | "all" | "custom";
 
@@ -25,7 +26,7 @@ const PRESET_LABEL: Record<DateRangePreset, string> = {
 
 export function resolveDateRange(state: DateRangeState): { from: string; to: string } {
   const today = new Date();
-  const todayStr = today.toISOString().split("T")[0];
+  const todayStr = localDateStr(today);
 
   if (state.preset === "custom") {
     return {
@@ -43,7 +44,7 @@ export function resolveDateRange(state: DateRangeState): { from: string; to: str
   else if (state.preset === "90d") from.setDate(from.getDate() - 89);
   else if (state.preset === "thisMonth") from.setDate(1);
 
-  return { from: from.toISOString().split("T")[0], to: todayStr };
+  return { from: localDateStr(from), to: todayStr };
 }
 
 interface Props {

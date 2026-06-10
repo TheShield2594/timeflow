@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { formatElapsed } from "../hooks";
 
 interface Props {
@@ -14,6 +14,15 @@ function timeOfDay(ms: number): string {
 }
 
 export const IdleModal: React.FC<Props> = ({ lastActiveAt, startTime, onTrim, onKeep, onDiscard }) => {
+  // Escape = "keep running" — the least destructive choice.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onKeep();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onKeep]);
+
   const idleSeconds = Math.floor((Date.now() - lastActiveAt) / 1000);
   const sessionSeconds = Math.floor((lastActiveAt - new Date(startTime).getTime()) / 1000);
 

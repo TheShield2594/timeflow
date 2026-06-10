@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import type { TimeEntry, Project, Task } from "../types";
 import { formatMinutes } from "../hooks";
 import { exportToCSV, buildExportFilename } from "../services/csvExport";
+import { localDateStr } from "../utils/dates";
+import { IconDownload } from "./Icons";
 import {
   DateRangeFilter,
   DateRangeState,
@@ -17,16 +19,26 @@ interface Props {
 
 function getDaysInRange(from: string, to: string): string[] {
   const days: string[] = [];
-  const cur = new Date(from);
-  const end = new Date(to);
+  const cur = new Date(from + "T00:00:00");
+  const end = new Date(to + "T00:00:00");
   while (cur <= end) {
-    days.push(cur.toISOString().split("T")[0]);
+    days.push(localDateStr(cur));
     cur.setDate(cur.getDate() + 1);
   }
   return days;
 }
 
+/** Monday of the week containing the given local date string. */
+function weekStart(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return localDateStr(d);
+}
+
 const REPORTS_PRESETS = ["7d", "30d", "thisMonth"] as const;
+
+// Past this many days, daily bars become unreadable — bucket by week instead.
+const WEEKLY_BUCKET_THRESHOLD = 35;
 
 export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, onEnsureRangeLoaded }) => {
   const [rangeState, setRangeState] = useState<DateRangeState>({
@@ -75,17 +87,36 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, onEnsur
       .sort((a, b) => b.minutes - a.minutes);
   }, [filtered, projects, totalMinutes]);
 
-  // Daily totals for bar chart
+  // Bar chart: daily bars for short ranges, weekly buckets for long ones.
   const days = useMemo(() => getDaysInRange(from, to), [from, to]);
-  const dailyTotals = useMemo(() => {
-    const map = new Map<string, number>();
-    filtered.forEach((e) => {
-      map.set(e.date, (map.get(e.date) || 0) + (e.durationMinutes || 0));
-    });
-    return days.map((d) => ({ date: d, minutes: map.get(d) || 0 }));
-  }, [filtered, days]);
+  const useWeekly = days.length > WEEKLY_BUCKET_THRESHOLD;
 
-  const maxDaily = useMemo(() => Math.max(...dailyTotals.map((d) => d.minutes), 1), [dailyTotals]);
+  const chartData = useMemo(() => {
+    const byDate = new Map<string, number>();
+    filtered.forEach((e) => {
+      byDate.set(e.date, (byDate.get(e.date) || 0) + (e.durationMinutes || 0));
+    });
+    if (!useWeekly) {
+      return days.map((d) => ({ key: d, minutes: byDate.get(d) || 0, weekly: false }));
+    }
+    const byWeek = new Map<string, number>();
+    days.forEach((d) => {
+      const wk = weekStart(d);
+      byWeek.set(wk, (byWeek.get(wk) || 0) + (byDate.get(d) || 0));
+    });
+    return [...byWeek.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([wk, minutes]) => ({ key: wk, minutes, weekly: true }));
+  }, [filtered, days, useWeekly]);
+
+  const maxBar = useMemo(() => Math.max(...chartData.map((d) => d.minutes), 1), [chartData]);
+
+  // Days that actually have logged time — the average people expect.
+  const activeDays = useMemo(() => {
+    const set = new Set<string>();
+    filtered.forEach((e) => set.add(e.date));
+    return set.size;
+  }, [filtered]);
 
   // Per-task breakdown
   const taskBreakdown = useMemo(() => {
@@ -104,8 +135,9 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, onEnsur
       .slice(0, 8);
   }, [filtered, tasks, projects]);
 
-  const shortDate = (d: string) => {
+  const shortDate = (d: string, weekly: boolean) => {
     const dt = new Date(d + "T00:00:00");
+    if (weekly) return dt.toLocaleDateString("en", { month: "short", day: "numeric" });
     return dt.toLocaleDateString("en", { weekday: "short", month: "numeric", day: "numeric" });
   };
 
@@ -124,12 +156,12 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, onEnsur
           }
           rightSlot={
             <button
-              className={`export-btn ${exporting ? "export-btn--loading" : ""}`}
+              className={`export-btn btn-icon ${exporting ? "export-btn--loading" : ""}`}
               onClick={handleExport}
               disabled={filtered.length === 0 || exporting}
               title="Export visible entries to CSV"
             >
-              {exporting ? "Exporting…" : "↓ Export CSV"}
+              <IconDownload /> {exporting ? "Exporting…" : "Export CSV"}
             </button>
           }
         />
@@ -142,8 +174,8 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, onEnsur
           <div className="kpi-card__value">{formatMinutes(totalMinutes)}</div>
         </div>
         <div className="kpi-card">
-          <div className="kpi-card__label">Daily average</div>
-          <div className="kpi-card__value">{formatMinutes(Math.round(totalMinutes / Math.max(days.length, 1)))}</div>
+          <div className="kpi-card__label">Avg per active day</div>
+          <div className="kpi-card__value">{formatMinutes(Math.round(totalMinutes / Math.max(activeDays, 1)))}</div>
         </div>
         <div className="kpi-card">
           <div className="kpi-card__label">Sessions logged</div>
@@ -156,20 +188,20 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, onEnsur
       </div>
 
       <div className="reports__grid">
-        {/* Daily bar chart */}
+        {/* Activity bar chart */}
         <div className="report-card report-card--wide">
-          <h3 className="report-card__title">Daily Activity</h3>
+          <h3 className="report-card__title">{useWeekly ? "Weekly Activity" : "Daily Activity"}</h3>
           <div className="bar-chart">
-            {dailyTotals.map(({ date, minutes }) => (
-              <div key={date} className="bar-chart__col">
+            {chartData.map(({ key, minutes, weekly }) => (
+              <div key={key} className="bar-chart__col">
                 <div className="bar-chart__bar-wrap">
                   <div
                     className="bar-chart__bar"
-                    style={{ height: `${Math.max((minutes / maxDaily) * 100, minutes > 0 ? 4 : 0)}%` }}
+                    style={{ height: `${Math.max((minutes / maxBar) * 100, minutes > 0 ? 4 : 0)}%` }}
                     title={formatMinutes(minutes)}
                   />
                 </div>
-                <div className="bar-chart__label">{shortDate(date)}</div>
+                <div className="bar-chart__label">{shortDate(key, weekly)}</div>
               </div>
             ))}
           </div>

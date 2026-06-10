@@ -1,6 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { TimeEntry, Project, Task } from "../types";
 import { getCurrentUser } from "../services/userService";
+import { localDateStr, minutesOfDay, toTimeInput } from "../utils/dates";
+import { formatMinutes } from "../hooks";
+import { EntryModal, EntryDraft, EntrySaveData } from "./EntryModal";
+import { IconChevronLeft, IconChevronRight } from "./Icons";
 
 interface Props {
   entries: TimeEntry[];
@@ -12,23 +16,19 @@ interface Props {
   onEnsureRangeLoaded?: (from: string, to: string) => void;
 }
 
-interface ModalDraft {
-  editingId: string | null; // null = create, string = edit
-  date: string;
-  startTime: string; // HH:MM
-  endTime: string;   // HH:MM
-  description: string;
-  projectId: string;
-  taskId: string;
-  jiraTicket: string;
+interface ModalState {
+  editingId: string | null; // null = create
+  draft: EntryDraft;
 }
 
-// Hours displayed: 7 AM to 9 PM
-const START_HOUR = 7;
-const END_HOUR = 21;
+// Full 24h grid; we auto-scroll to the workday on mount so early/late entries
+// are never silently hidden.
 const SLOT_HEIGHT = 36; // px per 30-min slot
 const SLOTS_PER_HOUR = 2;
-const TOTAL_SLOTS = (END_HOUR - START_HOUR) * SLOTS_PER_HOUR;
+const TOTAL_SLOTS = 24 * SLOTS_PER_HOUR;
+const PX_PER_MIN = SLOT_HEIGHT / 30;
+const SCROLL_TO_HOUR = 7;
+const MIN_ENTRY_PX = 22;
 
 function getWeekDays(anchor: Date): Date[] {
   const days: Date[] = [];
@@ -42,47 +42,77 @@ function getWeekDays(anchor: Date): Date[] {
   return days;
 }
 
-function toDateStr(d: Date): string {
-  return d.toISOString().split("T")[0];
-}
-
-function slotIndex(isoTime: string): number {
-  const d = new Date(isoTime);
-  return (d.getHours() - START_HOUR) * SLOTS_PER_HOUR + (d.getMinutes() >= 30 ? 1 : 0);
-}
-
-function slotCount(startIso: string, endIso: string): number {
-  const diffMins = (new Date(endIso).getTime() - new Date(startIso).getTime()) / 60000;
-  return Math.max(1, Math.round(diffMins / 30));
-}
-
 function formatHour(h: number): string {
   const suffix = h >= 12 ? "PM" : "AM";
   const display = h > 12 ? h - 12 : h === 0 ? 12 : h;
   return `${display} ${suffix}`;
 }
 
-function toTimeInput(iso: string): string {
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+interface Positioned {
+  entry: TimeEntry;
+  startMin: number;
+  endMin: number;
+  running: boolean;
+  col: number;
+  cols: number;
+}
+
+/**
+ * Assign side-by-side columns to overlapping entries (Outlook-style).
+ * Entries are clustered by transitive overlap; within a cluster each entry
+ * takes the first column whose previous occupant has ended.
+ */
+function layoutDay(items: Omit<Positioned, "col" | "cols">[]): Positioned[] {
+  const sorted = [...items].sort((a, b) => a.startMin - b.startMin || b.endMin - a.endMin);
+  const result: Positioned[] = [];
+  let cluster: Positioned[] = [];
+  let colEnds: number[] = [];
+  let clusterEnd = -1;
+
+  const flush = () => {
+    const n = Math.max(colEnds.length, 1);
+    cluster.forEach((p) => { p.cols = n; });
+    cluster = [];
+    colEnds = [];
+  };
+
+  for (const item of sorted) {
+    if (cluster.length > 0 && item.startMin >= clusterEnd) flush();
+    let col = colEnds.findIndex((end) => end <= item.startMin);
+    if (col === -1) {
+      col = colEnds.length;
+      colEnds.push(item.endMin);
+    } else {
+      colEnds[col] = item.endMin;
+    }
+    const positioned: Positioned = { ...item, col, cols: 1 };
+    cluster.push(positioned);
+    result.push(positioned);
+    clusterEnd = Math.max(clusterEnd, item.endMin);
+  }
+  flush();
+  return result;
 }
 
 export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCreateEntry, onEdit, onDelete, onEnsureRangeLoaded }) => {
   const [anchor, setAnchor] = useState(() => new Date());
   const weekDays = useMemo(() => getWeekDays(anchor), [anchor]);
-  const today = toDateStr(new Date());
+  const today = localDateStr();
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  // Land the scroll position at the start of the workday on first render.
+  useEffect(() => {
+    bodyRef.current?.scrollTo({ top: SCROLL_TO_HOUR * SLOTS_PER_HOUR * SLOT_HEIGHT - 6 });
+  }, []);
 
   // Make sure the data for the visible week is loaded — navigating backwards
   // past the initial 90-day window will pull more entries from Dataverse.
   useEffect(() => {
     if (!onEnsureRangeLoaded || weekDays.length === 0) return;
-    const from = toDateStr(weekDays[0]);
-    const to = toDateStr(weekDays[weekDays.length - 1]);
-    onEnsureRangeLoaded(from, to);
+    onEnsureRangeLoaded(localDateStr(weekDays[0]), localDateStr(weekDays[weekDays.length - 1]));
   }, [weekDays, onEnsureRangeLoaded]);
 
-  const [modal, setModal] = useState<ModalDraft | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [modal, setModal] = useState<ModalState | null>(null);
 
   const prevWeek = () => {
     const d = new Date(anchor);
@@ -96,16 +126,43 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
   };
   const goToday = () => setAnchor(new Date());
 
-  // Map: dateStr → TimeEntry[]
-  const entriesByDate = useMemo(() => {
-    const map = new Map<string, TimeEntry[]>();
+  // Map: dateStr → positioned entries (overlaps resolved into columns).
+  // Running entries (no endTime) are drawn up to "now".
+  const positionedByDate = useMemo(() => {
+    const byDate = new Map<string, Omit<Positioned, "col" | "cols">[]>();
+    const nowMin = minutesOfDay(new Date().toISOString());
     entries.forEach((e) => {
-      if (!e.startTime || !e.endTime) return;
-      if (!map.has(e.date)) map.set(e.date, []);
-      map.get(e.date)!.push(e);
+      if (!e.startTime) return;
+      const running = !e.endTime;
+      const startMin = minutesOfDay(e.startTime);
+      let endMin: number;
+      if (running) {
+        endMin = e.date === today ? Math.max(nowMin, startMin + 15) : 24 * 60;
+      } else {
+        // Entries that spill past local midnight render clamped to the day.
+        endMin = localDateStr(new Date(e.endTime!)) > e.date ? 24 * 60 : minutesOfDay(e.endTime!);
+      }
+      if (endMin <= startMin) endMin = startMin + 15;
+      if (!byDate.has(e.date)) byDate.set(e.date, []);
+      byDate.get(e.date)!.push({ entry: e, startMin, endMin, running });
+    });
+    const out = new Map<string, Positioned[]>();
+    byDate.forEach((items, date) => out.set(date, layoutDay(items)));
+    return out;
+  }, [entries, today]);
+
+  const dayTotals = useMemo(() => {
+    const map = new Map<string, number>();
+    entries.forEach((e) => {
+      map.set(e.date, (map.get(e.date) || 0) + (e.durationMinutes || 0));
     });
     return map;
   }, [entries]);
+
+  const weekTotal = useMemo(
+    () => weekDays.reduce((s, d) => s + (dayTotals.get(localDateStr(d)) || 0), 0),
+    [weekDays, dayTotals]
+  );
 
   const monthLabel = useMemo(() => {
     const months = weekDays.map((d) => d.toLocaleDateString("en", { month: "long", year: "numeric" }));
@@ -114,7 +171,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
 
   const timeSlots = useMemo(() => {
     const slots: { hour: number; half: boolean }[] = [];
-    for (let h = START_HOUR; h < END_HOUR; h++) {
+    for (let h = 0; h < 24; h++) {
       slots.push({ hour: h, half: false });
       slots.push({ hour: h, half: true });
     }
@@ -122,12 +179,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
   }, []);
 
   const now = new Date();
-  const nowSlot =
-    now.getHours() >= START_HOUR && now.getHours() < END_HOUR
-      ? (now.getHours() - START_HOUR) * SLOTS_PER_HOUR +
-        (now.getMinutes() >= 30 ? 1 : 0) +
-        now.getMinutes() % 30 / 30
-      : null;
+  const nowTop = (now.getHours() * 60 + now.getMinutes()) * PX_PER_MIN;
 
   // Click empty slot → create
   const handleSlotClick = (e: React.MouseEvent<HTMLDivElement>, dayStr: string) => {
@@ -135,21 +187,24 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
     const rect = e.currentTarget.getBoundingClientRect();
     const y = e.clientY - rect.top;
     const slotIdx = Math.max(0, Math.min(Math.floor(y / SLOT_HEIGHT), TOTAL_SLOTS - 1));
-    const totalMins = START_HOUR * 60 + slotIdx * 30;
+    const totalMins = slotIdx * 30;
     const hour = Math.floor(totalMins / 60);
     const minute = totalMins % 60;
-    const endTotalMins = Math.min(totalMins + 60, END_HOUR * 60);
+    const endTotalMins = Math.min(totalMins + 60, 24 * 60 - 30);
     const endHr = Math.floor(endTotalMins / 60);
     const endMin = endTotalMins % 60;
     setModal({
       editingId: null,
-      date: dayStr,
-      startTime: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
-      endTime: `${String(endHr).padStart(2, "0")}:${String(endMin).padStart(2, "0")}`,
-      description: "",
-      projectId: "",
-      taskId: "",
-      jiraTicket: "",
+      draft: {
+        date: dayStr,
+        startTime: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
+        endTime: `${String(endHr).padStart(2, "0")}:${String(endMin).padStart(2, "0")}`,
+        description: "",
+        projectId: "",
+        taskId: "",
+        jiraTicket: "",
+        ratio: "",
+      },
     });
   };
 
@@ -158,168 +213,58 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
     e.stopPropagation();
     setModal({
       editingId: entry.id,
-      date: entry.date,
-      startTime: toTimeInput(entry.startTime),
-      endTime: entry.endTime ? toTimeInput(entry.endTime) : "",
-      description: entry.description || "",
-      projectId: entry.projectId,
-      taskId: entry.taskId || "",
-      jiraTicket: entry.jiraTicket || "",
+      draft: {
+        date: entry.date,
+        startTime: toTimeInput(entry.startTime),
+        endTime: entry.endTime ? toTimeInput(entry.endTime) : "",
+        description: entry.description || "",
+        projectId: entry.projectId,
+        taskId: entry.taskId || "",
+        jiraTicket: entry.jiraTicket || "",
+        ratio: entry.ratio !== undefined ? String(entry.ratio) : "",
+      },
     });
   };
 
-  const handleSave = async () => {
-    if (!modal || !modal.projectId) return;
-    setSaving(true);
-    try {
-      const startDt = new Date(`${modal.date}T${modal.startTime}:00`);
-      const endDt = new Date(`${modal.date}T${modal.endTime}:00`);
-      const durationMinutes = Math.max(0, Math.round((endDt.getTime() - startDt.getTime()) / 60000));
-
-      if (modal.editingId) {
-        await onEdit(modal.editingId, {
-          projectId: modal.projectId,
-          taskId: modal.taskId || undefined,
-          description: modal.description || undefined,
-          jiraTicket: modal.jiraTicket.trim() || undefined,
-          startTime: startDt.toISOString(),
-          endTime: endDt.toISOString(),
-          durationMinutes,
-          date: modal.date,
-        });
-      } else {
-        const user = getCurrentUser();
-        await onCreateEntry({
-          projectId: modal.projectId,
-          taskId: modal.taskId || undefined,
-          description: modal.description || undefined,
-          jiraTicket: modal.jiraTicket.trim() || undefined,
-          startTime: startDt.toISOString(),
-          endTime: endDt.toISOString(),
-          durationMinutes,
-          date: modal.date,
-          userId: user.id,
-          userDisplayName: user.displayName,
-        });
-      }
-      setModal(null);
-    } finally {
-      setSaving(false);
+  const handleModalSave = async (data: EntrySaveData) => {
+    if (modal?.editingId) {
+      await onEdit(modal.editingId, data);
+    } else {
+      const user = getCurrentUser();
+      await onCreateEntry({ ...data, userId: user.id, userDisplayName: user.displayName });
     }
   };
-
-  const handleDelete = () => {
-    if (!modal?.editingId) return;
-    onDelete(modal.editingId);
-    setModal(null);
-  };
-
-  const modalTasks = modal ? tasks.filter((t) => t.projectId === modal.projectId) : [];
 
   return (
     <div className="calendar">
 
-      {/* ── Log Time / Edit Entry Modal ── */}
       {modal && (
-        <div className="cal-modal-overlay" onClick={() => setModal(null)}>
-          <div className="cal-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="cal-modal__header">
-              <h3 className="cal-modal__title">{modal.editingId ? "Edit Entry" : "Log Time"}</h3>
-              <button className="cal-modal__close" onClick={() => setModal(null)}>×</button>
-            </div>
-            <div className="cal-modal__body">
-              <input
-                className="form-input"
-                placeholder="Description (optional)"
-                value={modal.description}
-                onChange={(e) => setModal((d) => d && ({ ...d, description: e.target.value }))}
-                autoFocus
-              />
-              <select
-                className="form-input"
-                value={modal.projectId}
-                onChange={(e) => setModal((d) => d && ({ ...d, projectId: e.target.value, taskId: "" }))}
-              >
-                <option value="">Select project…</option>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-              {modal.projectId && (
-                <select
-                  className="form-input"
-                  value={modal.taskId}
-                  onChange={(e) => setModal((d) => d && ({ ...d, taskId: e.target.value }))}
-                >
-                  <option value="">No task</option>
-                  {modalTasks.map((t) => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
-                  ))}
-                </select>
-              )}
-              <input
-                className="form-input"
-                placeholder="Jira ticket (optional, e.g. PROJ-123)"
-                value={modal.jiraTicket}
-                onChange={(e) => setModal((d) => d && ({ ...d, jiraTicket: e.target.value }))}
-              />
-              <div className="cal-modal__time-row">
-                <div className="cal-modal__time-group">
-                  <label className="cal-modal__label">Date</label>
-                  <input
-                    type="date"
-                    className="entry-edit-form__time-input"
-                    value={modal.date}
-                    onChange={(e) => setModal((d) => d && ({ ...d, date: e.target.value }))}
-                  />
-                </div>
-                <div className="cal-modal__time-group">
-                  <label className="cal-modal__label">Start</label>
-                  <input
-                    type="time"
-                    className="entry-edit-form__time-input"
-                    value={modal.startTime}
-                    onChange={(e) => setModal((d) => d && ({ ...d, startTime: e.target.value }))}
-                  />
-                </div>
-                <div className="cal-modal__time-group">
-                  <label className="cal-modal__label">End</label>
-                  <input
-                    type="time"
-                    className="entry-edit-form__time-input"
-                    value={modal.endTime}
-                    onChange={(e) => setModal((d) => d && ({ ...d, endTime: e.target.value }))}
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="cal-modal__footer">
-              <button
-                className="btn-primary"
-                onClick={handleSave}
-                disabled={!modal.projectId || saving}
-              >
-                {saving ? "Saving…" : modal.editingId ? "Save Changes" : "Save Entry"}
-              </button>
-              <button className="btn-ghost" onClick={() => setModal(null)}>Cancel</button>
-              {modal.editingId && (
-                <button className="cal-modal__delete" onClick={handleDelete}>
-                  Delete
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+        <EntryModal
+          title={modal.editingId ? "Edit Entry" : "Log Time"}
+          initial={modal.draft}
+          projects={projects}
+          tasks={tasks}
+          onSave={handleModalSave}
+          onDelete={modal.editingId ? () => { onDelete(modal.editingId!); setModal(null); } : undefined}
+          onClose={() => setModal(null)}
+        />
       )}
 
       {/* ── Header ── */}
       <div className="calendar__header">
         <div className="calendar__title-row">
-          <h2 className="calendar__title">{monthLabel}</h2>
+          <div className="calendar__title-group">
+            <h2 className="calendar__title">{monthLabel}</h2>
+            <span className="calendar__week-total">{formatMinutes(weekTotal)} this week</span>
+          </div>
           <div className="calendar__nav">
-            <button className="cal-nav-btn" onClick={prevWeek}>‹</button>
+            <button className="cal-nav-btn" onClick={prevWeek} aria-label="Previous week">
+              <IconChevronLeft />
+            </button>
             <button className="cal-nav-btn cal-nav-btn--today" onClick={goToday}>Today</button>
-            <button className="cal-nav-btn" onClick={nextWeek}>›</button>
+            <button className="cal-nav-btn" onClick={nextWeek} aria-label="Next week">
+              <IconChevronRight />
+            </button>
           </div>
         </div>
 
@@ -327,8 +272,9 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
         <div className="calendar__day-headers">
           <div className="calendar__gutter" />
           {weekDays.map((day) => {
-            const ds = toDateStr(day);
+            const ds = localDateStr(day);
             const isToday = ds === today;
+            const total = dayTotals.get(ds) || 0;
             return (
               <div key={ds} className={`calendar__day-header ${isToday ? "calendar__day-header--today" : ""}`}>
                 <div className="calendar__day-name">
@@ -337,6 +283,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
                 <div className={`calendar__day-num ${isToday ? "calendar__day-num--today" : ""}`}>
                   {day.getDate()}
                 </div>
+                <div className="calendar__day-total">{total > 0 ? formatMinutes(total) : " "}</div>
               </div>
             );
           })}
@@ -344,7 +291,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
       </div>
 
       {/* ── Grid ── */}
-      <div className="calendar__body">
+      <div className="calendar__body" ref={bodyRef}>
         <div className="calendar__grid">
           {/* Time gutter */}
           <div className="calendar__time-col">
@@ -359,9 +306,9 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
 
           {/* Day columns */}
           {weekDays.map((day) => {
-            const ds = toDateStr(day);
+            const ds = localDateStr(day);
             const isToday = ds === today;
-            const dayEntries = entriesByDate.get(ds) || [];
+            const dayEntries = positionedByDate.get(ds) || [];
 
             return (
               <div
@@ -376,48 +323,50 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
                 ))}
 
                 {/* Current time indicator */}
-                {isToday && nowSlot !== null && (
+                {isToday && (
                   <div
                     className="calendar__now-line"
-                    style={{ top: `${nowSlot * SLOT_HEIGHT}px` }}
+                    style={{ top: `${nowTop}px` }}
                   />
                 )}
 
                 {/* Time entries */}
-                {dayEntries.map((entry) => {
+                {dayEntries.map(({ entry, startMin, endMin, running, col, cols }) => {
                   const project = projects.find((p) => p.id === entry.projectId);
                   const task = tasks.find((t) => t.id === entry.taskId);
-                  const startSlot = slotIndex(entry.startTime);
-                  const slots = slotCount(entry.startTime, entry.endTime!);
-                  const top = startSlot * SLOT_HEIGHT;
-                  const height = slots * SLOT_HEIGHT - 2;
-
-                  if (startSlot < 0 || startSlot >= TOTAL_SLOTS) return null;
+                  const top = startMin * PX_PER_MIN;
+                  const height = Math.max((endMin - startMin) * PX_PER_MIN - 2, MIN_ENTRY_PX);
+                  const widthPct = 100 / cols;
+                  const color = project?.color || "#6366f1";
 
                   return (
                     <div
                       key={entry.id}
-                      className="cal-entry cal-entry--clickable"
+                      className={`cal-entry cal-entry--clickable ${running ? "cal-entry--running" : ""}`}
                       style={{
                         top: `${top}px`,
-                        height: `${Math.min(height, (TOTAL_SLOTS - startSlot) * SLOT_HEIGHT - 2)}px`,
-                        background: (project?.color || "#6366f1") + "22",
-                        borderLeft: `3px solid ${project?.color || "#6366f1"}`,
+                        height: `${height}px`,
+                        left: `calc(${col * widthPct}% + 2px)`,
+                        width: `calc(${widthPct}% - 4px)`,
+                        background: color + "22",
+                        borderLeft: `3px solid ${color}`,
                       }}
                       onClick={(e) => handleEntryClick(e, entry)}
-                      title="Click to edit"
+                      title={running ? "Timer running" : "Click to edit"}
                     >
-                      <div className="cal-entry__name" style={{ color: project?.color || "#6366f1" }}>
+                      <div className="cal-entry__name" style={{ color }}>
                         {entry.description || project?.name || "Untitled"}
                       </div>
-                      {task && (
+                      {task && height >= 42 && (
                         <div className="cal-entry__task">{task.name}</div>
                       )}
-                      {slots >= 2 && (
+                      {height >= 58 && (
                         <div className="cal-entry__time">
                           {new Date(entry.startTime).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })}
                           {" – "}
-                          {new Date(entry.endTime!).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })}
+                          {running
+                            ? "now"
+                            : new Date(entry.endTime!).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })}
                         </div>
                       )}
                     </div>
