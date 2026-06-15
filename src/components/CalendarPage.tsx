@@ -3,6 +3,7 @@ import type { TimeEntry, Project, Task } from "../types";
 import { getCurrentUser } from "../services/userService";
 import { localDateStr, minutesOfDay, toTimeInput } from "../utils/dates";
 import { formatMinutes } from "../hooks";
+import { useDataRange } from "../contexts/DataRangeContext";
 import { EntryModal, EntryDraft, EntrySaveData } from "./EntryModal";
 import { IconChevronLeft, IconChevronRight } from "./Icons";
 
@@ -13,7 +14,6 @@ interface Props {
   onCreateEntry: (data: Omit<TimeEntry, "id">) => Promise<TimeEntry>;
   onEdit: (id: string, data: Partial<TimeEntry>) => Promise<TimeEntry>;
   onDelete: (id: string) => void;
-  onEnsureRangeLoaded?: (from: string, to: string) => void;
   onLoadTasksForProject?: (projectId: string) => void;
 }
 
@@ -154,7 +154,8 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
 });
 CalendarEntryBlock.displayName = "CalendarEntryBlock";
 
-export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCreateEntry, onEdit, onDelete, onEnsureRangeLoaded, onLoadTasksForProject }) => {
+export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCreateEntry, onEdit, onDelete, onLoadTasksForProject }) => {
+  const { ensureRangeLoaded } = useDataRange();
   const [anchor, setAnchor] = useState(() => new Date());
   const weekDays = useMemo(() => getWeekDays(anchor), [anchor]);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 769);
@@ -198,9 +199,9 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
   // Make sure the data for the visible week is loaded — navigating backwards
   // past the initial 90-day window will pull more entries from Dataverse.
   useEffect(() => {
-    if (!onEnsureRangeLoaded || weekDays.length === 0) return;
-    onEnsureRangeLoaded(localDateStr(weekDays[0]), localDateStr(weekDays[weekDays.length - 1]));
-  }, [weekDays, onEnsureRangeLoaded]);
+    if (weekDays.length === 0) return;
+    ensureRangeLoaded(localDateStr(weekDays[0]), localDateStr(weekDays[weekDays.length - 1]));
+  }, [weekDays, ensureRangeLoaded]);
 
   const [modal, setModal] = useState<ModalState | null>(null);
 

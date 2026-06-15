@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { TimeEntry, Project, Task } from "../types";
 import { formatMinutes } from "../hooks";
+import { useDataRange } from "../contexts/DataRangeContext";
 import { exportToCSV, buildExportFilename } from "../services/csvExport";
 import { localDateStr } from "../utils/dates";
 import { IconDownload } from "./Icons";
@@ -14,7 +15,6 @@ interface Props {
   entries: TimeEntry[];
   projects: Project[];
   tasks: Task[];
-  onEnsureRangeLoaded?: (from: string, to: string) => void;
 }
 
 function getDaysInRange(from: string, to: string): string[] {
@@ -132,7 +132,8 @@ const SvgBarChart: React.FC<SvgBarChartProps> = ({ chartData, maxBar, shortDate,
   );
 };
 
-export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, onEnsureRangeLoaded }) => {
+export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks }) => {
+  const { ensureRangeLoaded } = useDataRange();
   const [rangeState, setRangeState] = useState<DateRangeState>({
     preset: "7d",
     customFrom: "",
@@ -144,8 +145,8 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, onEnsur
 
   // If the user picks a range that extends past what's cached, ask App to widen.
   useEffect(() => {
-    onEnsureRangeLoaded?.(from, to);
-  }, [from, to, onEnsureRangeLoaded]);
+    ensureRangeLoaded(from, to);
+  }, [from, to, ensureRangeLoaded]);
 
   const filtered = useMemo(
     () => entries.filter((e) => e.date >= from && e.date <= to && e.durationMinutes),
