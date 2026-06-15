@@ -56,6 +56,45 @@ const ORG_URL: string = (() => {
 })();
 
 // ---------------------------------------------------------------------------
+// Retry helper — wraps write operations with exponential backoff for transient
+// Dataverse errors (429 rate limit, 503 service unavailable).
+// ---------------------------------------------------------------------------
+async function retryWithBackoff<T>(fn: () => Promise<T>, maxAttempts = 3): Promise<T> {
+  let delay = 1000;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err: unknown) {
+      const isTransient = (() => {
+        if (!err || typeof err !== "object") return false;
+        const e = err as Record<string, unknown>;
+        const status = typeof e.status === "number" ? e.status
+          : typeof e.statusCode === "number" ? e.statusCode
+          : 0;
+        if (status === 429 || status === 503) return true;
+        // Some SDK errors carry the status in the message string.
+        const msg = typeof e.message === "string" ? e.message : "";
+        return msg.includes("429") || msg.includes("503");
+      })();
+
+      if (!isTransient || attempt === maxAttempts) throw err;
+
+      // Respect Retry-After header when available (SDK may surface it as retryAfter).
+      const retryAfterSec = (() => {
+        const e = err as Record<string, unknown>;
+        const v = e.retryAfter ?? e["retry-after"];
+        const n = Number(v);
+        return Number.isFinite(n) && n > 0 ? n * 1000 : null;
+      })();
+
+      await new Promise((res) => setTimeout(res, retryAfterSec ?? delay));
+      delay *= 2;
+    }
+  }
+  throw new Error("retryWithBackoff: unreachable");
+}
+
+// ---------------------------------------------------------------------------
 // SDK result helpers — every call returns { success, data, error? }; unwrap
 // or throw so the calling hooks can keep using try/catch.
 // ---------------------------------------------------------------------------
@@ -323,13 +362,13 @@ export async function createProject(data: Omit<Project, "id" | "createdAt">): Pr
     persist(STORAGE_KEYS.projects, [...all, project]);
     return project;
   }
-  const result = await MicrosoftDataverseService.CreateRecordWithOrganization(
+  const result = await retryWithBackoff(() => MicrosoftDataverseService.CreateRecordWithOrganization(
     PREFER_RETURN,
     ACCEPT,
     ORG_URL,
     SETS.projects,
     projectToDataverse(data),
-  );
+  ));
   const inputAsProject: Project = { ...data, id: "", createdAt: new Date().toISOString() };
   return mergeOver(inputAsProject, mapProject(unwrapRow(unwrap(result, "Create project"))));
 }
@@ -343,14 +382,14 @@ export async function updateProject(id: string, data: Partial<Project>): Promise
     persist(STORAGE_KEYS.projects, all);
     return all[idx];
   }
-  const result = await MicrosoftDataverseService.UpdateRecordWithOrganization(
+  const result = await retryWithBackoff(() => MicrosoftDataverseService.UpdateRecordWithOrganization(
     PREFER_RETURN,
     ACCEPT,
     ORG_URL,
     SETS.projects,
     id,
     projectToDataverse(data),
-  );
+  ));
   // Patch needs all fields populated for the UI to render correctly even when
   // the connector returns an empty body.
   const inputAsProject = { ...data, id } as Project;
@@ -383,13 +422,13 @@ export async function createTask(data: Omit<Task, "id">): Promise<Task> {
     persist(STORAGE_KEYS.tasks, [...all, task]);
     return task;
   }
-  const result = await MicrosoftDataverseService.CreateRecordWithOrganization(
+  const result = await retryWithBackoff(() => MicrosoftDataverseService.CreateRecordWithOrganization(
     PREFER_RETURN,
     ACCEPT,
     ORG_URL,
     SETS.tasks,
     taskToDataverse(data),
-  );
+  ));
   const inputAsTask: Task = { ...data, id: "" };
   return mergeOver(inputAsTask, mapTask(unwrapRow(unwrap(result, "Create task"))));
 }
@@ -442,13 +481,13 @@ export async function createTimeEntry(data: Omit<TimeEntry, "id">): Promise<Time
     persist(STORAGE_KEYS.entries, [...all, entry]);
     return entry;
   }
-  const result = await MicrosoftDataverseService.CreateRecordWithOrganization(
+  const result = await retryWithBackoff(() => MicrosoftDataverseService.CreateRecordWithOrganization(
     PREFER_RETURN,
     ACCEPT,
     ORG_URL,
     SETS.entries,
     entryToDataverse(owned),
-  );
+  ));
   const inputAsEntry: TimeEntry = { ...owned, id: "" };
   const merged = mergeOver(inputAsEntry, mapEntry(unwrapRow(unwrap(result, "Create entry"))));
   if (!merged.userDisplayName) merged.userDisplayName = user.displayName;
@@ -466,14 +505,14 @@ export async function updateTimeEntry(id: string, data: Partial<TimeEntry>): Pro
     persist(STORAGE_KEYS.entries, all);
     return all[idx];
   }
-  const result = await MicrosoftDataverseService.UpdateRecordWithOrganization(
+  const result = await retryWithBackoff(() => MicrosoftDataverseService.UpdateRecordWithOrganization(
     PREFER_RETURN,
     ACCEPT,
     ORG_URL,
     SETS.entries,
     id,
     entryToDataverse(owned),
-  );
+  ));
   const inputAsEntry = { ...owned, id } as TimeEntry;
   const merged = mergeOver(inputAsEntry, mapEntry(unwrapRow(unwrap(result, "Update entry"))));
   if (!merged.userDisplayName) merged.userDisplayName = user.displayName;

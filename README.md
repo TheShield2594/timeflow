@@ -100,6 +100,60 @@ Active/inactive state uses the standard Dataverse `statecode` column.
 > make sure the `ever_timeentries` table is configured with user-level
 > ownership and user-scope read privileges, or every user will see all rows.
 
+#### Dataverse Security Configuration
+
+Correct table-level security role configuration is required to keep each user's time entries private.
+
+| Table | Ownership scope | Required privileges |
+|---|---|---|
+| `ever_timeentries` | **User** | Basic (Create / Read / Write / Delete) |
+| `ever_projects` | Organization | Basic (Create / Read / Write / Delete) |
+| `ever_workitems` | Organization | Basic (Create / Read / Write / Delete) |
+
+**Why this matters:** Without user-scope ownership on `ever_timeentries`, every user can read every other user's time entries. There is no application-layer fallback.
+
+**How to verify in the maker portal:**
+1. Go to [make.powerapps.com](https://make.powerapps.com) → **Tables** → select `ever_timeentries`.
+2. Open **Settings** → **Advanced options** → confirm *Ownership* is set to **User or Team**.
+3. In your Security Role, confirm the `ever_timeentries` row is set to **User** scope for Read/Write/Create/Delete.
+4. Repeat for `ever_projects` and `ever_workitems` (Organization scope for shared data is correct).
+
+#### Entity Relationship Diagram
+
+```mermaid
+erDiagram
+    ever_projects {
+        guid ever_projectsid PK
+        string ever_name "Required"
+        string ever_color
+        string ever_description
+        decimal ever_ratio
+        string ever_jiraticket
+    }
+    ever_workitems {
+        guid ever_workitemsid PK
+        string ever_name "Required"
+        guid ever_project FK
+        string ever_description
+    }
+    ever_timeentries {
+        guid ever_timeentriesid PK
+        guid ever_project FK "Required"
+        guid ever_workitem FK
+        string ever_description
+        datetime ever_starttime "Required"
+        datetime ever_endtime "null = running"
+        int ever_durationminutes
+        decimal ever_ratio
+        string ever_jiraticket
+        date ever_date "Required"
+        string ever_userid
+    }
+    ever_projects ||--o{ ever_workitems : "has"
+    ever_projects ||--o{ ever_timeentries : "billed to"
+    ever_workitems ||--o{ ever_timeentries : "categorizes"
+```
+
 ### Step 3 — (Optional) Point at a different environment
 
 `src/services/dataverseService.ts` talks to Dataverse through the

@@ -110,6 +110,7 @@ export const ProjectsPage: React.FC<Props> = ({
             placeholder="Project name"
             value={draft.name}
             onChange={(e) => setDraft((d) => d && ({ ...d, name: e.target.value }))}
+            maxLength={100}
             autoFocus
           />
           <input
@@ -117,6 +118,7 @@ export const ProjectsPage: React.FC<Props> = ({
             placeholder="Description (optional)"
             value={draft.description}
             onChange={(e) => setDraft((d) => d && ({ ...d, description: e.target.value }))}
+            maxLength={500}
           />
           <input
             className="form-input"
@@ -132,6 +134,7 @@ export const ProjectsPage: React.FC<Props> = ({
             placeholder="Jira ticket (optional, e.g. PROJ-123)"
             value={draft.jiraTicket}
             onChange={(e) => setDraft((d) => d && ({ ...d, jiraTicket: e.target.value }))}
+            maxLength={50}
           />
           <div className="color-picker">
             <span className="color-picker__label">Color</span>
@@ -233,6 +236,7 @@ export const ProjectsPage: React.FC<Props> = ({
                         placeholder="Task name"
                         value={newTaskName}
                         onChange={(e) => setNewTaskName(e.target.value)}
+                        maxLength={100}
                         onKeyDown={(e) => e.key === "Enter" && handleAddTask(project.id)}
                         autoFocus
                       />
