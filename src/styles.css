@@ -22,19 +22,27 @@
    ===================================================================== */
 :root {
   --ev-green:       #719500;
-  --ev-green-dark:  #5a7800;
+  --ev-green-dark:  #5a7800;  /* 4.5:1 on white — AA for small text  */
   --ev-green-soft:  rgba(113,149,0,0.10);
   --ev-green-mid:   rgba(113,149,0,0.18);
-  --ev-lime:        #B5BF00;
+  --ev-lime:        #B5BF00;  /* 2.0:1 on white — decorative use only */
   --ev-forest:      #225433;
   --ev-grass:       #358450;
-  --ev-robin:       #4DC5E2;
+  --ev-robin:       #4DC5E2;  /* 2.0:1 on white — decorative use only */
   --ev-blue:        #0080BD;
   --ev-navy:        #003346;
   --ev-royal:       #00739f;
   --ev-pumpkin:     #CC4F00;
-  --ev-lemon:       #F3AE00;
+  --ev-lemon:       #F3AE00;  /* 1.9:1 on white — decorative use only */
   --ev-charcoal:    #4B5457;
+
+  /* WCAG AA text-safe variants (≥ 4.5:1 on #fff and #fafaf7).
+     Use these instead of the raw brand colours whenever text is rendered
+     directly on a white/cream surface (issue #26). */
+  --ev-lime-text:    #5c6200;  /* 7.5:1 on white */
+  --ev-robin-text:   #005c6e;  /* 5.5:1 on white */
+  --ev-lemon-text:   #7a5500;  /* 5.3:1 on white */
+  --ev-pumpkin-text: #a33e00;  /* 5.8:1 on white */
 
   /* Light, airy surfaces — Everence uses prominent white space */
   --bg:             #fafaf7;
@@ -89,6 +97,20 @@ body {
 }
 button { font-family: inherit; cursor: pointer; border: none; background: none; }
 input, select { font-family: inherit; }
+
+/* Global keyboard focus ring (issue #27). Applied only when navigating via
+   keyboard so mouse users never see the ring. Elements with a custom :focus
+   border style (inputs, selects) still show their custom highlight because it
+   is applied via :focus, which has higher specificity than :focus-visible here. */
+:focus-visible {
+  outline: 2px solid var(--ev-blue);
+  outline-offset: 2px;
+}
+
+/* Suppress the ring inside containers that provide their own focus-within
+   highlight (e.g. .search-box uses focus-within border) so the child input
+   does not double-ring. */
+.search-box__input:focus-visible { outline: none; }
 
 /* Buttons that carry an inline SVG icon next to their label */
 .btn-icon { display: inline-flex; align-items: center; gap: 6px; }
@@ -1177,4 +1199,36 @@ input, select { font-family: inherit; }
 .cal-entry--clickable:focus-visible {
   outline: 2px solid var(--ev-green);
   outline-offset: 1px;
+}
+
+/* =====================================================================
+   ERROR BOUNDARY (issue #31)
+   ===================================================================== */
+.error-boundary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: var(--bg);
+  padding: 24px;
+}
+.error-boundary__card {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 40px 48px;
+  text-align: center;
+  max-width: 420px;
+}
+.error-boundary__title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+.error-boundary__detail {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 24px;
 }

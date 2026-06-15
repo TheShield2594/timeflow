@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from "react";
+import React, { useState, useMemo, useCallback, useEffect, Component } from "react";
 import { TimerBar } from "./components/TimerBar";
 import { TimesheetPage } from "./components/TimesheetPage";
 import { ReportsPage } from "./components/ReportsPage";
@@ -15,6 +15,46 @@ import { localDateStr, localDateDaysAgo } from "./utils/dates";
 import logoUrl from "./everence-logo.png";
 
 import type { TimeEntry, CurrentUser } from "./types";
+
+// ---------------------------------------------------------------------------
+// ErrorBoundary — catches render errors and shows a recovery screen instead
+// of leaving the user on a blank white page (issue #31).
+// ---------------------------------------------------------------------------
+interface EBState { error: Error | null }
+class ErrorBoundary extends Component<{ children: React.ReactNode }, EBState> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): EBState {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo): void {
+    console.error("[ErrorBoundary]", error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="error-boundary">
+          <div className="error-boundary__card">
+            <h2 className="error-boundary__title">Something went wrong</h2>
+            <p className="error-boundary__detail">{this.state.error.message}</p>
+            <button
+              className="btn-primary"
+              onClick={() => window.location.reload()}
+            >
+              Reload app
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 type Page = "timesheet" | "calendar" | "reports" | "projects";
 
@@ -81,9 +121,11 @@ const App: React.FC = () => {
   }
 
   return (
-    <ToastProvider>
-      <AppContent />
-    </ToastProvider>
+    <ErrorBoundary>
+      <ToastProvider>
+        <AppContent />
+      </ToastProvider>
+    </ErrorBoundary>
   );
 };
 
