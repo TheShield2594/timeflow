@@ -40,6 +40,98 @@ const REPORTS_PRESETS = ["7d", "30d", "thisMonth"] as const;
 // Past this many days, daily bars become unreadable — bucket by week instead.
 const WEEKLY_BUCKET_THRESHOLD = 35;
 
+interface SvgBarChartProps {
+  chartData: { key: string; minutes: number; weekly: boolean }[];
+  maxBar: number;
+  shortDate: (d: string, weekly: boolean) => string;
+  formatMinutes: (m: number) => string;
+}
+
+const BAR_COLOR = "var(--ev-green)";
+const BAR_COLOR_ZERO = "var(--border)";
+const CHART_HEIGHT = 120; // px, chart plot area
+const LABEL_HEIGHT = 28;  // px, reserved below bars for labels
+const BAR_GAP_RATIO = 0.25; // fraction of slot width used for gap between bars
+
+const SvgBarChart: React.FC<SvgBarChartProps> = ({ chartData, maxBar, shortDate, formatMinutes }) => {
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; label: string } | null>(null);
+  const svgRef = React.useRef<SVGSVGElement>(null);
+
+  const totalWidth = 600;
+  const totalHeight = CHART_HEIGHT + LABEL_HEIGHT;
+  const n = chartData.length;
+  const slotWidth = n > 0 ? totalWidth / n : totalWidth;
+  const barWidth = Math.max(slotWidth * (1 - BAR_GAP_RATIO), 2);
+
+  return (
+    <div className="svg-bar-chart" style={{ position: "relative" }}>
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${totalWidth} ${totalHeight}`}
+        preserveAspectRatio="none"
+        style={{ width: "100%", height: `${totalHeight}px`, display: "block", overflow: "visible" }}
+        aria-label="Activity bar chart"
+        role="img"
+        onMouseLeave={() => setTooltip(null)}
+      >
+        {chartData.map(({ key, minutes, weekly }, i) => {
+          const barH = minutes > 0 ? Math.max((minutes / maxBar) * CHART_HEIGHT, 4) : 0;
+          const x = i * slotWidth + (slotWidth - barWidth) / 2;
+          const y = CHART_HEIGHT - barH;
+          const label = shortDate(key, weekly);
+
+          return (
+            <g key={key}>
+              <rect
+                x={x}
+                y={y}
+                width={barWidth}
+                height={barH}
+                fill={barH > 0 ? BAR_COLOR : BAR_COLOR_ZERO}
+                opacity={barH > 0 ? 1 : 0.12}
+                rx={2}
+
+                onMouseEnter={() => {
+                  const svgEl = svgRef.current;
+                  if (!svgEl) return;
+                  const rect = svgEl.getBoundingClientRect();
+                  const svgScaleX = rect.width / totalWidth;
+                  const svgScaleY = rect.height / totalHeight;
+                  setTooltip({
+                    x: (x + barWidth / 2) * svgScaleX,
+                    y: y * svgScaleY,
+                    label: minutes > 0 ? formatMinutes(minutes) : "No time logged",
+                  });
+                }}
+                onMouseLeave={() => setTooltip(null)}
+              />
+              <text
+                x={i * slotWidth + slotWidth / 2}
+                y={CHART_HEIGHT + LABEL_HEIGHT - 6}
+                textAnchor="middle"
+                fontSize={n > 30 ? 7 : n > 14 ? 8 : 9}
+                fill="var(--text-muted)"
+                style={{ userSelect: "none" }}
+              >
+                {label}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      {tooltip && (
+        <div
+          className="svg-bar-chart__tooltip"
+          style={{ left: tooltip.x, top: tooltip.y }}
+          role="tooltip"
+        >
+          {tooltip.label}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, onEnsureRangeLoaded }) => {
   const [rangeState, setRangeState] = useState<DateRangeState>({
     preset: "7d",
@@ -187,24 +279,17 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, onEnsur
         </div>
       </div>
 
+      {filtered.length === 0 && (
+        <div className="reports__empty">
+          <p>No data to report. Track some time first.</p>
+        </div>
+      )}
+
       <div className="reports__grid">
         {/* Activity bar chart */}
         <div className="report-card report-card--wide">
           <h3 className="report-card__title">{useWeekly ? "Weekly Activity" : "Daily Activity"}</h3>
-          <div className="bar-chart">
-            {chartData.map(({ key, minutes, weekly }) => (
-              <div key={key} className="bar-chart__col">
-                <div className="bar-chart__bar-wrap">
-                  <div
-                    className="bar-chart__bar"
-                    style={{ height: `${Math.max((minutes / maxBar) * 100, minutes > 0 ? 4 : 0)}%` }}
-                    title={formatMinutes(minutes)}
-                  />
-                </div>
-                <div className="bar-chart__label">{shortDate(key, weekly)}</div>
-              </div>
-            ))}
-          </div>
+          <SvgBarChart chartData={chartData} maxBar={maxBar} shortDate={shortDate} formatMinutes={formatMinutes} />
         </div>
 
         {/* Project breakdown */}

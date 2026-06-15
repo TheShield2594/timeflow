@@ -289,6 +289,11 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
             </button>
           </div>
         </div>
+        {weekTotal === 0 && (
+          <div className="calendar__empty-hint">
+            Nothing logged this week. Click any time slot to add an entry.
+          </div>
+        )}
 
         {/* Day headers */}
         <div className="calendar__day-headers">
