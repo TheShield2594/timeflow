@@ -45,7 +45,9 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       setTimer(restored);
       localStorage.setItem(timerKey, JSON.stringify(restored));
     }).catch(() => { /* non-critical */ });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Empty deps: timerKey is stable (derived from the immutable user.id), and
+  // this check must run only once on mount — adding timerKey would be safe but
+  // redundant, and adding svc would cause unnecessary re-runs.
   }, []);
 
   useEffect(() => {
@@ -142,7 +144,7 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       onStop(entry);
       return entry;
     } catch (err) {
-      toast("Failed to save entry. Tap Stop to retry.", "error");
+      toast("Failed to save entry. Press Stop to retry.", "error");
       throw err;
     }
   }, [timer, onStop, timerKey, user.id, user.displayName, toast]);

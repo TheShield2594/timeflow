@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { Project } from "../types";
 import * as svc from "../services/dataverseService";
 import { useToast } from "../contexts/ToastContext";
@@ -8,6 +8,8 @@ export function useProjects() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const toast = useToast();
+  const projectsRef = useRef<Project[]>([]);
+  useEffect(() => { projectsRef.current = projects; }, [projects]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -37,7 +39,7 @@ export function useProjects() {
   }, [toast]);
 
   const editProject = useCallback(async (id: string, data: Partial<Project>) => {
-    const snapshot = projects.find((p) => p.id === id);
+    const snapshot = projectsRef.current.find((p) => p.id === id);
     if (!snapshot) throw new Error("Project not found");
     setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, ...data } : p)));
     try {
@@ -49,7 +51,7 @@ export function useProjects() {
       toast(`Could not save project: ${errMsg(err)}`, "error");
       throw err;
     }
-  }, [projects, toast]);
+  }, [toast]);
 
   return { projects, loading, refresh, addProject, editProject };
 }

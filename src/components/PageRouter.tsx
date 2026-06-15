@@ -98,14 +98,18 @@ export const PageRouter: React.FC<Props> = ({
     );
   }
 
-  return (
-    <ProjectsPage
-      projects={projects}
-      tasks={tasks}
-      totalMinutesByProject={totalMinutesByProject}
-      onAddProject={onAddProject}
-      onEditProject={onEditProject}
-      onAddTask={onAddTask}
-    />
-  );
+  if (page === "projects") {
+    return (
+      <ProjectsPage
+        projects={projects}
+        tasks={tasks}
+        totalMinutesByProject={totalMinutesByProject}
+        onAddProject={onAddProject}
+        onEditProject={onEditProject}
+        onAddTask={onAddTask}
+      />
+    );
+  }
+
+  return null;
 };
