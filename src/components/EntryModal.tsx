@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { Project, Task } from "../types";
 import { formatMinutes, parseRatioInput } from "../hooks";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 import { IconX } from "./Icons";
 
 export interface EntryDraft {
@@ -46,6 +47,7 @@ function timeToMinutes(hhmm: string): number {
 export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, onSave, onDelete, onClose, onLoadTasksForProject }) => {
   const [draft, setDraft] = useState<EntryDraft>(initial);
   const [saving, setSaving] = useState(false);
+  const modalRef = useFocusTrap<HTMLDivElement>();
   // null = no overnight conflict; 'ask' = prompt shown; 'keep' = treat end as next day; 'split' = save two entries
   const [overnightMode, setOvernightMode] = useState<'ask' | 'keep' | 'split' | null>(null);
 
@@ -162,7 +164,7 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
 
   return (
     <div className="cal-modal-overlay" onClick={safeClose}>
-      <div className="cal-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
+      <div className="cal-modal" ref={modalRef} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
         <div className="cal-modal__header">
           <h3 className="cal-modal__title">{title}</h3>
           <button className="cal-modal__close" onClick={safeClose} disabled={saving} aria-label="Close">
@@ -178,6 +180,7 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
               placeholder="What did you work on?"
               value={draft.description}
               onChange={(e) => set({ description: e.target.value })}
+              maxLength={500}
               autoFocus
             />
           </div>
@@ -272,6 +275,7 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
                 placeholder="e.g. PROJ-123"
                 value={draft.jiraTicket}
                 onChange={(e) => set({ jiraTicket: e.target.value })}
+                maxLength={50}
               />
             </div>
             <div className="field">

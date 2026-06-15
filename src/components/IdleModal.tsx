@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { formatElapsed } from "../hooks";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 interface Props {
   lastActiveAt: number;
@@ -14,6 +15,7 @@ function timeOfDay(ms: number): string {
 }
 
 export const IdleModal: React.FC<Props> = ({ lastActiveAt, startTime, onTrim, onKeep, onDiscard }) => {
+  const modalRef = useFocusTrap<HTMLDivElement>();
   // Escape = "keep running" — the least destructive choice.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -28,7 +30,7 @@ export const IdleModal: React.FC<Props> = ({ lastActiveAt, startTime, onTrim, on
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="idle-modal-title">
-      <div className="idle-modal">
+      <div className="idle-modal" ref={modalRef}>
         <h3 id="idle-modal-title" className="idle-modal__title">You've been idle for {formatElapsed(idleSeconds)}</h3>
         <p className="idle-modal__body">
           The timer has been running, but there's been no activity since <strong>{timeOfDay(lastActiveAt)}</strong>.
