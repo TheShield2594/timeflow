@@ -41,11 +41,19 @@ const PREFER_RETURN = "return=representation";
 // Org URL. Required by every *WithOrganization SDK call because the
 // "current environment" variants (CreateRecord, ListRecords, ...) fail with
 // "Invalid organization URL 'null' provided" when the connector can't infer
-// the org from the connection. Override per environment with
-// VITE_DATAVERSE_ORG_URL in a .env file; falls back to the PA-Dev org.
-const ORG_URL: string =
-  (import.meta.env.VITE_DATAVERSE_ORG_URL as string | undefined)?.trim() ||
-  "https://org010c8ca4.crm.dynamics.com";
+// the org from the connection. Set VITE_DATAVERSE_ORG_URL in your .env file
+// (see .env.example). Omitting it in production will cause all API calls to
+// fail with a clear console error.
+const ORG_URL: string = (() => {
+  const url = (import.meta.env.VITE_DATAVERSE_ORG_URL as string | undefined)?.trim() ?? "";
+  if (!url && import.meta.env.PROD) {
+    console.error(
+      "[timeflow] VITE_DATAVERSE_ORG_URL is not set. " +
+      "All Dataverse API calls will fail. Add it to your .env file — see .env.example."
+    );
+  }
+  return url;
+})();
 
 // ---------------------------------------------------------------------------
 // SDK result helpers — every call returns { success, data, error? }; unwrap
@@ -545,4 +553,121 @@ export async function deleteTimeEntry(id: string): Promise<void> {
   }
   const result = await MicrosoftDataverseService.DeleteRecordWithOrganization(ORG_URL, SETS.entries, id);
   unwrap(result, "Delete entry");
+}
+
+// ---------------------------------------------------------------------------
+// Bulk writes — OData $batch (issue #8)
+//
+// Pattern: each caller passes `batch: true` to pack creates/updates into a
+// single multipart/mixed request, cutting N round-trips to 1. When `batch`
+// is omitted or false, requests run in parallel via Promise.all (still faster
+// than serial but without the 1-round-trip guarantee).
+//
+// OData $batch envelope shape:
+//   POST {orgUrl}/api/data/v9.2/$batch
+//   Content-Type: multipart/mixed;boundary=batch_<id>
+//
+//   --batch_<id>
+//   Content-Type: multipart/mixed;boundary=changeset_<id>
+//
+//   --changeset_<id>
+//   Content-Type: application/http
+//   Content-Transfer-Encoding: binary
+//
+//   POST /api/data/v9.2/ever_timeentrieses HTTP/1.1
+//   Content-Type: application/json;type=entry
+//
+//   { ...row }
+//
+//   --changeset_<id>--
+//   --batch_<id>--
+// ---------------------------------------------------------------------------
+
+/**
+ * Bulk-creates time entries. Pass `{ batch: true }` to use a single OData
+ * $batch request; omit for parallel individual creates.
+ */
+export async function batchCreateTimeEntries(
+  items: Omit<TimeEntry, "id">[],
+  opts: { batch?: boolean } = {},
+): Promise<TimeEntry[]> {
+  if (!isPowerAppsHost() || items.length === 0) {
+    // Dev mock: insert all at once.
+    const user = getCurrentUser();
+    const created: TimeEntry[] = items.map((data) => ({
+      ...data,
+      id: uuid(),
+      userId: user.id,
+      userDisplayName: user.displayName,
+    }));
+    const all = load<TimeEntry>(STORAGE_KEYS.entries);
+    persist(STORAGE_KEYS.entries, [...all, ...created]);
+    return created;
+  }
+
+  if (!opts.batch) {
+    return Promise.all(items.map((data) => createTimeEntry(data)));
+  }
+
+  return sendODataBatch(items);
+}
+
+async function sendODataBatch(items: Omit<TimeEntry, "id">[]): Promise<TimeEntry[]> {
+  const user = getCurrentUser();
+  const batchId = crypto.randomUUID().replace(/-/g, "");
+  const changesetId = crypto.randomUUID().replace(/-/g, "");
+  const apiBase = `${ORG_URL}/api/data/v9.2`;
+
+  const changesetParts = items
+    .map((data) => {
+      const owned = { ...data, userId: user.id, userDisplayName: user.displayName };
+      const body = JSON.stringify(entryToDataverse(owned));
+      return [
+        `--changeset_${changesetId}`,
+        "Content-Type: application/http",
+        "Content-Transfer-Encoding: binary",
+        "",
+        `POST ${apiBase}/${SETS.entries} HTTP/1.1`,
+        "Content-Type: application/json;type=entry",
+        "Prefer: return=representation",
+        "",
+        body,
+      ].join("\r\n");
+    })
+    .join("\r\n");
+
+  const batchBody = [
+    `--batch_${batchId}`,
+    `Content-Type: multipart/mixed;boundary=changeset_${changesetId}`,
+    "",
+    changesetParts,
+    `\r\n--changeset_${changesetId}--`,
+    `--batch_${batchId}--`,
+  ].join("\r\n");
+
+  const resp = await fetch(`${apiBase}/$batch`, {
+    method: "POST",
+    headers: {
+      "Content-Type": `multipart/mixed;boundary=batch_${batchId}`,
+      Accept: "application/json",
+      "OData-MaxVersion": "4.0",
+      "OData-Version": "4.0",
+    },
+    body: batchBody,
+  });
+
+  if (!resp.ok) {
+    throw new Error(`OData $batch failed: ${resp.status} ${resp.statusText}`);
+  }
+
+  // The response is multipart; parsing it requires extracting each HTTP
+  // sub-response. For now we return optimistic records so the caller can
+  // refresh the list without waiting for the full parse.
+  const optimistic: TimeEntry[] = items.map((data) => ({
+    ...data,
+    id: "",
+    userId: user.id,
+    userDisplayName: user.displayName,
+  }));
+  return optimistic;
 }
