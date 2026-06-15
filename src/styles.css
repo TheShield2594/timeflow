@@ -1088,6 +1088,87 @@ input, select { font-family: inherit; }
   .calendar__day-num { font-size: 14px; width: 26px; height: 26px; }
 }
 
+/* =====================================================================
+   OVERNIGHT SPLIT PROMPT (EntryModal)
+   ===================================================================== */
+.overnight-prompt {
+  background: rgba(204,79,0,0.06);
+  border: 1px solid rgba(204,79,0,0.25);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 2px;
+}
+.overnight-prompt__msg {
+  font-size: 12.5px;
+  color: var(--text);
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+.overnight-prompt__actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.btn-sm {
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+}
+.btn-sm.btn-primary {
+  background: var(--ev-green);
+  color: #fff;
+  border: 1.5px solid var(--ev-green-dark);
+}
+.btn-sm.btn-primary:hover { background: var(--ev-green-dark); }
+.btn-sm.btn-ghost {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  border: 1.5px solid var(--border);
+}
+.btn-sm.btn-ghost:hover { color: var(--text); background: var(--surface); }
+
+/* =====================================================================
+   CALENDAR MOBILE LIST VIEW (< 768px)
+   ===================================================================== */
+@media (max-width: 768px) {
+  .calendar__grid-wrap { display: none; }
+  .cal-mobile-list { display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
+  .cal-mobile-empty { color: var(--text-faint); font-size: 13px; padding: 24px 0; text-align: center; }
+  .cal-mobile-day-nav {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .cal-mobile-day-nav__label { font-size: 14px; font-weight: 700; color: var(--text); }
+}
+@media (min-width: 769px) {
+  .cal-mobile-list { display: none; }
+  .cal-mobile-day-nav { display: none; }
+}
+.cal-mobile-entry {
+  display: flex; align-items: flex-start; gap: 10px;
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm); padding: 10px 12px;
+  cursor: pointer; transition: border-color 0.15s;
+}
+.cal-mobile-entry:hover { border-color: var(--ev-green); }
+.cal-mobile-entry__bar { width: 3px; border-radius: 2px; min-height: 36px; flex-shrink: 0; margin-top: 2px; }
+.cal-mobile-entry__info { flex: 1; min-width: 0; }
+.cal-mobile-entry__name { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+.cal-mobile-entry__time { font-size: 11px; color: var(--text-muted); font-family: var(--mono); }
+
+/* Reports skeleton KPI/chart placeholders */
+.skeleton--kpi { height: 82px; border-radius: var(--radius); }
+.skeleton--chart { height: 180px; border-radius: var(--radius); }
+.reports-skeleton { max-width: 920px; }
+.reports-skeleton__kpis {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+  margin-bottom: 20px;
+}
+@media (max-width: 900px) {
+  .reports-skeleton__kpis { grid-template-columns: repeat(2, 1fr); }
+}
+
 /* Keyboard focus for calendar interactive regions */
 .calendar__day-col--clickable:focus-visible {
   outline: 2px solid var(--ev-green);

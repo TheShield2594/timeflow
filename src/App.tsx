@@ -49,6 +49,20 @@ const PageSkeleton: React.FC = () => (
   </div>
 );
 
+/** Skeleton shaped like the Reports page — KPI strip + bar chart. */
+const ReportsSkeleton: React.FC = () => (
+  <div className="reports-skeleton" aria-hidden="true">
+    <div className="skeleton skeleton--title" style={{ width: 120, marginBottom: 18 }} />
+    <div className="reports-skeleton__kpis">
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="skeleton skeleton--kpi" />
+      ))}
+    </div>
+    <div className="skeleton skeleton--chart" style={{ marginBottom: 16 }} />
+    <div className="skeleton skeleton--row" style={{ height: 120 }} />
+  </div>
+);
+
 const App: React.FC = () => {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -236,7 +250,7 @@ const AppContent: React.FC = () => {
 
         <div className="main__content">
           {loading ? (
-            <PageSkeleton />
+            page === "reports" ? <ReportsSkeleton /> : <PageSkeleton />
           ) : page === "timesheet" ? (
             <TimesheetPage
               entries={entries}

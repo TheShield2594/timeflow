@@ -38,9 +38,16 @@ interface Props {
   onLoadTasksForProject?: (projectId: string) => void;
 }
 
+function timeToMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(Number);
+  return h * 60 + m;
+}
+
 export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, onSave, onDelete, onClose, onLoadTasksForProject }) => {
   const [draft, setDraft] = useState<EntryDraft>(initial);
   const [saving, setSaving] = useState(false);
+  // null = no overnight conflict; 'ask' = prompt shown; 'keep' = treat end as next day; 'split' = save two entries
+  const [overnightMode, setOvernightMode] = useState<'ask' | 'keep' | 'split' | null>(null);
 
   const projectTasks = useMemo(
     () => tasks.filter((t) => t.projectId === draft.projectId),
@@ -65,38 +72,86 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
   }, [onClose, saving]);
 
   const startDt = draft.date && draft.startTime ? new Date(`${draft.date}T${draft.startTime}:00`) : null;
-  // An end of 00:00 means "midnight at the END of this day" — build it on the
-  // next day so 23:30 → 00:00 is a valid 30-minute entry, not a negative one.
+
+  // Detect overnight: end (non-00:00) is earlier than start in minutes-of-day.
+  const isOvernightConflict = !!(
+    draft.startTime && draft.endTime && draft.endTime !== "00:00" &&
+    timeToMinutes(draft.endTime) < timeToMinutes(draft.startTime)
+  );
+
+  // Reset overnight choice whenever times change in a way that removes the conflict.
+  const set = (patch: Partial<EntryDraft>) => {
+    setDraft((d) => {
+      const next = { ...d, ...patch };
+      const stillOvernight = next.startTime && next.endTime && next.endTime !== "00:00" &&
+        timeToMinutes(next.endTime) < timeToMinutes(next.startTime);
+      if (!stillOvernight && overnightMode !== null) setOvernightMode(null);
+      return next;
+    });
+  };
+
+  // Show the prompt automatically when an overnight conflict is first detected.
+  useEffect(() => {
+    if (isOvernightConflict && overnightMode === null) setOvernightMode('ask');
+    if (!isOvernightConflict) setOvernightMode(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOvernightConflict]);
+
+  // An end of 00:00 OR "keep" overnight mode means end is next calendar day.
+  const nextDayOffset = 24 * 60 * 60 * 1000;
   const endDt = draft.date && draft.endTime
-    ? new Date(new Date(`${draft.date}T${draft.endTime}:00`).getTime() + (draft.endTime === "00:00" ? 24 * 60 * 60 * 1000 : 0))
+    ? new Date(
+        new Date(`${draft.date}T${draft.endTime}:00`).getTime() +
+        (draft.endTime === "00:00" || overnightMode === 'keep' ? nextDayOffset : 0)
+      )
     : null;
   const durationMinutes = startDt && endDt
     ? Math.round((endDt.getTime() - startDt.getTime()) / 60000)
     : null;
 
-  const timeError = durationMinutes !== null && durationMinutes <= 0
-    ? "End time must be after the start time. For overnight work, split the entry at midnight."
+  const timeError = durationMinutes !== null && durationMinutes <= 0 && overnightMode !== 'ask'
+    ? "End time must be after the start time."
     : null;
 
-  const canSave = !!draft.projectId && !!startDt && !!endDt && !timeError && !saving;
-
-  const set = (patch: Partial<EntryDraft>) => setDraft((d) => ({ ...d, ...patch }));
+  const canSave = !!draft.projectId && !!startDt && !!endDt && !timeError &&
+    overnightMode !== 'ask' && !saving;
 
   const handleSave = async () => {
     if (!canSave || !startDt || !endDt) return;
     setSaving(true);
+    const common = {
+      description: draft.description.trim() || undefined,
+      projectId: draft.projectId,
+      taskId: draft.taskId || undefined,
+      jiraTicket: draft.jiraTicket.trim() || undefined,
+      ratio: parseRatioInput(draft.ratio),
+    };
     try {
-      await onSave({
-        date: draft.date,
-        startTime: startDt.toISOString(),
-        endTime: endDt.toISOString(),
-        durationMinutes: durationMinutes!,
-        description: draft.description.trim() || undefined,
-        projectId: draft.projectId,
-        taskId: draft.taskId || undefined,
-        jiraTicket: draft.jiraTicket.trim() || undefined,
-        ratio: parseRatioInput(draft.ratio),
-      });
+      if (overnightMode === 'split') {
+        // Midnight at the end of the start date.
+        const midnight = new Date(`${draft.date}T00:00:00`).getTime() + nextDayOffset;
+        const midnightIso = new Date(midnight).toISOString();
+        // Next calendar day string.
+        const nextDay = new Date(midnight).toISOString().slice(0, 10);
+        const endIso = endDt.toISOString();
+        await onSave({
+          ...common, date: draft.date,
+          startTime: startDt.toISOString(), endTime: midnightIso,
+          durationMinutes: Math.round((midnight - startDt.getTime()) / 60000),
+        });
+        await onSave({
+          ...common, date: nextDay,
+          startTime: midnightIso, endTime: endIso,
+          durationMinutes: Math.round((endDt.getTime() - midnight) / 60000),
+        });
+      } else {
+        await onSave({
+          ...common, date: draft.date,
+          startTime: startDt.toISOString(),
+          endTime: endDt.toISOString(),
+          durationMinutes: durationMinutes!,
+        });
+      }
       onClose();
     } catch {
       // The data hooks already toast the failure; keep the modal open for retry.
@@ -189,8 +244,22 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
               />
             </div>
           </div>
+          {overnightMode === 'ask' && (
+            <div className="overnight-prompt" role="alert">
+              <p className="overnight-prompt__msg">Did you work past midnight? We can split this into two entries.</p>
+              <div className="overnight-prompt__actions">
+                <button className="btn-sm btn-primary" type="button" onClick={() => setOvernightMode('split')}>Split at midnight</button>
+                <button className="btn-sm btn-ghost" type="button" onClick={() => setOvernightMode('keep')}>Keep as-is</button>
+                <button className="btn-sm btn-ghost" type="button" onClick={() => { set({ endTime: "" }); setOvernightMode(null); }}>Correct the time</button>
+              </div>
+            </div>
+          )}
           {timeError ? (
             <p className="form-error" role="alert">{timeError}</p>
+          ) : overnightMode === 'split' ? (
+            <p className="form-hint">Will create two entries: {draft.startTime}→00:00 and 00:00→{draft.endTime} (next day)</p>
+          ) : overnightMode === 'keep' && durationMinutes !== null && durationMinutes > 0 ? (
+            <p className="form-hint">Duration: {formatMinutes(durationMinutes)} (overnight)</p>
           ) : durationMinutes !== null && durationMinutes > 0 ? (
             <p className="form-hint">Duration: {formatMinutes(durationMinutes)}</p>
           ) : null}

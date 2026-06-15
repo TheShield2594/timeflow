@@ -157,6 +157,15 @@ CalendarEntryBlock.displayName = "CalendarEntryBlock";
 export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCreateEntry, onEdit, onDelete, onEnsureRangeLoaded, onLoadTasksForProject }) => {
   const [anchor, setAnchor] = useState(() => new Date());
   const weekDays = useMemo(() => getWeekDays(anchor), [anchor]);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 769);
+  const [mobileDay, setMobileDay] = useState(() => new Date());
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 768px)");
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
   const bodyRef = useRef<HTMLDivElement>(null);
 
   // Re-render once a minute so the now-line, the running entry's height and
@@ -168,10 +177,23 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
   }, []);
   const today = localDateStr(new Date(tick));
 
-  // Land the scroll position at the start of the workday on first render.
+  // Keep a ref to entries so the scroll effect can read them without depending
+  // on them (we don't want to re-scroll on every entry CRUD operation).
+  const entriesScrollRef = useRef(entries);
+  useEffect(() => { entriesScrollRef.current = entries; }, [entries]);
+
+  // Scroll to the earliest entry in the visible week on mount and on week
+  // navigation; fall back to 7 AM when there are no entries.
   useEffect(() => {
-    bodyRef.current?.scrollTo({ top: SCROLL_TO_HOUR * SLOTS_PER_HOUR * SLOT_HEIGHT - 6 });
-  }, []);
+    const weekDateSet = new Set(weekDays.map((d) => localDateStr(d)));
+    const weekEntries = entriesScrollRef.current.filter((e) => weekDateSet.has(e.date) && e.startTime);
+    let targetHour = SCROLL_TO_HOUR;
+    if (weekEntries.length > 0) {
+      const minMinutes = Math.min(...weekEntries.map((e) => minutesOfDay(e.startTime)));
+      targetHour = Math.max(0, Math.floor(minMinutes / 60) - 1);
+    }
+    bodyRef.current?.scrollTo({ top: targetHour * SLOTS_PER_HOUR * SLOT_HEIGHT - 6 });
+  }, [weekDays]);
 
   // Make sure the data for the visible week is loaded — navigating backwards
   // past the initial 90-day window will pull more entries from Dataverse.
@@ -404,7 +426,44 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
         </div>
       </div>
 
+      {/* ── Mobile day-list view ── */}
+      <div className="cal-mobile-day-nav">
+        <button className="cal-nav-btn" onClick={() => { const d = new Date(mobileDay); d.setDate(d.getDate() - 1); setMobileDay(d); }} aria-label="Previous day"><IconChevronLeft /></button>
+        <span className="cal-mobile-day-nav__label">
+          {mobileDay.toLocaleDateString("en", { weekday: "short", month: "short", day: "numeric" })}
+        </span>
+        <button className="cal-nav-btn" onClick={() => { const d = new Date(mobileDay); d.setDate(d.getDate() + 1); setMobileDay(d); }} aria-label="Next day"><IconChevronRight /></button>
+      </div>
+      {isMobile && (() => {
+        const ds = localDateStr(mobileDay);
+        const dayItems = (positionedByDate.get(ds) ?? []).slice().sort((a, b) => a.startMin - b.startMin);
+        return (
+          <div className="cal-mobile-list">
+            {dayItems.length === 0 ? (
+              <p className="cal-mobile-empty">No entries — tap below to add one.</p>
+            ) : dayItems.map(({ entry, running }) => {
+              const project = projects.find((p) => p.id === entry.projectId);
+              return (
+                <div key={entry.id} className="cal-mobile-entry" onClick={() => handleEntryClick({ stopPropagation: () => {} } as React.MouseEvent, entry)} role="button" tabIndex={0} onKeyDown={(e) => handleEntryKeyDown(e, entry)}>
+                  <div className="cal-mobile-entry__bar" style={{ background: project?.color || "#6366f1" }} />
+                  <div className="cal-mobile-entry__info">
+                    <div className="cal-mobile-entry__name">{entry.description || project?.name || "Untitled"}</div>
+                    <div className="cal-mobile-entry__time">
+                      {new Date(entry.startTime).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })}
+                      {" – "}
+                      {running ? "now" : entry.endTime ? new Date(entry.endTime).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" }) : ""}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            <button className="btn-primary" style={{ marginTop: 8, width: "100%" }} onClick={() => openCreate(ds, 9 * 60)}>+ Add entry</button>
+          </div>
+        );
+      })()}
+
       {/* ── Grid ── */}
+      <div className="calendar__grid-wrap">
       <div className="calendar__body" ref={bodyRef}>
         <div className="calendar__grid">
           {/* Time gutter */}
@@ -474,6 +533,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
           })}
         </div>
       </div>
+      </div>{/* end calendar__grid-wrap */}
     </div>
   );
 };
