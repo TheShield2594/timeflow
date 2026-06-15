@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { Project, Task, TimeEntry, TimerState } from "../types";
 import * as svc from "../services/dataverseService";
 import { getCurrentUser } from "../services/userService";
@@ -72,33 +72,53 @@ export function useProjects() {
 }
 
 // ---------------------------------------------------------------------------
-// useTasks
+// useTasks — lazy-loads per project on demand, caches by project ID
 // ---------------------------------------------------------------------------
 export function useTasks() {
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [tasksByProject, setTasksByProject] = useState<Map<string, Task[]>>(new Map());
+  // Track in-flight requests in a ref so the callback doesn't need it as a dep.
+  const loadingRef = useRef<Set<string>>(new Set());
   const toast = useToast();
 
-  useEffect(() => {
-    svc.getAllTasks().then(setTasks).catch((err) => {
+  const loadTasksForProject = useCallback(async (projectId: string) => {
+    if (!projectId || tasksByProject.has(projectId) || loadingRef.current.has(projectId)) return;
+    loadingRef.current.add(projectId);
+    try {
+      const loaded = await svc.getTasksForProject(projectId);
+      setTasksByProject((prev) => new Map([...prev, [projectId, loaded]]));
+    } catch (err) {
       toast(`Could not load tasks: ${errMsg(err)}`, "error");
-    });
-  }, [toast]);
+    } finally {
+      loadingRef.current.delete(projectId);
+    }
+  }, [tasksByProject, toast]);
+
+  const tasks = useMemo(() => [...tasksByProject.values()].flat(), [tasksByProject]);
 
   const addTask = useCallback(async (data: Omit<Task, "id">) => {
     const optimistic: Task = { ...data, id: tempId() };
-    setTasks((prev) => [...prev, optimistic]);
+    setTasksByProject((prev) => {
+      const existing = prev.get(data.projectId) ?? [];
+      return new Map([...prev, [data.projectId, [...existing, optimistic]]]);
+    });
     try {
       const real = await svc.createTask(data);
-      setTasks((prev) => prev.map((t) => (t.id === optimistic.id ? real : t)));
+      setTasksByProject((prev) => {
+        const existing = (prev.get(data.projectId) ?? []).map((t) => (t.id === optimistic.id ? real : t));
+        return new Map([...prev, [data.projectId, existing]]);
+      });
       return real;
     } catch (err) {
-      setTasks((prev) => prev.filter((t) => t.id !== optimistic.id));
+      setTasksByProject((prev) => {
+        const existing = (prev.get(data.projectId) ?? []).filter((t) => t.id !== optimistic.id);
+        return new Map([...prev, [data.projectId, existing]]);
+      });
       toast(`Could not create task: ${errMsg(err)}`, "error");
       throw err;
     }
   }, [toast]);
 
-  return { tasks, addTask };
+  return { tasks, addTask, loadTasksForProject };
 }
 
 // ---------------------------------------------------------------------------

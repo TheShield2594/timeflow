@@ -103,7 +103,7 @@ const AppContent: React.FC = () => {
   }, []);
 
   const { projects, addProject, editProject } = useProjects();
-  const { tasks, addTask } = useTasks();
+  const { tasks, addTask, loadTasksForProject } = useTasks();
   const { entries, loading, deleteEntry, editEntry, createEntry, refresh } = useTimeEntries(loadedRange.from, loadedRange.to);
 
   const handleNewEntry = useCallback(
@@ -229,6 +229,7 @@ const AppContent: React.FC = () => {
           onStop={stop}
           onUpdate={update}
           onAddTask={addTask}
+          onLoadTasksForProject={loadTasksForProject}
         />
 
         <div className="main__content">
@@ -243,6 +244,7 @@ const AppContent: React.FC = () => {
               onEdit={editEntry}
               onCreate={createEntry}
               onEnsureRangeLoaded={ensureRangeLoaded}
+              onLoadTasksForProject={loadTasksForProject}
             />
           ) : page === "calendar" ? (
             <CalendarPage
@@ -253,6 +255,7 @@ const AppContent: React.FC = () => {
               onEdit={editEntry}
               onDelete={deleteWithUndo}
               onEnsureRangeLoaded={ensureRangeLoaded}
+              onLoadTasksForProject={loadTasksForProject}
             />
           ) : page === "reports" ? (
             <ReportsPage

@@ -18,13 +18,14 @@ interface Props {
   onStop: () => void;
   onUpdate: (patch: { description?: string; taskId?: string | null; ratio?: number }) => void;
   onAddTask: (data: Omit<Task, "id">) => Promise<Task>;
+  onLoadTasksForProject: (projectId: string) => void;
 }
 
 
 export const TimerBar: React.FC<Props> = ({
   projects, tasks, isRunning, elapsed,
   currentProjectId, currentTaskId, description, ratio,
-  onStart, onStop, onUpdate, onAddTask,
+  onStart, onStop, onUpdate, onAddTask, onLoadTasksForProject,
 }) => {
   const [selectedProject, setSelectedProject] = useState(currentProjectId || "");
   const [selectedTask, setSelectedTask] = useState(currentTaskId || "");
@@ -134,10 +135,12 @@ export const TimerBar: React.FC<Props> = ({
                 className="timer-bar__select"
                 value={selectedProject}
                 onChange={(e) => {
-                  setSelectedProject(e.target.value);
+                  const pid = e.target.value;
+                  setSelectedProject(pid);
                   setSelectedTask("");
                   setAddingNewTask(false);
                   setNewTaskName("");
+                  if (pid) onLoadTasksForProject(pid);
                 }}
               >
                 <option value="">Select project…</option>
