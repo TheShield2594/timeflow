@@ -231,6 +231,30 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
   const [elapsed, setElapsed] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // On bootstrap: if no local timer state, check Dataverse for an open entry
+  // left by a previous session that lost its localStorage (#15).
+  useEffect(() => {
+    const localState = (() => {
+      try { return JSON.parse(localStorage.getItem(timerKey) || "null"); } catch { return null; }
+    })();
+    if (localState) return; // localStorage already has state, no need to query
+    svc.getOpenTimerEntry().then((open) => {
+      if (!open || !open.projectId || !open.startTime) return;
+      const restored: TimerState = {
+        isRunning: true,
+        startTime: open.startTime,
+        projectId: open.projectId,
+        taskId: open.taskId ?? null,
+        description: open.description ?? "",
+        ratio: open.ratio,
+        draftEntryId: open.id,
+      };
+      setTimer(restored);
+      localStorage.setItem(timerKey, JSON.stringify(restored));
+    }).catch(() => { /* non-critical */ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (timer.isRunning && timer.startTime) {
       const tick = () => {
@@ -251,7 +275,7 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       toast("Pick a project before starting the timer.", "error");
       return;
     }
-    if (timer.isRunning) {
+    if (timer.isRunning || timer.pendingStopAt) {
       // Defensive — UI prevents this, but a programmatic caller shouldn't be able to
       // strand the previous session by overwriting it.
       toast("Timer is already running. Stop it first.", "error");
@@ -267,36 +291,78 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
     };
     setTimer(newTimer);
     localStorage.setItem(timerKey, JSON.stringify(newTimer));
-  }, [timerKey, toast, timer.isRunning]);
+
+    // Write a draft entry to Dataverse immediately so the session survives a
+    // page reload that clears localStorage (#15). Fire-and-forget: the draft
+    // ID is stored back into timer state once the round-trip completes.
+    svc.createDraftTimerEntry({
+      projectId,
+      taskId,
+      description,
+      startTime: newTimer.startTime!,
+      date: localDateStr(new Date(newTimer.startTime!)),
+      ratio,
+    }).then((draftEntryId) => {
+      setTimer((prev) => {
+        if (!prev.isRunning) return prev; // timer was stopped before we got back
+        const next = { ...prev, draftEntryId };
+        localStorage.setItem(timerKey, JSON.stringify(next));
+        return next;
+      });
+    }).catch(() => { /* non-critical — localStorage still covers the common case */ });
+  }, [timerKey, toast, timer.isRunning, timer.pendingStopAt]);
 
   const stopAt = useCallback(async (endIso: string) => {
-    if (!timer.isRunning || !timer.startTime || !timer.projectId) return;
-    const startMs = new Date(timer.startTime).getTime();
+    const activeTimer = timer;
+    if (!activeTimer.startTime || !activeTimer.projectId) return;
+    if (!activeTimer.isRunning && !activeTimer.pendingStopAt) return;
+
+    const startMs = new Date(activeTimer.startTime).getTime();
     const endMs = new Date(endIso).getTime();
     const durationMinutes = Math.max(0, Math.round((endMs - startMs) / 60000));
+
+    // Stop the clock immediately (issue #32 — don't leave it running while the
+    // network call is in flight). We'll roll back if the save fails.
+    const stoppedTimer: TimerState = { ...activeTimer, isRunning: false, pendingStopAt: endIso };
+    setTimer(stoppedTimer);
+    localStorage.setItem(timerKey, JSON.stringify(stoppedTimer));
+
     try {
-      const entry = await svc.createTimeEntry({
-        projectId: timer.projectId,
-        taskId: timer.taskId || undefined,
-        description: timer.description,
-        startTime: timer.startTime,
-        endTime: endIso,
-        durationMinutes,
-        ratio: timer.ratio,
-        // Stamp the LOCAL calendar day the session started — startTime is a
-        // UTC ISO string, so splitting it would shift evening sessions to
-        // the next day for users west of UTC.
-        date: localDateStr(new Date(timer.startTime)),
-        userId: user.id,
-        userDisplayName: user.displayName,
-      });
+      let entry: TimeEntry;
+      if (activeTimer.draftEntryId) {
+        // Update the draft record written at start time (#15).
+        entry = await svc.updateTimeEntry(activeTimer.draftEntryId, {
+          endTime: endIso,
+          durationMinutes,
+          description: activeTimer.description,
+          ratio: activeTimer.ratio,
+          taskId: activeTimer.taskId || undefined,
+        });
+      } else {
+        entry = await svc.createTimeEntry({
+          projectId: activeTimer.projectId,
+          taskId: activeTimer.taskId || undefined,
+          description: activeTimer.description,
+          startTime: activeTimer.startTime,
+          endTime: endIso,
+          durationMinutes,
+          ratio: activeTimer.ratio,
+          // Stamp the LOCAL calendar day the session started — startTime is a
+          // UTC ISO string, so splitting it would shift evening sessions to
+          // the next day for users west of UTC.
+          date: localDateStr(new Date(activeTimer.startTime)),
+          userId: user.id,
+          userDisplayName: user.displayName,
+        });
+      }
       setTimer(RESET_TIMER);
       localStorage.removeItem(timerKey);
       onStop(entry);
       return entry;
     } catch (err) {
-      // Keep timer state intact so the user can retry by tapping Stop again.
-      toast(`Could not save session: ${errMsg(err)}. Tap Stop to retry.`, "error");
+      // Save failed: keep the stopped-but-pending state so the user can retry
+      // (#32). pendingStopAt is already written to localStorage above.
+      toast("Failed to save entry. Tap Stop to retry.", "error");
       throw err;
     }
   }, [timer, onStop, timerKey, user.id, user.displayName, toast]);

@@ -472,6 +472,71 @@ export async function updateTimeEntry(id: string, data: Partial<TimeEntry>): Pro
   return merged;
 }
 
+/**
+ * Creates a draft timer entry in Dataverse when the timer starts (#15).
+ * The record has ever_endtime = null so it can be detected on bootstrap.
+ */
+export async function createDraftTimerEntry(data: {
+  projectId: string;
+  taskId?: string | null;
+  description?: string;
+  startTime: string;
+  date: string;
+  ratio?: number;
+}): Promise<string> {
+  const user = getCurrentUser();
+  if (!isPowerAppsHost()) {
+    // In dev, store draft ID in localStorage so we can clean it up on stop.
+    const id = uuid();
+    const all = load<TimeEntry>(STORAGE_KEYS.entries);
+    persist(STORAGE_KEYS.entries, [...all, {
+      ...data,
+      taskId: data.taskId ?? undefined,
+      id,
+      endTime: undefined,
+      userId: user.id,
+      userDisplayName: user.displayName,
+    }]);
+    return id;
+  }
+  const raw: Record<string, unknown> = {
+    ever_starttime: data.startTime,
+    ever_date: data.date,
+    ever_userid: user.id,
+    ever_endtime: null,
+    [`ever_project@odata.bind`]: `/${SETS.projects}(${data.projectId})`,
+  };
+  if (data.description) raw.ever_description = data.description;
+  if (data.ratio !== undefined) raw.ever_ratio = data.ratio;
+  if (data.taskId) raw[`ever_workitem@odata.bind`] = `/${SETS.tasks}(${data.taskId})`;
+  const result = await MicrosoftDataverseService.CreateRecordWithOrganization(
+    PREFER_RETURN, ACCEPT, ORG_URL, SETS.entries, raw,
+  );
+  const row = unwrapRow(unwrap(result, "Create draft timer entry"));
+  return (row["ever_timeentriesid"] ?? row["id"]) as string;
+}
+
+/**
+ * Queries for an open timer entry (ever_endtime null) owned by the current
+ * user. Used on app bootstrap to restore timer state after a page reload (#15).
+ */
+export async function getOpenTimerEntry(): Promise<TimeEntry | null> {
+  if (!isPowerAppsHost()) {
+    const user = getCurrentUser();
+    const all = load<TimeEntry>(STORAGE_KEYS.entries);
+    const open = all.find((e) => e.userId === user.id && !e.endTime);
+    return open ?? null;
+  }
+  try {
+    const rows = await listAllPages(SETS.entries, "ever_endtime eq null", "ever_starttime desc");
+    if (!rows.length) return null;
+    return mapEntry(rows[0]);
+  } catch {
+    // If the query fails (e.g. column not filterable), fail gracefully.
+    return null;
+  }
+}
+
 export async function deleteTimeEntry(id: string): Promise<void> {
   if (!isPowerAppsHost()) {
     const all = load<TimeEntry>(STORAGE_KEYS.entries).filter((e) => e.id !== id);

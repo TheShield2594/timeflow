@@ -9,6 +9,8 @@ interface Props {
   projects: Project[];
   tasks: Task[];
   isRunning: boolean;
+  /** ISO timestamp when stop failed — enables retry flow (#32). */
+  pendingStopAt?: string;
   elapsed: number;
   currentProjectId: string | null;
   currentTaskId: string | null;
@@ -16,6 +18,7 @@ interface Props {
   ratio?: number;
   onStart: (projectId: string, taskId: string | null, description: string, ratio?: number) => void;
   onStop: () => void;
+  onRetryStop?: (endIso: string) => void;
   onUpdate: (patch: { description?: string; taskId?: string | null; ratio?: number }) => void;
   onAddTask: (data: Omit<Task, "id">) => Promise<Task>;
   onLoadTasksForProject: (projectId: string) => void;
@@ -23,9 +26,9 @@ interface Props {
 
 
 export const TimerBar: React.FC<Props> = ({
-  projects, tasks, isRunning, elapsed,
+  projects, tasks, isRunning, pendingStopAt, elapsed,
   currentProjectId, currentTaskId, description, ratio,
-  onStart, onStop, onUpdate, onAddTask, onLoadTasksForProject,
+  onStart, onStop, onRetryStop, onUpdate, onAddTask, onLoadTasksForProject,
 }) => {
   const [selectedProject, setSelectedProject] = useState(currentProjectId || "");
   const [selectedTask, setSelectedTask] = useState(currentTaskId || "");
@@ -217,14 +220,26 @@ export const TimerBar: React.FC<Props> = ({
           {isRunning && (
             <span className="timer-bar__elapsed">{formatElapsed(elapsed)}</span>
           )}
-          <button
-            className={`timer-bar__btn btn-icon ${isRunning ? "timer-bar__btn--stop" : "timer-bar__btn--start"}`}
-            onClick={isRunning ? onStop : handleStart}
-            disabled={!isRunning && !selectedProject}
-            title={isRunning ? "Stop timer (Ctrl/Cmd + .)" : "Start timer (Ctrl/Cmd + .)"}
-          >
-            {isRunning ? <><IconStop /> Stop</> : <><IconPlay /> Start</>}
-          </button>
+          {pendingStopAt ? (
+            <button
+              className="timer-bar__btn btn-icon timer-bar__btn--stop"
+              onClick={() => onRetryStop?.(pendingStopAt)}
+              title="Retry saving entry"
+              aria-label="Retry saving entry"
+            >
+              <IconStop /> Retry
+            </button>
+          ) : (
+            <button
+              className={`timer-bar__btn btn-icon ${isRunning ? "timer-bar__btn--stop" : "timer-bar__btn--start"}`}
+              onClick={isRunning ? onStop : handleStart}
+              disabled={!isRunning && !selectedProject}
+              title={isRunning ? "Stop timer (Ctrl/Cmd + .)" : "Start timer (Ctrl/Cmd + .)"}
+              aria-label={isRunning ? "Stop timer" : "Start timer"}
+            >
+              {isRunning ? <><IconStop /> Stop</> : <><IconPlay /> Start</>}
+            </button>
+          )}
         </div>
       </div>
 
