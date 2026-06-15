@@ -82,7 +82,7 @@ const AppContent: React.FC = () => {
   // partial-load errors to the UI without importing React.
   useEffect(() => {
     setPaginationWarningHandler((msg) => toast(msg, "error"));
-    return () => setPaginationWarningHandler(null as unknown as (msg: string) => void);
+    return () => setPaginationWarningHandler(null);
   }, [toast]);
 
   const [loadedRange, setLoadedRange] = useState(() => ({

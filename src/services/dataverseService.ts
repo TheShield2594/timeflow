@@ -85,7 +85,7 @@ const MAX_PAGES = 20;
 // importing React or hooks.
 type WarningHandler = (message: string) => void;
 let paginationWarningHandler: WarningHandler | null = null;
-export function setPaginationWarningHandler(fn: WarningHandler): void {
+export function setPaginationWarningHandler(fn: WarningHandler | null): void {
   paginationWarningHandler = fn;
 }
 
