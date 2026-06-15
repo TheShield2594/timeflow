@@ -220,6 +220,7 @@ const AppContent: React.FC = () => {
           projects={projects}
           tasks={tasks}
           isRunning={timer.isRunning}
+          pendingStopAt={timer.pendingStopAt}
           elapsed={elapsed}
           currentProjectId={timer.projectId}
           currentTaskId={timer.taskId}
@@ -227,6 +228,7 @@ const AppContent: React.FC = () => {
           ratio={timer.ratio}
           onStart={start}
           onStop={stop}
+          onRetryStop={stopAt}
           onUpdate={update}
           onAddTask={addTask}
           onLoadTasksForProject={loadTasksForProject}

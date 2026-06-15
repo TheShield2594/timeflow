@@ -226,7 +226,7 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
           </button>
           <button className="btn-ghost" onClick={safeClose} disabled={saving}>Cancel</button>
           {onDelete && (
-            <button className="cal-modal__delete" onClick={() => { if (!saving) onDelete(); }} disabled={saving}>Delete</button>
+            <button className="cal-modal__delete" onClick={() => { if (!saving) onDelete(); }} disabled={saving} aria-label="Delete entry">Delete</button>
           )}
         </div>
       </div>
