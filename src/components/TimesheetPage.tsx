@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { TimeEntry, Project, Task } from "../types";
 import { formatMinutes } from "../hooks";
+import { useDataRange } from "../contexts/DataRangeContext";
 import { getCurrentUser } from "../services/userService";
 import { friendlyDate, localDateStr, toTimeInput } from "../utils/dates";
 import { EntryModal, EntryDraft, EntrySaveData } from "./EntryModal";
@@ -18,7 +19,6 @@ interface Props {
   onDelete: (id: string) => void;
   onEdit: (id: string, data: Partial<TimeEntry>) => Promise<TimeEntry>;
   onCreate: (data: Omit<TimeEntry, "id">) => Promise<TimeEntry>;
-  onEnsureRangeLoaded?: (from: string, to: string) => void;
   onLoadTasksForProject?: (projectId: string) => void;
 }
 
@@ -64,8 +64,9 @@ function newEntryDraft(): EntryDraft {
 }
 
 export const TimesheetPage: React.FC<Props> = ({
-  entries, projects, tasks, onDelete, onEdit, onCreate, onEnsureRangeLoaded, onLoadTasksForProject,
+  entries, projects, tasks, onDelete, onEdit, onCreate, onLoadTasksForProject,
 }) => {
+  const { ensureRangeLoaded } = useDataRange();
   const [modal, setModal] = useState<ModalState | null>(null);
   const [search, setSearch] = useState("");
   const [projectFilter, setProjectFilter] = useState("");
@@ -82,8 +83,8 @@ export const TimesheetPage: React.FC<Props> = ({
   useEffect(() => { setVisibleDays(INITIAL_VISIBLE_DAYS); }, [from, to, search, projectFilter]);
 
   useEffect(() => {
-    onEnsureRangeLoaded?.(from, to);
-  }, [from, to, onEnsureRangeLoaded]);
+    ensureRangeLoaded(from, to);
+  }, [from, to, ensureRangeLoaded]);
 
   const filteredEntries = useMemo(() => {
     const q = search.trim().toLowerCase();

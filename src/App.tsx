@@ -1,20 +1,17 @@
 import React, { useState, useMemo, useCallback, useEffect, Component } from "react";
 import { TimerBar } from "./components/TimerBar";
-import { TimesheetPage } from "./components/TimesheetPage";
-import { ReportsPage } from "./components/ReportsPage";
-import { ProjectsPage } from "./components/ProjectsPage";
-import { CalendarPage } from "./components/CalendarPage";
 import { IdleModal } from "./components/IdleModal";
+import { PageRouter, Page } from "./components/PageRouter";
 import { IconTimesheet, IconCalendar, IconChart, IconFolder } from "./components/Icons";
 import { useProjects, useTasks, useTimeEntries, useTimer } from "./hooks";
 import { useActivityTracker, useTimerSafetyMonitor, MAX_DURATION_MS } from "./hooks/useTimerSafety";
-import { initCurrentUser } from "./services/userService";
+import { useAppBootstrap } from "./hooks/useAppBootstrap";
 import { setPaginationWarningHandler } from "./services/dataverseService";
 import { ToastProvider, useToast } from "./contexts/ToastContext";
-import { localDateStr, localDateDaysAgo } from "./utils/dates";
-import logoUrl from "./everence-logo.png";
+import { DataRangeProvider, useDataRange } from "./contexts/DataRangeContext";
 
-import type { TimeEntry, CurrentUser } from "./types";
+import type { TimeEntry } from "./types";
+import logoUrl from "./everence-logo.png";
 
 // ---------------------------------------------------------------------------
 // ErrorBoundary — catches render errors and shows a recovery screen instead
@@ -56,12 +53,6 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, EBState> {
   }
 }
 
-type Page = "timesheet" | "calendar" | "reports" | "projects";
-
-// How far back we initially load entries from Dataverse. Each page can request
-// the loaded window to widen via ensureRangeLoaded.
-const INITIAL_DAYS_LOADED = 90;
-
 interface IdleAlert {
   lastActiveAt: number;
   startTime: string;
@@ -74,44 +65,8 @@ const NAV_ITEMS: { key: Page; label: string; icon: React.ReactNode }[] = [
   { key: "projects", label: "Projects", icon: <IconFolder /> },
 ];
 
-/** Skeleton shown only on the very first data load — shaped like the timesheet. */
-const PageSkeleton: React.FC = () => (
-  <div className="page-skeleton" aria-hidden="true">
-    <div className="skeleton skeleton--title" />
-    {[0, 1, 2].map((g) => (
-      <div key={g} className="page-skeleton__group">
-        <div className="skeleton skeleton--label" />
-        {[0, 1].map((r) => (
-          <div key={r} className="skeleton skeleton--row" />
-        ))}
-      </div>
-    ))}
-  </div>
-);
-
-/** Skeleton shaped like the Reports page — KPI strip + bar chart. */
-const ReportsSkeleton: React.FC = () => (
-  <div className="reports-skeleton" aria-hidden="true">
-    <div className="skeleton skeleton--title" style={{ width: 120, marginBottom: 18 }} />
-    <div className="reports-skeleton__kpis">
-      {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="skeleton skeleton--kpi" />
-      ))}
-    </div>
-    <div className="skeleton skeleton--chart" style={{ marginBottom: 16 }} />
-    <div className="skeleton skeleton--row" style={{ height: 120 }} />
-  </div>
-);
-
 const App: React.FC = () => {
-  const [user, setUser] = useState<CurrentUser | null>(null);
-  const [authError, setAuthError] = useState<string | null>(null);
-
-  useEffect(() => {
-    initCurrentUser()
-      .then(setUser)
-      .catch((err) => setAuthError(err instanceof Error ? err.message : "Sign-in failed"));
-  }, []);
+  const { user, authError } = useAppBootstrap();
 
   if (authError) {
     return <div className="loading">Sign-in failed: {authError}</div>;
@@ -123,7 +78,9 @@ const App: React.FC = () => {
   return (
     <ErrorBoundary>
       <ToastProvider>
-        <AppContent />
+        <DataRangeProvider>
+          <AppContent />
+        </DataRangeProvider>
       </ToastProvider>
     </ErrorBoundary>
   );
@@ -133,34 +90,16 @@ const AppContent: React.FC = () => {
   const [page, setPage] = useState<Page>("timesheet");
   const [idleAlert, setIdleAlert] = useState<IdleAlert | null>(null);
   const toast = useToast();
+  const { from, to } = useDataRange();
 
-  // Wire the pagination warning handler so dataverseService can surface
-  // partial-load errors to the UI without importing React.
   useEffect(() => {
     setPaginationWarningHandler((msg) => toast(msg, "error"));
     return () => setPaginationWarningHandler(null);
   }, [toast]);
 
-  const [loadedRange, setLoadedRange] = useState(() => ({
-    from: localDateDaysAgo(INITIAL_DAYS_LOADED - 1),
-    to: localDateStr(),
-  }));
-
-  // Pages call this when their UI needs data outside the currently loaded
-  // window (e.g. Reports filter changed to "Last 90 days", Calendar navigated
-  // backwards). We only ever widen; we don't shrink the cache.
-  const ensureRangeLoaded = useCallback((from: string, to: string) => {
-    setLoadedRange((prev) => {
-      const nextFrom = from < prev.from ? from : prev.from;
-      const nextTo = to > prev.to ? to : prev.to;
-      if (nextFrom === prev.from && nextTo === prev.to) return prev;
-      return { from: nextFrom, to: nextTo };
-    });
-  }, []);
-
   const { projects, addProject, editProject } = useProjects();
   const { tasks, addTask, loadTasksForProject } = useTasks();
-  const { entries, loading, deleteEntry, editEntry, createEntry, refresh } = useTimeEntries(loadedRange.from, loadedRange.to);
+  const { entries, loading, deleteEntry, editEntry, createEntry, refresh } = useTimeEntries(from, to);
 
   const handleNewEntry = useCallback(
     (_entry: TimeEntry) => { refresh(); },
@@ -169,14 +108,12 @@ const AppContent: React.FC = () => {
 
   const { timer, elapsed, start, stop, stopAt, cancel, update } = useTimer(handleNewEntry);
 
-  // Delete with an undo window: the row disappears optimistically, and the
-  // toast lets the user re-create it (server-side it's a fresh record).
   const deleteWithUndo = useCallback(async (id: string) => {
     const snapshot = entries.find((e) => e.id === id);
     try {
       await deleteEntry(id);
     } catch {
-      return; // deleteEntry already rolled back and toasted
+      return;
     }
     if (snapshot) {
       const { id: _omit, ...data } = snapshot;
@@ -202,7 +139,7 @@ const AppContent: React.FC = () => {
       await stopAt(cappedEnd);
       toast("Timer auto-stopped after 12 hours — edit the entry if needed.", "info");
     } catch {
-      // stopAt already toasted the save error; nothing else to do.
+      // stopAt already toasted the save error
     }
   }, [timer.startTime, stopAt, toast]);
 
@@ -225,7 +162,6 @@ const AppContent: React.FC = () => {
   }, [idleAlert, stopAt]);
 
   const handleIdleKeep = useCallback(() => {
-    // Treat dismissal as activity so we don't re-prompt instantly.
     lastActivity.current = Date.now();
     setIdleAlert(null);
   }, [lastActivity]);
@@ -291,47 +227,21 @@ const AppContent: React.FC = () => {
         />
 
         <div className="main__content">
-          {loading ? (
-            page === "reports" ? <ReportsSkeleton /> : <PageSkeleton />
-          ) : page === "timesheet" ? (
-            <TimesheetPage
-              entries={entries}
-              projects={projects}
-              tasks={tasks}
-              onDelete={deleteWithUndo}
-              onEdit={editEntry}
-              onCreate={createEntry}
-              onEnsureRangeLoaded={ensureRangeLoaded}
-              onLoadTasksForProject={loadTasksForProject}
-            />
-          ) : page === "calendar" ? (
-            <CalendarPage
-              entries={entries}
-              projects={projects}
-              tasks={tasks}
-              onCreateEntry={createEntry}
-              onEdit={editEntry}
-              onDelete={deleteWithUndo}
-              onEnsureRangeLoaded={ensureRangeLoaded}
-              onLoadTasksForProject={loadTasksForProject}
-            />
-          ) : page === "reports" ? (
-            <ReportsPage
-              entries={entries}
-              projects={projects}
-              tasks={tasks}
-              onEnsureRangeLoaded={ensureRangeLoaded}
-            />
-          ) : (
-            <ProjectsPage
-              projects={projects}
-              tasks={tasks}
-              totalMinutesByProject={totalMinutesByProject}
-              onAddProject={addProject}
-              onEditProject={editProject}
-              onAddTask={addTask}
-            />
-          )}
+          <PageRouter
+            page={page}
+            loading={loading}
+            entries={entries}
+            projects={projects}
+            tasks={tasks}
+            totalMinutesByProject={totalMinutesByProject}
+            onDelete={deleteWithUndo}
+            onEdit={editEntry}
+            onCreate={createEntry}
+            onAddProject={addProject}
+            onEditProject={editProject}
+            onAddTask={addTask}
+            onLoadTasksForProject={loadTasksForProject}
+          />
         </div>
       </div>
 
