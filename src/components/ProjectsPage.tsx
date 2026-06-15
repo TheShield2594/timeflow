@@ -3,6 +3,10 @@ import type { Project, Task } from "../types";
 import { formatMinutes, parseRatioInput } from "../hooks";
 import { IconCheck, IconPlus, IconX } from "./Icons";
 
+function isValidHex(hex: string): boolean {
+  return /^#[0-9A-Fa-f]{6}$/.test(hex);
+}
+
 interface Props {
   projects: Project[];
   tasks: Task[];
@@ -30,6 +34,7 @@ interface FormDraft {
   name: string;
   description: string;
   color: string;
+  hexInput: string;
   ratio: string;
   jiraTicket: string;
 }
@@ -39,6 +44,7 @@ const EMPTY_DRAFT: FormDraft = {
   name: "",
   description: "",
   color: PALETTE[0],
+  hexInput: PALETTE[0],
   ratio: "",
   jiraTicket: "",
 };
@@ -56,6 +62,7 @@ export const ProjectsPage: React.FC<Props> = ({
     name: p.name,
     description: p.description ?? "",
     color: p.color,
+    hexInput: p.color,
     ratio: p.ratio !== undefined ? String(p.ratio) : "",
     jiraTicket: p.jiraTicket ?? "",
   });
@@ -133,10 +140,34 @@ export const ProjectsPage: React.FC<Props> = ({
                 key={c}
                 className={`color-picker__swatch ${draft.color === c ? "color-picker__swatch--active" : ""}`}
                 style={{ background: c }}
-                onClick={() => setDraft((d) => d && ({ ...d, color: c }))}
+                onClick={() => setDraft((d) => d && ({ ...d, color: c, hexInput: c }))}
                 aria-label={`Color ${c}`}
               />
             ))}
+            <div className="color-picker__hex-row">
+              <div
+                className="color-picker__hex-preview"
+                style={{ background: isValidHex(draft.hexInput) ? draft.hexInput : draft.color }}
+                aria-hidden="true"
+              />
+              <input
+                className={`color-picker__hex-input${!isValidHex(draft.hexInput) ? " color-picker__hex-input--invalid" : ""}`}
+                placeholder="#______"
+                maxLength={7}
+                value={draft.hexInput}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  const normalised = raw.startsWith("#") ? raw : `#${raw}`;
+                  setDraft((d) => {
+                    if (!d) return d;
+                    const next = { ...d, hexInput: normalised };
+                    if (isValidHex(normalised)) next.color = normalised;
+                    return next;
+                  });
+                }}
+                aria-label="Custom hex color"
+              />
+            </div>
           </div>
           <div className="new-project-form__actions">
             <button className="btn-primary" onClick={handleSave}>
@@ -144,6 +175,16 @@ export const ProjectsPage: React.FC<Props> = ({
             </button>
             <button className="btn-ghost" onClick={() => setDraft(null)}>Cancel</button>
           </div>
+        </div>
+      )}
+
+      {projects.length === 0 && !draft && (
+        <div className="projects-page__empty">
+          <IconPlus size={44} className="projects-page__empty-icon" />
+          <p>Create your first project to start tracking time.</p>
+          <button className="btn-primary btn-icon" onClick={startNew}>
+            <IconPlus /> New Project
+          </button>
         </div>
       )}
 

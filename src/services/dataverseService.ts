@@ -80,35 +80,59 @@ function extractSkipToken(nextLink?: string): string | undefined {
 // Hard ceiling so a misbehaving nextLink can never loop forever.
 const MAX_PAGES = 20;
 
+// Module-level warning sink. Wire up via setPaginationWarningHandler() so the
+// service can surface non-fatal partial-load warnings to the UI without
+// importing React or hooks.
+type WarningHandler = (message: string) => void;
+let paginationWarningHandler: WarningHandler | null = null;
+export function setPaginationWarningHandler(fn: WarningHandler): void {
+  paginationWarningHandler = fn;
+}
+
 async function listAllPages(entitySet: string, filter: string | undefined, orderby: string): Promise<Raw[]> {
   const rows: Raw[] = [];
   let skiptoken: string | undefined;
   for (let page = 0; page < MAX_PAGES; page++) {
-    const result = await MicrosoftDataverseService.ListRecordsWithOrganization(
-      ORG_URL,
-      entitySet,
-      undefined, // prefer
-      ACCEPT,
-      undefined, // x-ms-odata-metadata-full
-      undefined, // MSCRM.IncludeMipSensitivityLabel
-      undefined, // $select
-      filter,
-      orderby,
-      undefined, // $expand
-      undefined, // fetchXml
-      undefined, // $top
-      skiptoken,
-    );
-    const env = unwrap(result, `List ${entitySet}`) as unknown as ListEnvelope;
+    let env: ListEnvelope;
+    try {
+      const result = await MicrosoftDataverseService.ListRecordsWithOrganization(
+        ORG_URL,
+        entitySet,
+        undefined, // prefer
+        ACCEPT,
+        undefined, // x-ms-odata-metadata-full
+        undefined, // MSCRM.IncludeMipSensitivityLabel
+        undefined, // $select
+        filter,
+        orderby,
+        undefined, // $expand
+        undefined, // fetchXml
+        undefined, // $top
+        skiptoken,
+      );
+      env = unwrap(result, `List ${entitySet}`) as unknown as ListEnvelope;
+    } catch (err) {
+      if (page === 0) {
+        // First page failure is fatal — there's nothing useful to return.
+        throw err;
+      }
+      // Mid-pagination error: return what we have and warn the user.
+      console.error(`Pagination error on page ${page} of ${entitySet}:`, err);
+      paginationWarningHandler?.(
+        "Some entries may not be shown — try narrowing your date range"
+      );
+      return rows;
+    }
     for (const item of env?.value ?? []) rows.push(unwrapRow(item));
     skiptoken = extractSkipToken(env?.["@odata.nextLink"]);
     if (!skiptoken) break;
   }
   if (skiptoken) {
-    // Fail loudly rather than silently return a partial dataset — totals and
-    // exports computed from truncated data would be wrong without warning.
-    throw new Error(
-      `Loading ${entitySet} exceeded ${MAX_PAGES} pages; narrow the date range and try again.`
+    // Exceeded MAX_PAGES — return partial data with a warning rather than
+    // throwing, so the user sees what was loaded instead of a blank page.
+    console.error(`Loading ${entitySet} exceeded ${MAX_PAGES} pages; partial data returned.`);
+    paginationWarningHandler?.(
+      "Some entries may not be shown — try narrowing your date range"
     );
   }
   return rows;

@@ -9,6 +9,7 @@ import { IconTimesheet, IconCalendar, IconChart, IconFolder } from "./components
 import { useProjects, useTasks, useTimeEntries, useTimer } from "./hooks";
 import { useActivityTracker, useTimerSafetyMonitor, MAX_DURATION_MS } from "./hooks/useTimerSafety";
 import { initCurrentUser } from "./services/userService";
+import { setPaginationWarningHandler } from "./services/dataverseService";
 import { ToastProvider, useToast } from "./contexts/ToastContext";
 import { localDateStr, localDateDaysAgo } from "./utils/dates";
 import logoUrl from "./everence-logo.png";
@@ -76,6 +77,13 @@ const AppContent: React.FC = () => {
   const [page, setPage] = useState<Page>("timesheet");
   const [idleAlert, setIdleAlert] = useState<IdleAlert | null>(null);
   const toast = useToast();
+
+  // Wire the pagination warning handler so dataverseService can surface
+  // partial-load errors to the UI without importing React.
+  useEffect(() => {
+    setPaginationWarningHandler((msg) => toast(msg, "error"));
+    return () => setPaginationWarningHandler(null as unknown as (msg: string) => void);
+  }, [toast]);
 
   const [loadedRange, setLoadedRange] = useState(() => ({
     from: localDateDaysAgo(INITIAL_DAYS_LOADED - 1),
