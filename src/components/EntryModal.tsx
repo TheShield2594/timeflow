@@ -35,9 +35,10 @@ interface Props {
   onSave: (data: EntrySaveData) => Promise<unknown>;
   onDelete?: () => void;
   onClose: () => void;
+  onLoadTasksForProject?: (projectId: string) => void;
 }
 
-export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, onSave, onDelete, onClose }) => {
+export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, onSave, onDelete, onClose, onLoadTasksForProject }) => {
   const [draft, setDraft] = useState<EntryDraft>(initial);
   const [saving, setSaving] = useState(false);
 
@@ -45,6 +46,11 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
     () => tasks.filter((t) => t.projectId === draft.projectId),
     [tasks, draft.projectId]
   );
+
+  // Load tasks for the initially-selected project and whenever it changes.
+  useEffect(() => {
+    if (draft.projectId) onLoadTasksForProject?.(draft.projectId);
+  }, [draft.projectId, onLoadTasksForProject]);
 
   // While a save is in flight, ignore every close/dismiss path so the modal
   // can't be torn down (or the entry deleted) mid-request.

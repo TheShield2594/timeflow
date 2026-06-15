@@ -19,9 +19,11 @@ interface Props {
   onEdit: (id: string, data: Partial<TimeEntry>) => Promise<TimeEntry>;
   onCreate: (data: Omit<TimeEntry, "id">) => Promise<TimeEntry>;
   onEnsureRangeLoaded?: (from: string, to: string) => void;
+  onLoadTasksForProject?: (projectId: string) => void;
 }
 
 const TIMESHEET_PRESETS = ["7d", "30d", "90d", "thisMonth"] as const;
+const INITIAL_VISIBLE_DAYS = 30;
 
 interface ModalState {
   editingId: string | null; // null = create
@@ -62,11 +64,12 @@ function newEntryDraft(): EntryDraft {
 }
 
 export const TimesheetPage: React.FC<Props> = ({
-  entries, projects, tasks, onDelete, onEdit, onCreate, onEnsureRangeLoaded,
+  entries, projects, tasks, onDelete, onEdit, onCreate, onEnsureRangeLoaded, onLoadTasksForProject,
 }) => {
   const [modal, setModal] = useState<ModalState | null>(null);
   const [search, setSearch] = useState("");
   const [projectFilter, setProjectFilter] = useState("");
+  const [visibleDays, setVisibleDays] = useState(INITIAL_VISIBLE_DAYS);
   const [rangeState, setRangeState] = useState<DateRangeState>({
     preset: "30d",
     customFrom: "",
@@ -74,6 +77,9 @@ export const TimesheetPage: React.FC<Props> = ({
   });
 
   const { from, to } = useMemo(() => resolveDateRange(rangeState), [rangeState]);
+
+  // Reset visible days when the filter/range changes so "Load more" state doesn't carry over.
+  useEffect(() => { setVisibleDays(INITIAL_VISIBLE_DAYS); }, [from, to, search, projectFilter]);
 
   useEffect(() => {
     onEnsureRangeLoaded?.(from, to);
@@ -97,6 +103,8 @@ export const TimesheetPage: React.FC<Props> = ({
     () => [...grouped.keys()].sort((a, b) => b.localeCompare(a)),
     [grouped]
   );
+  const visibleDates = useMemo(() => sortedDates.slice(0, visibleDays), [sortedDates, visibleDays]);
+  const hasMore = sortedDates.length > visibleDays;
 
   const totalMinutes = useMemo(
     () => filteredEntries.reduce((s, e) => s + (e.durationMinutes || 0), 0),
@@ -192,6 +200,7 @@ export const TimesheetPage: React.FC<Props> = ({
           onSave={handleModalSave}
           onDelete={modal.editingId ? () => { onDelete(modal.editingId!); setModal(null); } : undefined}
           onClose={() => setModal(null)}
+          onLoadTasksForProject={onLoadTasksForProject}
         />
       )}
 
@@ -212,7 +221,8 @@ export const TimesheetPage: React.FC<Props> = ({
           )}
         </div>
       ) : (
-        sortedDates.map((date) => {
+        <>
+        {visibleDates.map((date) => {
           const dayEntries = grouped.get(date)!;
           const dayTotal = dayEntries.reduce((s, e) => s + (e.durationMinutes || 0), 0);
 
@@ -298,7 +308,18 @@ export const TimesheetPage: React.FC<Props> = ({
               </div>
             </div>
           );
-        })
+        })}
+        {hasMore && (
+          <div className="timesheet__load-more">
+            <button
+              className="btn-ghost"
+              onClick={() => setVisibleDays((n) => n + INITIAL_VISIBLE_DAYS)}
+            >
+              Load more ({sortedDates.length - visibleDays} more {sortedDates.length - visibleDays === 1 ? "day" : "days"})
+            </button>
+          </div>
+        )}
+        </>
       )}
     </div>
   );

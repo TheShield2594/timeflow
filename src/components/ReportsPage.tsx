@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { TimeEntry, Project, Task } from "../types";
 import { formatMinutes } from "../hooks";
 import { exportToCSV, buildExportFilename } from "../services/csvExport";
@@ -227,11 +227,11 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, onEnsur
       .slice(0, 8);
   }, [filtered, tasks, projects]);
 
-  const shortDate = (d: string, weekly: boolean) => {
+  const shortDate = useCallback((d: string, weekly: boolean) => {
     const dt = new Date(d + "T00:00:00");
     if (weekly) return dt.toLocaleDateString("en", { month: "short", day: "numeric" });
     return dt.toLocaleDateString("en", { weekday: "short", month: "numeric", day: "numeric" });
-  };
+  }, []);
 
   return (
     <div className="reports">

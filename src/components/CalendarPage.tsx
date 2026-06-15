@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TimeEntry, Project, Task } from "../types";
 import { getCurrentUser } from "../services/userService";
 import { localDateStr, minutesOfDay, toTimeInput } from "../utils/dates";
@@ -14,6 +14,7 @@ interface Props {
   onEdit: (id: string, data: Partial<TimeEntry>) => Promise<TimeEntry>;
   onDelete: (id: string) => void;
   onEnsureRangeLoaded?: (from: string, to: string) => void;
+  onLoadTasksForProject?: (projectId: string) => void;
 }
 
 interface ModalState {
@@ -94,7 +95,66 @@ function layoutDay(items: Omit<Positioned, "col" | "cols">[]): Positioned[] {
   return result;
 }
 
-export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCreateEntry, onEdit, onDelete, onEnsureRangeLoaded }) => {
+interface EntryBlockProps {
+  entry: TimeEntry;
+  startMin: number;
+  endMin: number;
+  running: boolean;
+  col: number;
+  cols: number;
+  color: string;
+  projectName: string;
+  taskName?: string;
+  onClick: (e: React.MouseEvent, entry: TimeEntry) => void;
+  onKeyDown: (e: React.KeyboardEvent, entry: TimeEntry) => void;
+}
+
+const CalendarEntryBlock = React.memo<EntryBlockProps>(({
+  entry, startMin, endMin, running, col, cols, color, projectName, taskName, onClick, onKeyDown,
+}) => {
+  const top = startMin * PX_PER_MIN;
+  const height = Math.max((endMin - startMin) * PX_PER_MIN - 2, MIN_ENTRY_PX);
+  const widthPct = 100 / cols;
+
+  return (
+    <div
+      className={`cal-entry cal-entry--clickable ${running ? "cal-entry--running" : ""}`}
+      style={{
+        top: `${top}px`,
+        height: `${height}px`,
+        left: `calc(${col * widthPct}% + 2px)`,
+        width: `calc(${widthPct}% - 4px)`,
+        background: color + "22",
+        borderLeft: `3px solid ${color}`,
+      }}
+      onClick={(e) => onClick(e, entry)}
+      onKeyDown={(e) => onKeyDown(e, entry)}
+      role="button"
+      tabIndex={0}
+      aria-label={`${running ? "Running session" : "Edit entry"}: ${entry.description || projectName || "Untitled"}`}
+      title={running ? "Timer running" : "Click to edit"}
+    >
+      <div className="cal-entry__name" style={{ color }}>
+        {entry.description || projectName || "Untitled"}
+      </div>
+      {taskName && height >= 42 && (
+        <div className="cal-entry__task">{taskName}</div>
+      )}
+      {height >= 58 && (
+        <div className="cal-entry__time">
+          {new Date(entry.startTime).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })}
+          {" – "}
+          {running
+            ? "now"
+            : new Date(entry.endTime!).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })}
+        </div>
+      )}
+    </div>
+  );
+});
+CalendarEntryBlock.displayName = "CalendarEntryBlock";
+
+export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCreateEntry, onEdit, onDelete, onEnsureRangeLoaded, onLoadTasksForProject }) => {
   const [anchor, setAnchor] = useState(() => new Date());
   const weekDays = useMemo(() => getWeekDays(anchor), [anchor]);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -134,31 +194,50 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
   };
   const goToday = () => setAnchor(new Date());
 
-  // Map: dateStr → positioned entries (overlaps resolved into columns).
-  // Running entries (no endTime) are drawn up to "now".
-  const positionedByDate = useMemo(() => {
+  // Static entries (completed) — only recomputed when entries or today changes, not every tick.
+  const staticPositionedByDate = useMemo(() => {
     const byDate = new Map<string, Omit<Positioned, "col" | "cols">[]>();
-    const nowDate = new Date(tick);
-    const nowMin = nowDate.getHours() * 60 + nowDate.getMinutes();
     entries.forEach((e) => {
-      if (!e.startTime) return;
-      const running = !e.endTime;
+      if (!e.startTime || !e.endTime) return; // skip running
       const startMin = minutesOfDay(e.startTime);
-      let endMin: number;
-      if (running) {
-        endMin = e.date === today ? Math.max(nowMin, startMin + 15) : 24 * 60;
-      } else {
-        // Entries that spill past local midnight render clamped to the day.
-        endMin = localDateStr(new Date(e.endTime!)) > e.date ? 24 * 60 : minutesOfDay(e.endTime!);
-      }
-      if (endMin <= startMin) endMin = startMin + 15;
+      const endMin = localDateStr(new Date(e.endTime)) > e.date
+        ? 24 * 60
+        : Math.max(minutesOfDay(e.endTime), startMin + 15);
       if (!byDate.has(e.date)) byDate.set(e.date, []);
-      byDate.get(e.date)!.push({ entry: e, startMin, endMin, running });
+      byDate.get(e.date)!.push({ entry: e, startMin, endMin, running: false });
     });
     const out = new Map<string, Positioned[]>();
     byDate.forEach((items, date) => out.set(date, layoutDay(items)));
     return out;
-  }, [entries, today, tick]);
+  }, [entries]);
+
+  // Running entry — recomputed every tick so its block height tracks current time.
+  const runningEntry = useMemo(() => entries.find((e) => !e.endTime), [entries]);
+  const runningPositioned = useMemo((): Positioned | null => {
+    if (!runningEntry?.startTime) return null;
+    const nowDate = new Date(tick);
+    const nowMin = nowDate.getHours() * 60 + nowDate.getMinutes();
+    const startMin = minutesOfDay(runningEntry.startTime);
+    const endMin = runningEntry.date === today
+      ? Math.max(nowMin, startMin + 15)
+      : 24 * 60;
+    return { entry: runningEntry, startMin, endMin, running: true, col: 0, cols: 1 };
+  }, [runningEntry, today, tick]);
+
+  // Merge static + running into a single map for rendering.
+  const positionedByDate = useMemo(() => {
+    if (!runningPositioned) return staticPositionedByDate;
+    const merged = new Map(staticPositionedByDate);
+    const date = runningPositioned.entry.date;
+    const staticItems = merged.get(date) ?? [];
+    // Layout the running entry alongside the static ones for the same day.
+    const allItems: Omit<Positioned, "col" | "cols">[] = [
+      ...staticItems.map((p) => ({ entry: p.entry, startMin: p.startMin, endMin: p.endMin, running: p.running })),
+      { entry: runningPositioned.entry, startMin: runningPositioned.startMin, endMin: runningPositioned.endMin, running: true },
+    ];
+    merged.set(date, layoutDay(allItems));
+    return merged;
+  }, [staticPositionedByDate, runningPositioned]);
 
   const dayTotals = useMemo(() => {
     const map = new Map<string, number>();
@@ -231,7 +310,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
   };
 
   // Click or keyboard-activate existing entry → edit
-  const handleEntryClick = (e: React.MouseEvent | React.KeyboardEvent, entry: TimeEntry) => {
+  const handleEntryClick = useCallback((e: React.MouseEvent | React.KeyboardEvent, entry: TimeEntry) => {
     e.stopPropagation();
     setModal({
       editingId: entry.id,
@@ -246,7 +325,14 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
         ratio: entry.ratio !== undefined ? String(entry.ratio) : "",
       },
     });
-  };
+  }, []);
+
+  const handleEntryKeyDown = useCallback((e: React.KeyboardEvent, entry: TimeEntry) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      handleEntryClick(e, entry);
+    }
+  }, [handleEntryClick]);
 
   const handleModalSave = async (data: EntrySaveData) => {
     if (modal?.editingId) {
@@ -269,6 +355,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
           onSave={handleModalSave}
           onDelete={modal.editingId ? () => { onDelete(modal.editingId!); setModal(null); } : undefined}
           onClose={() => setModal(null)}
+          onLoadTasksForProject={onLoadTasksForProject}
         />
       )}
 
@@ -365,51 +452,21 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
                 {dayEntries.map(({ entry, startMin, endMin, running, col, cols }) => {
                   const project = projects.find((p) => p.id === entry.projectId);
                   const task = tasks.find((t) => t.id === entry.taskId);
-                  const top = startMin * PX_PER_MIN;
-                  const height = Math.max((endMin - startMin) * PX_PER_MIN - 2, MIN_ENTRY_PX);
-                  const widthPct = 100 / cols;
-                  const color = project?.color || "#6366f1";
-
                   return (
-                    <div
+                    <CalendarEntryBlock
                       key={entry.id}
-                      className={`cal-entry cal-entry--clickable ${running ? "cal-entry--running" : ""}`}
-                      style={{
-                        top: `${top}px`,
-                        height: `${height}px`,
-                        left: `calc(${col * widthPct}% + 2px)`,
-                        width: `calc(${widthPct}% - 4px)`,
-                        background: color + "22",
-                        borderLeft: `3px solid ${color}`,
-                      }}
-                      onClick={(e) => handleEntryClick(e, entry)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          handleEntryClick(e, entry);
-                        }
-                      }}
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`${running ? "Running session" : "Edit entry"}: ${entry.description || project?.name || "Untitled"}`}
-                      title={running ? "Timer running" : "Click to edit"}
-                    >
-                      <div className="cal-entry__name" style={{ color }}>
-                        {entry.description || project?.name || "Untitled"}
-                      </div>
-                      {task && height >= 42 && (
-                        <div className="cal-entry__task">{task.name}</div>
-                      )}
-                      {height >= 58 && (
-                        <div className="cal-entry__time">
-                          {new Date(entry.startTime).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })}
-                          {" – "}
-                          {running
-                            ? "now"
-                            : new Date(entry.endTime!).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })}
-                        </div>
-                      )}
-                    </div>
+                      entry={entry}
+                      startMin={startMin}
+                      endMin={endMin}
+                      running={running}
+                      col={col}
+                      cols={cols}
+                      color={project?.color || "#6366f1"}
+                      projectName={project?.name || "Untitled"}
+                      taskName={task?.name}
+                      onClick={handleEntryClick}
+                      onKeyDown={handleEntryKeyDown}
+                    />
                   );
                 })}
               </div>

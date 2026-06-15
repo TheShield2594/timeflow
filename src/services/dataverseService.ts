@@ -389,25 +389,32 @@ export async function createTask(data: Omit<Task, "id">): Promise<Task> {
 // ---------------------------------------------------------------------------
 // Time Entries — scoped to the current user
 // ---------------------------------------------------------------------------
+// Build a YYYY-MM-DD string from a Date without timezone conversion.
+function fmtDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export async function getTimeEntries(opts: { from?: string; to?: string } = {}): Promise<TimeEntry[]> {
   const user = getCurrentUser();
+  // Always apply a date range — default to the last 30 days to avoid
+  // unbounded fetches for large orgs.
+  const today = new Date();
+  const thirtyDaysAgo = new Date(today);
+  thirtyDaysAgo.setDate(today.getDate() - 29);
+  const from = opts.from ?? fmtDate(thirtyDaysAgo);
+  const to = opts.to ?? fmtDate(today);
+
   if (!isPowerAppsHost()) {
-    let entries = load<TimeEntry>(STORAGE_KEYS.entries).filter((e) => e.userId === user.id);
-    if (opts.from) entries = entries.filter((e) => e.date >= opts.from!);
-    if (opts.to) entries = entries.filter((e) => e.date <= opts.to!);
-    return entries.sort((a, b) => b.startTime.localeCompare(a.startTime));
+    return load<TimeEntry>(STORAGE_KEYS.entries)
+      .filter((e) => e.userId === user.id && e.date >= from && e.date <= to)
+      .sort((a, b) => b.startTime.localeCompare(a.startTime));
   }
   // No ever_userid filter — rely on Dataverse owner-based row security so
   // the user sees their own records. Our column-level ever_userid filter
   // was rejecting valid rows whose stored id didn't match the SDK's reported
   // ctx.user.objectId (the SDK has returned slightly different identifiers
   // across sessions, which we can't reconcile from this layer).
-  const filters: string[] = [];
-  if (opts.from) filters.push(`ever_date ge ${opts.from}`);
-  if (opts.to) filters.push(`ever_date le ${opts.to}`);
-  const filterStr = filters.length ? filters.join(" and ") : undefined;
-  // No $expand for owner — userDisplayName is filled in below from the
-  // current user when ids match, which covers this single-user app.
+  const filterStr = `ever_date ge ${from} and ever_date le ${to}`;
   const rows = await listAllPages(SETS.entries, filterStr, "ever_starttime desc");
   return rows.map((r) => {
     const entry = mapEntry(r);
