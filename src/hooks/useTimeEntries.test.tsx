@@ -6,11 +6,16 @@ import type { TimeEntry } from "../types";
 
 const toastSpy = vi.fn();
 vi.mock("../contexts/ToastContext", () => ({ useToast: () => toastSpy }));
+vi.mock("../services/userService", () => ({
+  getCurrentUser: () => ({ id: "user-1", email: "user1@example.com", displayName: "User One" }),
+}));
 vi.mock("../services/dataverseService", () => ({
   getTimeEntries: vi.fn(),
   createTimeEntry: vi.fn(),
   updateTimeEntry: vi.fn(),
   deleteTimeEntry: vi.fn(),
+  hasForeignUserEntries: (entries: TimeEntry[], currentUserId: string) =>
+    entries.some((e) => e.userId && e.userId !== currentUserId),
 }));
 
 afterEach(() => {
@@ -112,5 +117,32 @@ describe("useTimeEntries", () => {
 
     expect(result.current.entries).toEqual([first, second]);
     expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining("delete failed"), "error");
+  });
+
+  it("warns once when the server returns another user's entries (row security misconfigured)", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const foreign = makeEntry({ id: "e1", userId: "user-2" });
+    vi.mocked(svc.getTimeEntries).mockResolvedValue([foreign]);
+
+    const { result } = renderHook(() => useTimeEntries());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining("isolation"), "error");
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("row-level security"));
+
+    toastSpy.mockClear();
+    await act(async () => { await result.current.refresh(); });
+    expect(toastSpy).not.toHaveBeenCalled(); // only warns once per session
+
+    errorSpy.mockRestore();
+  });
+
+  it("does not warn when all returned entries belong to the current user", async () => {
+    vi.mocked(svc.getTimeEntries).mockResolvedValue([makeEntry({ id: "e1", userId: "user-1" })]);
+
+    const { result } = renderHook(() => useTimeEntries());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(toastSpy).not.toHaveBeenCalled();
   });
 });

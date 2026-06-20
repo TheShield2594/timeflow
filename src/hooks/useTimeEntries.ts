@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { TimeEntry } from "../types";
 import * as svc from "../services/dataverseService";
+import { getCurrentUser } from "../services/userService";
 import { useToast } from "../contexts/ToastContext";
 import { tempId, errMsg } from "./_shared";
 
@@ -13,6 +14,9 @@ export function useTimeEntries(from?: string, to?: string) {
   useEffect(() => { entriesRef.current = entries; }, [entries]);
 
   const seqRef = useRef(0);
+  // Only warn once per session — a misconfigured security role will leak
+  // foreign entries on every refresh, and we don't want to spam toasts.
+  const warnedAboutIsolationRef = useRef(false);
 
   const refresh = useCallback(async () => {
     const seq = ++seqRef.current;
@@ -20,6 +24,14 @@ export function useTimeEntries(from?: string, to?: string) {
       const data = await svc.getTimeEntries({ from, to });
       if (seq !== seqRef.current) return;
       setEntries(data);
+      if (!warnedAboutIsolationRef.current && svc.hasForeignUserEntries(data, getCurrentUser().id)) {
+        warnedAboutIsolationRef.current = true;
+        console.error(
+          "[security] getTimeEntries() returned time entries belonging to other users. " +
+          "Dataverse row-level security for ever_timeentries is misconfigured — see README \"Dataverse Security Configuration\"."
+        );
+        toast("Data isolation warning: you may be seeing other users' time entries. Contact your administrator.", "error");
+      }
     } catch (err) {
       if (seq !== seqRef.current) return;
       toast(`Could not load entries: ${errMsg(err)}`, "error");

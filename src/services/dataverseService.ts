@@ -472,6 +472,18 @@ export async function getTimeEntries(opts: { from?: string; to?: string } = {}):
   });
 }
 
+/**
+ * True if any entry in a getTimeEntries() result belongs to someone other
+ * than currentUserId. getTimeEntries() deliberately doesn't filter by
+ * ever_userid (see README "Dataverse Security Configuration") — isolation
+ * is enforced entirely by Dataverse row-level security. If this ever
+ * returns true, that security role is misconfigured and is leaking other
+ * users' time entries to the client.
+ */
+export function hasForeignUserEntries(entries: TimeEntry[], currentUserId: string): boolean {
+  return entries.some((e) => e.userId && e.userId !== currentUserId);
+}
+
 export async function createTimeEntry(data: Omit<TimeEntry, "id">): Promise<TimeEntry> {
   const user = getCurrentUser();
   const owned = { ...data, userId: user.id, userDisplayName: user.displayName };

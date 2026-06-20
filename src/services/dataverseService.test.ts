@@ -10,7 +10,19 @@ vi.mock("./userService", () => ({
 // tests don't depend on @microsoft/power-apps/data being installed/buildable.
 vi.mock("../generated", () => ({ MicrosoftDataverseService: {} }));
 
-const { mapEntry, entryToDataverse, mergeOver } = await import("./dataverseService");
+const { mapEntry, entryToDataverse, mergeOver, hasForeignUserEntries } = await import("./dataverseService");
+
+function makeEntry(overrides: Partial<TimeEntry> = {}): TimeEntry {
+  return {
+    id: "e1",
+    projectId: "proj-1",
+    startTime: "2024-06-01T09:00:00Z",
+    date: "2024-06-01",
+    userId: "user-1",
+    userDisplayName: "User One",
+    ...overrides,
+  };
+}
 
 describe("mapEntry", () => {
   it("maps a full Dataverse row to a TimeEntry", () => {
@@ -163,5 +175,26 @@ describe("mergeOver", () => {
   it("keeps non-empty falsy-looking values like 0", () => {
     const result = mergeOver({ ratio: 1 }, { ratio: 0 });
     expect(result).toEqual({ ratio: 0 });
+  });
+});
+
+describe("hasForeignUserEntries", () => {
+  it("returns false when every entry belongs to the current user", () => {
+    const entries = [makeEntry({ id: "e1" }), makeEntry({ id: "e2" })];
+    expect(hasForeignUserEntries(entries, "user-1")).toBe(false);
+  });
+
+  it("returns true when at least one entry belongs to another user", () => {
+    const entries = [makeEntry({ id: "e1" }), makeEntry({ id: "e2", userId: "user-2" })];
+    expect(hasForeignUserEntries(entries, "user-1")).toBe(true);
+  });
+
+  it("returns false for an empty list", () => {
+    expect(hasForeignUserEntries([], "user-1")).toBe(false);
+  });
+
+  it("ignores entries with no userId rather than treating them as foreign", () => {
+    const entries = [makeEntry({ id: "e1", userId: "" })];
+    expect(hasForeignUserEntries(entries, "user-1")).toBe(false);
   });
 });
