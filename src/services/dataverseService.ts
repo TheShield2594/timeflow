@@ -206,7 +206,7 @@ function isFilled(val: unknown): boolean {
 // back to whatever we sent. Covers the case where the Dataverse connector
 // silently drops the response body despite prefer=return=representation, which
 // would otherwise replace the user's optimistic record with empty fields.
-function mergeOver<T extends object>(input: T, mapped: T): T {
+export function mergeOver<T extends object>(input: T, mapped: T): T {
   const out: Record<string, unknown> = { ...(input as Record<string, unknown>) };
   for (const [k, v] of Object.entries(mapped as Record<string, unknown>)) {
     if (isFilled(v)) out[k] = v;
@@ -252,7 +252,7 @@ function mapTask(r: Raw): Task {
   };
 }
 
-function mapEntry(r: Raw): TimeEntry {
+export function mapEntry(r: Raw): TimeEntry {
   // Dataverse can return ever_date either as "YYYY-MM-DD" or as a full ISO
   // timestamp ("YYYY-MM-DDT00:00:00Z") depending on the column's behavior.
   // The rest of the app keys calendar/timesheet rows off "YYYY-MM-DD", so
@@ -298,7 +298,7 @@ function taskToDataverse(t: Omit<Task, "id"> | Partial<Task>): Raw {
   return out;
 }
 
-function entryToDataverse(e: Omit<TimeEntry, "id"> | Partial<TimeEntry>): Raw {
+export function entryToDataverse(e: Omit<TimeEntry, "id"> | Partial<TimeEntry>): Raw {
   const out: Raw = {};
   if (e.description !== undefined) out.ever_description = e.description ?? null;
   if (e.startTime !== undefined) out.ever_starttime = e.startTime;
