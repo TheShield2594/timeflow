@@ -49,6 +49,16 @@ function formatHour(h: number): string {
   return `${display} ${suffix}`;
 }
 
+// Describe a 30-min slot index (0-47) as a time, for gridcell aria-labels.
+function formatSlotTime(slotIdx: number): string {
+  const totalMin = slotIdx * 30;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  const suffix = h >= 12 ? "PM" : "AM";
+  const display = h > 12 ? h - 12 : h === 0 ? 12 : h;
+  return m === 0 ? `${display}:00 ${suffix}` : `${display}:${m} ${suffix}`;
+}
+
 interface Positioned {
   entry: TimeEntry;
   startMin: number;
@@ -205,6 +215,10 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
 
   const [modal, setModal] = useState<ModalState | null>(null);
 
+  // Roving tabindex for the grid's keyboard-navigable slot cells.
+  const [focusedCell, setFocusedCell] = useState({ row: SCROLL_TO_HOUR * SLOTS_PER_HOUR, col: 0 });
+  const cellRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
   const prevWeek = () => {
     const d = new Date(anchor);
     d.setDate(d.getDate() - 7);
@@ -314,21 +328,55 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
     });
   };
 
-  // Click empty slot → create
-  const handleSlotClick = (e: React.MouseEvent<HTMLDivElement>, dayStr: string) => {
-    if ((e.target as HTMLElement).closest(".cal-entry")) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const y = e.clientY - rect.top;
-    const slotIdx = Math.max(0, Math.min(Math.floor(y / SLOT_HEIGHT), TOTAL_SLOTS - 1));
-    openCreate(dayStr, slotIdx * 30);
+  // Move the roving-tabindex focus to a clamped (row, col) slot cell and
+  // imperatively focus its DOM node (arrow keys don't trigger React re-focus).
+  const moveFocus = (row: number, col: number) => {
+    const clampedRow = Math.max(0, Math.min(row, TOTAL_SLOTS - 1));
+    const clampedCol = Math.max(0, Math.min(col, weekDays.length - 1));
+    setFocusedCell({ row: clampedRow, col: clampedCol });
+    cellRefs.current.get(`${clampedRow}-${clampedCol}`)?.focus();
   };
 
-  // Keyboard on a day column → create at 9 AM (no pointer position to map).
-  const handleColKeyDown = (e: React.KeyboardEvent<HTMLDivElement>, dayStr: string) => {
-    if (e.target !== e.currentTarget) return; // let entry keys be handled by the entry
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      openCreate(dayStr, 9 * 60);
+  // Click an empty slot cell → create at that exact slot.
+  const handleCellClick = (dayStr: string, row: number, col: number) => {
+    setFocusedCell({ row, col });
+    openCreate(dayStr, row * 30);
+  };
+
+  // Arrow keys move the grid cursor; Enter/Space create at the focused slot.
+  const handleCellKeyDown = (e: React.KeyboardEvent<HTMLDivElement>, row: number, col: number, dayStr: string) => {
+    switch (e.key) {
+      case "ArrowUp":
+        e.preventDefault();
+        moveFocus(row - 1, col);
+        break;
+      case "ArrowDown":
+        e.preventDefault();
+        moveFocus(row + 1, col);
+        break;
+      case "ArrowLeft":
+        e.preventDefault();
+        moveFocus(row, col - 1);
+        break;
+      case "ArrowRight":
+        e.preventDefault();
+        moveFocus(row, col + 1);
+        break;
+      case "Home":
+        e.preventDefault();
+        moveFocus(0, col);
+        break;
+      case "End":
+        e.preventDefault();
+        moveFocus(TOTAL_SLOTS - 1, col);
+        break;
+      case "Enter":
+      case " ":
+        e.preventDefault();
+        openCreate(dayStr, row * 30);
+        break;
+      default:
+        break;
     }
   };
 
@@ -466,9 +514,9 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
       {/* ── Grid ── */}
       <div className="calendar__grid-wrap">
       <div className="calendar__body" ref={bodyRef}>
-        <div className="calendar__grid">
+        <div className="calendar__grid" role="grid" aria-label="Week calendar" aria-rowcount={TOTAL_SLOTS} aria-colcount={weekDays.length}>
           {/* Time gutter */}
-          <div className="calendar__time-col">
+          <div className="calendar__time-col" aria-hidden="true">
             {timeSlots.map(({ hour, half }, i) => (
               <div key={i} className="calendar__time-slot">
                 <span className="calendar__time-label">
@@ -478,8 +526,8 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
             ))}
           </div>
 
-          {/* Day columns */}
-          {weekDays.map((day) => {
+          {/* Day columns — decorative slot lines, now-line and time entries */}
+          {weekDays.map((day, dayIdx) => {
             const ds = localDateStr(day);
             const isToday = ds === today;
             const dayEntries = positionedByDate.get(ds) || [];
@@ -487,13 +535,8 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
             return (
               <div
                 key={ds}
-                className={`calendar__day-col calendar__day-col--clickable ${isToday ? "calendar__day-col--today" : ""}`}
-                onClick={(e) => handleSlotClick(e, ds)}
-                onKeyDown={(e) => handleColKeyDown(e, ds)}
-                role="button"
-                tabIndex={0}
-                aria-label={`Log time on ${day.toLocaleDateString("en", { weekday: "long", month: "long", day: "numeric" })}`}
-                title="Click to log time"
+                className={`calendar__day-col ${isToday ? "calendar__day-col--today" : ""}`}
+                style={{ gridColumn: dayIdx + 2 }}
               >
                 {/* Slot lines */}
                 {timeSlots.map(({ half }, i) => (
@@ -532,6 +575,36 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
               </div>
             );
           })}
+
+          {/* Keyboard-navigable slot cells — row-major so ARIA rows span all days */}
+          {timeSlots.map((_, row) => (
+            <div key={row} role="row" aria-rowindex={row + 1} style={{ display: "contents" }}>
+              {weekDays.map((day, col) => {
+                const ds = localDateStr(day);
+                const isToday = ds === today;
+                const isFocused = focusedCell.row === row && focusedCell.col === col;
+                return (
+                  <div
+                    key={`${row}-${col}`}
+                    ref={(el) => {
+                      if (el) cellRefs.current.set(`${row}-${col}`, el);
+                      else cellRefs.current.delete(`${row}-${col}`);
+                    }}
+                    role="gridcell"
+                    aria-colindex={col + 1}
+                    className="calendar__slot-cell"
+                    data-today={isToday ? "true" : undefined}
+                    style={{ gridRow: row + 1, gridColumn: col + 2 }}
+                    tabIndex={isFocused ? 0 : -1}
+                    aria-label={`${formatSlotTime(row)} on ${day.toLocaleDateString("en", { weekday: "long", month: "long", day: "numeric" })}`}
+                    onClick={() => handleCellClick(ds, row, col)}
+                    onKeyDown={(e) => handleCellKeyDown(e, row, col, ds)}
+                    onFocus={() => setFocusedCell({ row, col })}
+                  />
+                );
+              })}
+            </div>
+          ))}
         </div>
       </div>
       </div>{/* end calendar__grid-wrap */}
