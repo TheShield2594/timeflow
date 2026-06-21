@@ -197,4 +197,9 @@ describe("hasForeignUserEntries", () => {
     const entries = [makeEntry({ id: "e1", userId: "" })];
     expect(hasForeignUserEntries(entries, "user-1")).toBe(false);
   });
+
+  it("flags an entry as foreign if its stored userId merely drifted across sessions for the same person (known limitation, see comment)", () => {
+    const entries = [makeEntry({ id: "e1", userId: "user-1-old-session-id" })];
+    expect(hasForeignUserEntries(entries, "user-1")).toBe(true);
+  });
 });

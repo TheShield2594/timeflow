@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, cleanup, waitFor } from "@testing-library/react";
 import { useTimeEntries } from "./useTimeEntries";
 import * as svc from "../services/dataverseService";
@@ -14,13 +14,17 @@ vi.mock("../services/dataverseService", () => ({
   createTimeEntry: vi.fn(),
   updateTimeEntry: vi.fn(),
   deleteTimeEntry: vi.fn(),
-  hasForeignUserEntries: (entries: TimeEntry[], currentUserId: string) =>
-    entries.some((e) => e.userId && e.userId !== currentUserId),
+  hasForeignUserEntries: vi.fn(),
 }));
+
+beforeEach(() => {
+  vi.mocked(svc.hasForeignUserEntries).mockReturnValue(false);
+});
 
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  sessionStorage.clear();
 });
 
 function makeEntry(overrides: Partial<TimeEntry> = {}): TimeEntry {
@@ -123,10 +127,12 @@ describe("useTimeEntries", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const foreign = makeEntry({ id: "e1", userId: "user-2" });
     vi.mocked(svc.getTimeEntries).mockResolvedValue([foreign]);
+    vi.mocked(svc.hasForeignUserEntries).mockReturnValue(true);
 
     const { result } = renderHook(() => useTimeEntries());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
+    expect(svc.hasForeignUserEntries).toHaveBeenCalledWith([foreign], "user-1");
     expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining("isolation"), "error");
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("row-level security"));
 
@@ -137,12 +143,15 @@ describe("useTimeEntries", () => {
     errorSpy.mockRestore();
   });
 
-  it("does not warn when all returned entries belong to the current user", async () => {
-    vi.mocked(svc.getTimeEntries).mockResolvedValue([makeEntry({ id: "e1", userId: "user-1" })]);
+  it("does not warn when hasForeignUserEntries reports no foreign entries", async () => {
+    const own = makeEntry({ id: "e1", userId: "user-1" });
+    vi.mocked(svc.getTimeEntries).mockResolvedValue([own]);
+    vi.mocked(svc.hasForeignUserEntries).mockReturnValue(false);
 
     const { result } = renderHook(() => useTimeEntries());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
+    expect(svc.hasForeignUserEntries).toHaveBeenCalledWith([own], "user-1");
     expect(toastSpy).not.toHaveBeenCalled();
   });
 });

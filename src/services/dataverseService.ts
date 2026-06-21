@@ -479,6 +479,12 @@ export async function getTimeEntries(opts: { from?: string; to?: string } = {}):
  * is enforced entirely by Dataverse row-level security. If this ever
  * returns true, that security role is misconfigured and is leaking other
  * users' time entries to the client.
+ *
+ * Caveat: this compares the stored ever_userid against the current
+ * getCurrentUser().id, both ultimately sourced from the SDK's
+ * getContext().user.objectId. If that id were ever to drift for the same
+ * person across sessions, older rows of theirs would look "foreign" here
+ * even though no other user can see them — a false positive, not a leak.
  */
 export function hasForeignUserEntries(entries: TimeEntry[], currentUserId: string): boolean {
   return entries.some((e) => e.userId && e.userId !== currentUserId);

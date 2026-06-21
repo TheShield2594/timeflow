@@ -3,6 +3,7 @@ import { localDateStr, localDateDaysAgo, friendlyDate, toTimeInput, minutesOfDay
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllEnvs();
 });
 
 describe("localDateStr", () => {
@@ -42,6 +43,22 @@ describe("localDateDaysAgo", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2024, 0, 1, 12)); // Jan 1, 2024
     expect(localDateDaysAgo(1)).toBe("2023-12-31");
+  });
+
+  it("subtracts a day correctly across the spring-forward DST transition", () => {
+    // Fixed in UTC, this transition wouldn't move the clock at all, so force
+    // a DST-observing zone to actually exercise the transition.
+    vi.stubEnv("TZ", "America/New_York");
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2024, 2, 10, 12)); // Mar 10, 2024 — US spring-forward day
+    expect(localDateDaysAgo(1)).toBe("2024-03-09");
+  });
+
+  it("subtracts a day correctly across the fall-back DST transition", () => {
+    vi.stubEnv("TZ", "America/New_York");
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2024, 10, 3, 12)); // Nov 3, 2024 — US fall-back day
+    expect(localDateDaysAgo(1)).toBe("2024-11-02");
   });
 });
 

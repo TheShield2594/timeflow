@@ -5,6 +5,11 @@ import { getCurrentUser } from "../services/userService";
 import { useToast } from "../contexts/ToastContext";
 import { tempId, errMsg } from "./_shared";
 
+// sessionStorage (not a ref) so the "warn once per session" guard survives
+// this hook's component unmounting/remounting, not just re-renders of one
+// mounted instance.
+const ISOLATION_WARNING_KEY = "tt_isolation_warned";
+
 export function useTimeEntries(from?: string, to?: string) {
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -14,9 +19,6 @@ export function useTimeEntries(from?: string, to?: string) {
   useEffect(() => { entriesRef.current = entries; }, [entries]);
 
   const seqRef = useRef(0);
-  // Only warn once per session — a misconfigured security role will leak
-  // foreign entries on every refresh, and we don't want to spam toasts.
-  const warnedAboutIsolationRef = useRef(false);
 
   const refresh = useCallback(async () => {
     const seq = ++seqRef.current;
@@ -24,8 +26,8 @@ export function useTimeEntries(from?: string, to?: string) {
       const data = await svc.getTimeEntries({ from, to });
       if (seq !== seqRef.current) return;
       setEntries(data);
-      if (!warnedAboutIsolationRef.current && svc.hasForeignUserEntries(data, getCurrentUser().id)) {
-        warnedAboutIsolationRef.current = true;
+      if (!sessionStorage.getItem(ISOLATION_WARNING_KEY) && svc.hasForeignUserEntries(data, getCurrentUser().id)) {
+        sessionStorage.setItem(ISOLATION_WARNING_KEY, "1");
         console.error(
           "[security] getTimeEntries() returned time entries belonging to other users. " +
           "Dataverse row-level security for ever_timeentries is misconfigured — see README \"Dataverse Security Configuration\"."

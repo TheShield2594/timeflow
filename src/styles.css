@@ -556,7 +556,7 @@ input, select { font-family: inherit; }
 .calendar__time-slot { height: 36px; display: flex; align-items: flex-start; justify-content: flex-end; padding-right: 8px; flex-shrink: 0; }
 .calendar__time-label { font-size: 10px; font-weight: 600; color: var(--text-faint); white-space: nowrap; transform: translateY(-6px); font-family: var(--mono); }
 
-.calendar__day-col { border-left: 1px solid var(--border-subtle); position: relative; grid-row: 1 / span 48; }
+.calendar__day-col { border-left: 1px solid var(--border-subtle); position: relative; grid-row: 1 / span 48; z-index: 1; }
 .calendar__day-col--today { background: rgba(113,149,0,0.02); }
 .calendar__slot-line { height: 36px; border-bottom: 1px solid var(--border-subtle); flex-shrink: 0; }
 .calendar__slot-line--half { border-bottom-style: dashed; opacity: 0.55; }
