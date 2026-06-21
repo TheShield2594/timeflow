@@ -7,8 +7,12 @@ import { tempId, errMsg } from "./_shared";
 
 // sessionStorage (not a ref) so the "warn once per session" guard survives
 // this hook's component unmounting/remounting, not just re-renders of one
-// mounted instance.
-const ISOLATION_WARNING_KEY = "tt_isolation_warned";
+// mounted instance. Scoped per user id so switching accounts within the
+// same browser session doesn't suppress a warning that applies to the
+// new user.
+function isolationWarningKey(userId: string): string {
+  return `tt_isolation_warned:${userId}`;
+}
 
 export function useTimeEntries(from?: string, to?: string) {
   const [entries, setEntries] = useState<TimeEntry[]>([]);
@@ -26,8 +30,10 @@ export function useTimeEntries(from?: string, to?: string) {
       const data = await svc.getTimeEntries({ from, to });
       if (seq !== seqRef.current) return;
       setEntries(data);
-      if (!sessionStorage.getItem(ISOLATION_WARNING_KEY) && svc.hasForeignUserEntries(data, getCurrentUser().id)) {
-        sessionStorage.setItem(ISOLATION_WARNING_KEY, "1");
+      const currentUserId = getCurrentUser().id;
+      const warningKey = isolationWarningKey(currentUserId);
+      if (!sessionStorage.getItem(warningKey) && svc.hasForeignUserEntries(data, currentUserId)) {
+        sessionStorage.setItem(warningKey, "1");
         console.error(
           "[security] getTimeEntries() returned time entries belonging to other users. " +
           "Dataverse row-level security for ever_timeentries is misconfigured — see README \"Dataverse Security Configuration\"."
