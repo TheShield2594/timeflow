@@ -30,15 +30,20 @@ export function useTimeEntries(from?: string, to?: string) {
       const data = await svc.getTimeEntries({ from, to });
       if (seq !== seqRef.current) return;
       setEntries(data);
-      const currentUserId = getCurrentUser().id;
-      const warningKey = isolationWarningKey(currentUserId);
-      if (!sessionStorage.getItem(warningKey) && svc.hasForeignUserEntries(data, currentUserId)) {
-        sessionStorage.setItem(warningKey, "1");
-        console.error(
-          "[security] getTimeEntries() returned time entries belonging to other users. " +
-          "Dataverse row-level security for ever_timeentries is misconfigured — see README \"Dataverse Security Configuration\"."
-        );
-        toast("Data isolation warning: you may be seeing other users' time entries. Contact your administrator.", "error");
+      try {
+        const currentUserId = getCurrentUser().id;
+        const warningKey = isolationWarningKey(currentUserId);
+        if (!sessionStorage.getItem(warningKey) && svc.hasForeignUserEntries(data, currentUserId)) {
+          sessionStorage.setItem(warningKey, "1");
+          console.error(
+            "[security] getTimeEntries() returned time entries belonging to other users. " +
+            "Dataverse row-level security for ever_timeentries is misconfigured — see README \"Dataverse Security Configuration\"."
+          );
+          toast("Data isolation warning: you may be seeing other users' time entries. Contact your administrator.", "error");
+        }
+      } catch {
+        // Never let a failure in the isolation-warning check (e.g. sessionStorage
+        // unavailable) mask the data load that already succeeded above.
       }
     } catch (err) {
       if (seq !== seqRef.current) return;
