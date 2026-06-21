@@ -206,7 +206,7 @@ function isFilled(val: unknown): boolean {
 // back to whatever we sent. Covers the case where the Dataverse connector
 // silently drops the response body despite prefer=return=representation, which
 // would otherwise replace the user's optimistic record with empty fields.
-function mergeOver<T extends object>(input: T, mapped: T): T {
+export function mergeOver<T extends object>(input: T, mapped: T): T {
   const out: Record<string, unknown> = { ...(input as Record<string, unknown>) };
   for (const [k, v] of Object.entries(mapped as Record<string, unknown>)) {
     if (isFilled(v)) out[k] = v;
@@ -252,7 +252,7 @@ function mapTask(r: Raw): Task {
   };
 }
 
-function mapEntry(r: Raw): TimeEntry {
+export function mapEntry(r: Raw): TimeEntry {
   // Dataverse can return ever_date either as "YYYY-MM-DD" or as a full ISO
   // timestamp ("YYYY-MM-DDT00:00:00Z") depending on the column's behavior.
   // The rest of the app keys calendar/timesheet rows off "YYYY-MM-DD", so
@@ -298,7 +298,7 @@ function taskToDataverse(t: Omit<Task, "id"> | Partial<Task>): Raw {
   return out;
 }
 
-function entryToDataverse(e: Omit<TimeEntry, "id"> | Partial<TimeEntry>): Raw {
+export function entryToDataverse(e: Omit<TimeEntry, "id"> | Partial<TimeEntry>): Raw {
   const out: Raw = {};
   if (e.description !== undefined) out.ever_description = e.description ?? null;
   if (e.startTime !== undefined) out.ever_starttime = e.startTime;
@@ -470,6 +470,24 @@ export async function getTimeEntries(opts: { from?: string; to?: string } = {}):
     }
     return entry;
   });
+}
+
+/**
+ * True if any entry in a getTimeEntries() result belongs to someone other
+ * than currentUserId. getTimeEntries() deliberately doesn't filter by
+ * ever_userid (see README "Dataverse Security Configuration") — isolation
+ * is enforced entirely by Dataverse row-level security. If this ever
+ * returns true, that security role is misconfigured and is leaking other
+ * users' time entries to the client.
+ *
+ * Caveat: this compares the stored ever_userid against the current
+ * getCurrentUser().id, both ultimately sourced from the SDK's
+ * getContext().user.objectId. If that id were ever to drift for the same
+ * person across sessions, older rows of theirs would look "foreign" here
+ * even though no other user can see them — a false positive, not a leak.
+ */
+export function hasForeignUserEntries(entries: TimeEntry[], currentUserId: string): boolean {
+  return entries.some((e) => e.userId && e.userId !== currentUserId);
 }
 
 export async function createTimeEntry(data: Omit<TimeEntry, "id">): Promise<TimeEntry> {

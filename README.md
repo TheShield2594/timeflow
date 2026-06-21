@@ -118,6 +118,18 @@ Correct table-level security role configuration is required to keep each user's 
 3. In your Security Role, confirm the `ever_timeentries` row is set to **User** scope for Read/Write/Create/Delete.
 4. Repeat for `ever_projects` and `ever_workitems` (Organization scope for shared data is correct).
 
+**Runtime detection (UAT sign-off check):** the app cannot fix a misconfigured
+security role from the client, but it does detect one. On the first entries
+refresh, `useTimeEntries` calls `hasForeignUserEntries()` to check whether any
+returned row belongs to someone other than the signed-in user. If it ever
+does, the UI shows a "Data isolation warning" toast and logs detail to the
+console — that's a clear signal during UAT that step 2/3 above need to be
+revisited before going to production. The check only runs once per page
+load (a guard flag skips it on later refreshes) so the toast doesn't repeat
+on every poll. Seeing this warning during a UAT session with two or more
+test accounts is the practical way to confirm isolation is (or isn't)
+actually enforced, since it can't be verified from the app code alone.
+
 #### Entity Relationship Diagram
 
 ```mermaid

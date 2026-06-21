@@ -550,13 +550,13 @@ input, select { font-family: inherit; }
 .calendar__day-header--today .calendar__day-name { color: var(--ev-green); }
 
 .calendar__body { flex: 1; overflow-y: auto; overflow-x: hidden; }
-.calendar__grid { display: grid; grid-template-columns: 52px repeat(7, 1fr); position: relative; background: var(--surface); border: 1px solid var(--border); border-top: none; border-radius: 0 0 var(--radius) var(--radius); }
+.calendar__grid { display: grid; grid-template-columns: 52px repeat(7, 1fr); grid-template-rows: repeat(48, 36px); position: relative; background: var(--surface); border: 1px solid var(--border); border-top: none; border-radius: 0 0 var(--radius) var(--radius); }
 
-.calendar__time-col { display: flex; flex-direction: column; }
+.calendar__time-col { display: flex; flex-direction: column; grid-row: 1 / span 48; grid-column: 1; }
 .calendar__time-slot { height: 36px; display: flex; align-items: flex-start; justify-content: flex-end; padding-right: 8px; flex-shrink: 0; }
 .calendar__time-label { font-size: 10px; font-weight: 600; color: var(--text-faint); white-space: nowrap; transform: translateY(-6px); font-family: var(--mono); }
 
-.calendar__day-col { border-left: 1px solid var(--border-subtle); position: relative; }
+.calendar__day-col { border-left: 1px solid var(--border-subtle); position: relative; grid-row: 1 / span 48; }
 .calendar__day-col--today { background: rgba(113,149,0,0.02); }
 .calendar__slot-line { height: 36px; border-bottom: 1px solid var(--border-subtle); flex-shrink: 0; }
 .calendar__slot-line--half { border-bottom-style: dashed; opacity: 0.55; }
@@ -674,9 +674,9 @@ input, select { font-family: inherit; }
 /* =====================================================================
    CALENDAR — CLICKABLE COLUMN & OUTLOOK EVENTS
    ===================================================================== */
-.calendar__day-col--clickable { cursor: crosshair; }
-.calendar__day-col--clickable:hover { background: rgba(113,149,0,0.025); }
-.calendar__day-col--today.calendar__day-col--clickable:hover { background: rgba(113,149,0,0.04); }
+.calendar__slot-cell { cursor: crosshair; background: transparent; }
+.calendar__slot-cell:hover { background: rgba(113,149,0,0.025); }
+.calendar__slot-cell[data-today="true"]:hover { background: rgba(113,149,0,0.04); }
 
 /* =====================================================================
    CALENDAR — LOG TIME MODAL
@@ -1192,9 +1192,10 @@ input, select { font-family: inherit; }
 }
 
 /* Keyboard focus for calendar interactive regions */
-.calendar__day-col--clickable:focus-visible {
+.calendar__slot-cell:focus-visible {
   outline: 2px solid var(--ev-green);
   outline-offset: -2px;
+  z-index: 1;
 }
 .cal-entry--clickable:focus-visible {
   outline: 2px solid var(--ev-green);
