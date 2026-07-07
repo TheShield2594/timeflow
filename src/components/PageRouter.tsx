@@ -109,6 +109,7 @@ export const PageRouter: React.FC<Props> = ({
         onEditProject={onEditProject}
         onAddTask={onAddTask}
         onDeleteTask={onDeleteTask}
+        onLoadTasksForProject={onLoadTasksForProject}
       />
     );
   }

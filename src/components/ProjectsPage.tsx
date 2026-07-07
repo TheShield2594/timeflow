@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import type { Project, Task } from "../types";
 import { formatMinutes, parseRatioInput } from "../hooks";
 import { IconCheck, IconPlus, IconX } from "./Icons";
@@ -15,6 +15,7 @@ interface Props {
   onEditProject: (id: string, data: Partial<Project>) => Promise<Project>;
   onAddTask: (data: Omit<Task, "id">) => Promise<Task>;
   onDeleteTask: (task: Task) => void;
+  onLoadTasksForProject: (projectId: string) => void;
 }
 
 const PALETTE = [
@@ -51,12 +52,21 @@ const EMPTY_DRAFT: FormDraft = {
 };
 
 export const ProjectsPage: React.FC<Props> = ({
-  projects, tasks, totalMinutesByProject, onAddProject, onEditProject, onAddTask, onDeleteTask,
+  projects, tasks, totalMinutesByProject, onAddProject, onEditProject, onAddTask, onDeleteTask, onLoadTasksForProject,
 }) => {
   const [draft, setDraft] = useState<FormDraft | null>(null);
   const [saving, setSaving] = useState(false);
   const [addingTaskFor, setAddingTaskFor] = useState<string | null>(null);
   const [newTaskName, setNewTaskName] = useState("");
+
+  // Tasks are otherwise only fetched lazily (timer bar project picker, entry
+  // modal) — without this, a project's chips render empty on a fresh mount
+  // even though the tasks are still saved, which reads as data loss.
+  useEffect(() => {
+    projects.forEach((p) => {
+      if (!p.id.startsWith("temp-")) onLoadTasksForProject(p.id);
+    });
+  }, [projects, onLoadTasksForProject]);
 
   const startNew = () => setDraft({ ...EMPTY_DRAFT });
   const startEdit = (p: Project) => setDraft({
