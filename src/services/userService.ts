@@ -5,13 +5,19 @@ const LOCAL_USER_KEY = "tt_local_user";
 
 let cached: CurrentUser | null = null;
 
-/**
- * True when we're running inside a real Power Apps host (production build).
- * Vite dev (`npm run dev`) → false, use the localStorage mock data layer.
- * Production build served by Power Apps → true, talk to Dataverse via SDK.
- */
+// "current" is the connector's special token meaning "the environment this
+// connection belongs to." Passing it to every *WithOrganization call makes a
+// single promoted artifact target dev in dev, QA in QA, and prod in prod
+// without baking any URL at build time. Confirmed working via GetOrganizations()
+// returning "current" as the Url, and app loading without errors.
+const CONNECTOR_CURRENT = "current";
+
 export function isPowerAppsHost(): boolean {
   return import.meta.env.PROD;
+}
+
+export function getDataverseOrgUrl(): string {
+  return CONNECTOR_CURRENT;
 }
 
 export async function initCurrentUser(): Promise<CurrentUser> {

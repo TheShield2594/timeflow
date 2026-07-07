@@ -22,7 +22,7 @@
  * before calling any of these.
  */
 import type { Project, Task, TimeEntry } from "../types";
-import { getCurrentUser, isPowerAppsHost } from "./userService";
+import { getCurrentUser, isPowerAppsHost, getDataverseOrgUrl } from "./userService";
 import { MicrosoftDataverseService } from "../generated";
 
 // ---------------------------------------------------------------------------
@@ -38,22 +38,15 @@ const SETS = {
 
 const ACCEPT = "application/json";
 const PREFER_RETURN = "return=representation";
-// Org URL. Required by every *WithOrganization SDK call because the
-// "current environment" variants (CreateRecord, ListRecords, ...) fail with
-// "Invalid organization URL 'null' provided" when the connector can't infer
-// the org from the connection. Set VITE_DATAVERSE_ORG_URL in your .env file
-// (see .env.example). Omitting it in production will cause all API calls to
-// fail with a clear console error.
-const ORG_URL: string = (() => {
-  const url = (import.meta.env.VITE_DATAVERSE_ORG_URL as string | undefined)?.trim() ?? "";
-  if (!url && import.meta.env.PROD) {
-    console.error(
-      "[timeflow] VITE_DATAVERSE_ORG_URL is not set. " +
-      "All Dataverse API calls will fail. Add it to your .env file — see .env.example."
-    );
-  }
-  return url;
-})();
+// Org URL, required by every *WithOrganization SDK call (the connector rejects
+// the no-org "current environment" variants with HTTP 400). Resolved at RUNTIME
+// from the connection via getDataverseOrgUrl() — see userService — so a single
+// promoted build targets dev in dev, QA in QA, and prod in prod automatically.
+// (Baking it in at build time broke one-artifact promotion: a promoted build
+// kept calling whichever environment it was compiled against.)
+function orgUrl(): string {
+  return getDataverseOrgUrl();
+}
 
 // ---------------------------------------------------------------------------
 // Retry helper — wraps write operations with exponential backoff for transient
@@ -143,7 +136,7 @@ async function listAllPages(entitySet: string, filter: string | undefined, order
     let env: ListEnvelope;
     try {
       const result = await MicrosoftDataverseService.ListRecordsWithOrganization(
-        ORG_URL,
+        orgUrl(),
         entitySet,
         undefined, // prefer
         ACCEPT,
@@ -365,7 +358,7 @@ export async function createProject(data: Omit<Project, "id" | "createdAt">): Pr
   const result = await retryWithBackoff(() => MicrosoftDataverseService.CreateRecordWithOrganization(
     PREFER_RETURN,
     ACCEPT,
-    ORG_URL,
+    orgUrl(),
     SETS.projects,
     projectToDataverse(data),
   ));
@@ -385,7 +378,7 @@ export async function updateProject(id: string, data: Partial<Project>): Promise
   const result = await retryWithBackoff(() => MicrosoftDataverseService.UpdateRecordWithOrganization(
     PREFER_RETURN,
     ACCEPT,
-    ORG_URL,
+    orgUrl(),
     SETS.projects,
     id,
     projectToDataverse(data),
@@ -425,7 +418,7 @@ export async function createTask(data: Omit<Task, "id">): Promise<Task> {
   const result = await retryWithBackoff(() => MicrosoftDataverseService.CreateRecordWithOrganization(
     PREFER_RETURN,
     ACCEPT,
-    ORG_URL,
+    orgUrl(),
     SETS.tasks,
     taskToDataverse(data),
   ));
@@ -502,7 +495,7 @@ export async function createTimeEntry(data: Omit<TimeEntry, "id">): Promise<Time
   const result = await retryWithBackoff(() => MicrosoftDataverseService.CreateRecordWithOrganization(
     PREFER_RETURN,
     ACCEPT,
-    ORG_URL,
+    orgUrl(),
     SETS.entries,
     entryToDataverse(owned),
   ));
@@ -526,7 +519,7 @@ export async function updateTimeEntry(id: string, data: Partial<TimeEntry>): Pro
   const result = await retryWithBackoff(() => MicrosoftDataverseService.UpdateRecordWithOrganization(
     PREFER_RETURN,
     ACCEPT,
-    ORG_URL,
+    orgUrl(),
     SETS.entries,
     id,
     entryToDataverse(owned),
@@ -575,7 +568,7 @@ export async function createDraftTimerEntry(data: {
   if (data.ratio !== undefined) raw.ever_ratio = data.ratio;
   if (data.taskId) raw[`ever_workitem@odata.bind`] = `/${SETS.tasks}(${data.taskId})`;
   const result = await MicrosoftDataverseService.CreateRecordWithOrganization(
-    PREFER_RETURN, ACCEPT, ORG_URL, SETS.entries, raw,
+    PREFER_RETURN, ACCEPT, orgUrl(), SETS.entries, raw,
   );
   const row = unwrapRow(unwrap(result, "Create draft timer entry"));
   return (row["ever_timeentriesid"] ?? row["id"]) as string;
@@ -608,7 +601,7 @@ export async function deleteTimeEntry(id: string): Promise<void> {
     persist(STORAGE_KEYS.entries, all);
     return;
   }
-  const result = await MicrosoftDataverseService.DeleteRecordWithOrganization(ORG_URL, SETS.entries, id);
+  const result = await MicrosoftDataverseService.DeleteRecordWithOrganization(orgUrl(), SETS.entries, id);
   unwrap(result, "Delete entry");
 }
 
@@ -673,7 +666,7 @@ async function sendODataBatch(items: Omit<TimeEntry, "id">[]): Promise<TimeEntry
   const user = getCurrentUser();
   const batchId = crypto.randomUUID().replace(/-/g, "");
   const changesetId = crypto.randomUUID().replace(/-/g, "");
-  const apiBase = `${ORG_URL}/api/data/v9.2`;
+  const apiBase = `${orgUrl()}/api/data/v9.2`;
 
   const changesetParts = items
     .map((data) => {
