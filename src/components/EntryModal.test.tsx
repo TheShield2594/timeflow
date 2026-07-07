@@ -58,7 +58,20 @@ describe("EntryModal overnight split — UTC+ timezone", () => {
     await vi.waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
 
     const [firstHalf, secondHalf] = onSave.mock.calls.map((c) => c[0]);
+
+    // First half: start-of-session (22:00 local on the 7th) through local midnight.
     expect(firstHalf.date).toBe("2026-07-07");
+    expect(firstHalf.startTime).toBe("2026-07-07T12:00:00.000Z"); // 22:00 AEST (UTC+10)
+    expect(firstHalf.endTime).toBe("2026-07-07T14:00:00.000Z");   // local midnight
+    expect(firstHalf.durationMinutes).toBe(120);
+
+    // Second half must be stamped on the *next* local day, and its endTime
+    // must actually be the next day too (02:00 local on the 8th) — this is
+    // the companion bug the toISOString() fix uncovered: without offsetting
+    // endDt for split mode, endTime here would wrongly stay on the 7th.
     expect(secondHalf.date).toBe("2026-07-08");
+    expect(secondHalf.startTime).toBe("2026-07-07T14:00:00.000Z"); // local midnight
+    expect(secondHalf.endTime).toBe("2026-07-07T16:00:00.000Z");   // 02:00 AEST on the 8th
+    expect(secondHalf.durationMinutes).toBe(120);
   });
 });

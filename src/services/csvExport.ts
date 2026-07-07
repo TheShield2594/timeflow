@@ -4,9 +4,9 @@ import { localDateStr } from "../utils/dates";
 function escapeCSV(value: string | number | undefined | null): string {
   if (value === null || value === undefined) return "";
   let str = String(value);
-  // Neutralize formula injection: a cell starting with =, +, -, or @ executes
-  // as a formula when the export is opened in Excel/Sheets.
-  if (/^[=+\-@]/.test(str)) str = `'${str}`;
+  // Neutralize formula injection: a cell starting with =, +, -, @, tab, or CR
+  // executes as a formula when the export is opened in Excel/Sheets.
+  if (/^[=+\-@\t\r]/.test(str)) str = `'${str}`;
   if (str.includes(",") || str.includes('"') || str.includes("\n")) {
     return `"${str.replace(/"/g, '""')}"`;
   }

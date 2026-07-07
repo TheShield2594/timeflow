@@ -53,6 +53,7 @@ export const ProjectsPage: React.FC<Props> = ({
   projects, tasks, totalMinutesByProject, onAddProject, onEditProject, onAddTask,
 }) => {
   const [draft, setDraft] = useState<FormDraft | null>(null);
+  const [saving, setSaving] = useState(false);
   const [addingTaskFor, setAddingTaskFor] = useState<string | null>(null);
   const [newTaskName, setNewTaskName] = useState("");
 
@@ -68,7 +69,7 @@ export const ProjectsPage: React.FC<Props> = ({
   });
 
   const handleSave = async () => {
-    if (!draft || !draft.name.trim()) return;
+    if (!draft || !draft.name.trim() || saving) return;
     const payload = {
       name: draft.name.trim(),
       description: draft.description.trim(),
@@ -77,6 +78,7 @@ export const ProjectsPage: React.FC<Props> = ({
       jiraTicket: draft.jiraTicket.trim() || undefined,
       isActive: true,
     };
+    setSaving(true);
     try {
       if (draft.editingId) {
         await onEditProject(draft.editingId, payload);
@@ -86,6 +88,8 @@ export const ProjectsPage: React.FC<Props> = ({
       setDraft(null);
     } catch {
       // The data hooks already toast the failure; keep the form open for retry.
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -177,10 +181,10 @@ export const ProjectsPage: React.FC<Props> = ({
             </div>
           </div>
           <div className="new-project-form__actions">
-            <button className="btn-primary" onClick={handleSave}>
-              {draft.editingId ? "Save Changes" : "Create"}
+            <button className="btn-primary" onClick={handleSave} disabled={saving}>
+              {saving ? "Saving…" : draft.editingId ? "Save Changes" : "Create"}
             </button>
-            <button className="btn-ghost" onClick={() => setDraft(null)}>Cancel</button>
+            <button className="btn-ghost" onClick={() => setDraft(null)} disabled={saving}>Cancel</button>
           </div>
         </div>
       )}

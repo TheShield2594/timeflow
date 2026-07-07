@@ -102,8 +102,14 @@ function unwrap<T>(result: { success: boolean; data: T; error?: unknown }, op: s
 
 // The ListRecords response is an OData v9 envelope with a `value` array.
 // Each item is wrapped by the SDK as `{ dynamicProperties: { ...row } }`.
+// FetchXML-based queries page differently from $filter ones (see below), so
+// the envelope can also carry a paging-cookie annotation instead of nextLink.
 interface DynItem { dynamicProperties?: Raw }
-interface ListEnvelope { value?: DynItem[]; "@odata.nextLink"?: string }
+interface ListEnvelope {
+  value?: DynItem[];
+  "@odata.nextLink"?: string;
+  "@Microsoft.Dynamics.CRM.fetchxmlpagingcookie"?: string;
+}
 
 // Dataverse caps list responses (default 5,000 rows) and signals more data via
 // @odata.nextLink. Pull the $skiptoken out of that link so we can keep paging
@@ -117,7 +123,17 @@ function extractSkipToken(nextLink?: string): string | undefined {
   }
 }
 
-// Hard ceiling so a misbehaving nextLink can never loop forever.
+// FetchXML-based Web API queries don't page via @odata.nextLink/$skiptoken —
+// Dataverse instead returns a paging-cookie annotation, which must be
+// echoed back (HTML-escaped) as a `paging-cookie` attribute on <fetch>,
+// alongside an incremented `page` attribute, to get the next page.
+function withFetchPaging(fetchXml: string, page: number, pagingCookie?: string): string {
+  if (page <= 1 && !pagingCookie) return fetchXml;
+  const cookieAttr = pagingCookie ? ` paging-cookie="${escapeXmlAttr(pagingCookie)}"` : "";
+  return fetchXml.replace(/<fetch(\s|>)/, `<fetch page="${page}"${cookieAttr}$1`);
+}
+
+// Hard ceiling so a misbehaving nextLink/paging-cookie can never loop forever.
 const MAX_PAGES = 20;
 
 // Module-level warning sink. Wire up via setPaginationWarningHandler() so the
@@ -137,6 +153,7 @@ async function listAllPages(
 ): Promise<Raw[]> {
   const rows: Raw[] = [];
   let skiptoken: string | undefined;
+  let pagingCookie: string | undefined;
   for (let page = 0; page < MAX_PAGES; page++) {
     let env: ListEnvelope;
     try {
@@ -151,9 +168,9 @@ async function listAllPages(
         fetchXml ? undefined : filter,
         fetchXml ? undefined : orderby,
         undefined, // $expand
-        fetchXml,
+        fetchXml ? withFetchPaging(fetchXml, page + 1, pagingCookie) : undefined,
         undefined, // $top
-        skiptoken,
+        fetchXml ? undefined : skiptoken,
       );
       env = unwrap(result, `List ${entitySet}`) as unknown as ListEnvelope;
     } catch (err) {
@@ -169,8 +186,14 @@ async function listAllPages(
       return rows;
     }
     for (const item of env?.value ?? []) rows.push(unwrapRow(item));
-    skiptoken = extractSkipToken(env?.["@odata.nextLink"]);
-    if (!skiptoken) break;
+    if (fetchXml) {
+      pagingCookie = env?.["@Microsoft.Dynamics.CRM.fetchxmlpagingcookie"];
+      if (!pagingCookie) { skiptoken = undefined; break; }
+      skiptoken = "more"; // sentinel so the exceeded-MAX_PAGES check below still fires
+    } else {
+      skiptoken = extractSkipToken(env?.["@odata.nextLink"]);
+      if (!skiptoken) break;
+    }
   }
   if (skiptoken) {
     // Exceeded MAX_PAGES — return partial data with a warning rather than
@@ -648,16 +671,28 @@ export async function getOpenTimerEntry(): Promise<TimeEntry | null> {
     const env = unwrap(result, "Get open timer entry") as unknown as ListEnvelope;
     const rows = (env?.value ?? []).map(unwrapRow);
     if (!rows.length) return null;
-    const entry = mapEntry(rows[0]);
-    // Belt-and-suspenders: skip a row that isn't the caller's own even if
-    // the server-side filter somehow let it through.
-    const user = getCurrentUser();
-    if (entry.userId && entry.userId !== user.id) return null;
-    return entry;
+    // No client-side ownership re-check here: eq-userid above is resolved
+    // by Dataverse against the calling user's actual token, so — unlike a
+    // compare against the stored ever_userid column — it isn't subject to
+    // that column's known objectId drift across SDK sessions (see README
+    // "Row security matters"). Re-checking with the drift-prone column here
+    // would risk rejecting the user's own timer, not add real protection.
+    return mapEntry(rows[0]);
   } catch {
     // If the query fails (e.g. column not filterable), fail gracefully.
     return null;
   }
+}
+
+function isNotFoundError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as Record<string, unknown>;
+  const status = typeof e.status === "number" ? e.status
+    : typeof e.statusCode === "number" ? e.statusCode
+    : 0;
+  if (status === 404) return true;
+  const msg = typeof e.message === "string" ? e.message : "";
+  return msg.includes("404");
 }
 
 export async function deleteTimeEntry(id: string): Promise<void> {
@@ -666,21 +701,40 @@ export async function deleteTimeEntry(id: string): Promise<void> {
     persist(STORAGE_KEYS.entries, all);
     return;
   }
-  const result = await retryWithBackoff(() =>
-    MicrosoftDataverseService.DeleteRecordWithOrganization(orgUrl(), SETS.entries, id)
-  );
-  unwrap(result, "Delete entry");
+  try {
+    const result = await retryWithBackoff(() =>
+      MicrosoftDataverseService.DeleteRecordWithOrganization(orgUrl(), SETS.entries, id)
+    );
+    unwrap(result, "Delete entry");
+  } catch (err) {
+    // Delete is idempotent: a retried attempt can legitimately 404 if an
+    // earlier attempt actually succeeded server-side but its response was
+    // lost (e.g. a transient 503 reported after the record was already
+    // removed). The caller's goal — the record no longer exists — is
+    // already satisfied, so don't surface this as a failure.
+    if (isNotFoundError(err)) return;
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Bulk writes (issue #8) — creates run in parallel via Promise.all, which is
+// Bulk writes (issue #8) — creates run in parallel via individual creates,
 // faster than serial requests even without a single-round-trip guarantee.
 // ---------------------------------------------------------------------------
 
-/** Bulk-creates time entries via parallel individual creates. */
+export type BatchCreateOutcome =
+  | { status: "fulfilled"; item: Omit<TimeEntry, "id">; entry: TimeEntry }
+  | { status: "rejected"; item: Omit<TimeEntry, "id">; error: unknown };
+
+/**
+ * Bulk-creates time entries via parallel individual creates. Uses
+ * Promise.allSettled (not Promise.all) so one failed item doesn't hide which
+ * of the others already succeeded — callers can inspect each outcome and
+ * retry only the rejected items instead of resubmitting the whole batch.
+ */
 export async function batchCreateTimeEntries(
   items: Omit<TimeEntry, "id">[],
-): Promise<TimeEntry[]> {
+): Promise<BatchCreateOutcome[]> {
   if (!isPowerAppsHost() || items.length === 0) {
     // Dev mock: insert all at once.
     const user = getCurrentUser();
@@ -692,8 +746,13 @@ export async function batchCreateTimeEntries(
     }));
     const all = load<TimeEntry>(STORAGE_KEYS.entries);
     persist(STORAGE_KEYS.entries, [...all, ...created]);
-    return created;
+    return created.map((entry, i) => ({ status: "fulfilled", item: items[i], entry }));
   }
 
-  return Promise.all(items.map((data) => createTimeEntry(data)));
+  const settled = await Promise.allSettled(items.map((data) => createTimeEntry(data)));
+  return settled.map((result, i) =>
+    result.status === "fulfilled"
+      ? { status: "fulfilled", item: items[i], entry: result.value }
+      : { status: "rejected", item: items[i], error: result.reason }
+  );
 }
