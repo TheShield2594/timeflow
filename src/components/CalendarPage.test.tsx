@@ -4,7 +4,7 @@ import { CalendarPage } from "./CalendarPage";
 import { DataRangeProvider } from "../contexts/DataRangeContext";
 
 vi.mock("../services/userService", () => ({
-  getCurrentUser: () => ({ id: "user-1", email: "user1@example.com", displayName: "User One" }),
+  getCurrentUser: () => ({ id: "user-1", email: "user1@example.com", displayName: "User One", environmentId: "env-1" }),
 }));
 // The hooks barrel re-exports hooks that transitively import the generated
 // Dataverse SDK; CalendarPage only needs formatMinutes from it, so stub the

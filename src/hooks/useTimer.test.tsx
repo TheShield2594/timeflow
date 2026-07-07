@@ -7,7 +7,7 @@ import type { TimeEntry } from "../types";
 const toastSpy = vi.fn();
 vi.mock("../contexts/ToastContext", () => ({ useToast: () => toastSpy }));
 vi.mock("../services/userService", () => ({
-  getCurrentUser: () => ({ id: "user-1", email: "user1@example.com", displayName: "User One" }),
+  getCurrentUser: () => ({ id: "user-1", email: "user1@example.com", displayName: "User One", environmentId: "env-1" }),
 }));
 vi.mock("../services/dataverseService", () => ({
   getOpenTimerEntry: vi.fn().mockResolvedValue(null),
@@ -16,7 +16,7 @@ vi.mock("../services/dataverseService", () => ({
   updateTimeEntry: vi.fn(),
 }));
 
-const TIMER_STORAGE_KEY = "tt_active_timer:user-1";
+const TIMER_STORAGE_KEY = "tt_active_timer:env-1:user-1";
 
 beforeEach(() => {
   localStorage.clear();

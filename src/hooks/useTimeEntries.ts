@@ -7,11 +7,12 @@ import { tempId, errMsg } from "./_shared";
 
 // sessionStorage (not a ref) so the "warn once per session" guard survives
 // this hook's component unmounting/remounting, not just re-renders of one
-// mounted instance. Scoped per user id so switching accounts within the
-// same browser session doesn't suppress a warning that applies to the
-// new user.
-function isolationWarningKey(userId: string): string {
-  return `tt_isolation_warned:${userId}`;
+// mounted instance. Scoped per environment + user id so switching accounts
+// within the same browser session, or between Power Apps environments that
+// share an origin (Dev/QA/Prod), doesn't suppress a warning that applies to
+// a different environment or user.
+function isolationWarningKey(environmentId: string, userId: string): string {
+  return `tt_isolation_warned:${environmentId}:${userId}`;
 }
 
 export function useTimeEntries(from?: string, to?: string) {
@@ -31,9 +32,10 @@ export function useTimeEntries(from?: string, to?: string) {
       if (seq !== seqRef.current) return;
       setEntries(data);
       try {
-        const currentUserId = getCurrentUser().id;
-        const warningKey = isolationWarningKey(currentUserId);
-        if (!sessionStorage.getItem(warningKey) && svc.hasForeignUserEntries(data, currentUserId)) {
+        const currentUser = getCurrentUser();
+        sessionStorage.removeItem(`tt_isolation_warned:${currentUser.id}`);
+        const warningKey = isolationWarningKey(currentUser.environmentId, currentUser.id);
+        if (!sessionStorage.getItem(warningKey) && svc.hasForeignUserEntries(data, currentUser.id)) {
           sessionStorage.setItem(warningKey, "1");
           console.error(
             "[security] getTimeEntries() returned time entries belonging to other users. " +

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import type { TimeEntry } from "../types";
 
 vi.mock("./userService", () => ({
-  getCurrentUser: () => ({ id: "user-1", email: "user1@example.com", displayName: "User One" }),
+  getCurrentUser: () => ({ id: "user-1", email: "user1@example.com", displayName: "User One", environmentId: "env-1" }),
   isPowerAppsHost: () => false,
 }));
 
