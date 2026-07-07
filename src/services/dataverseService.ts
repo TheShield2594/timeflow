@@ -454,6 +454,33 @@ export async function createTask(data: Omit<Task, "id">): Promise<Task> {
   return mergeOver(inputAsTask, mapTask(unwrapRow(unwrap(result, "Create task"))));
 }
 
+// Shared by every entity's delete: local-mock filter/persist, or a Dataverse
+// delete that treats a 404 as success (a retried attempt can legitimately hit
+// one if an earlier try already succeeded server-side but its response was
+// lost — the caller's goal, the record no longer existing, is already met).
+async function deleteRecord<T extends { id: string }>(
+  storageKey: string, setName: string, id: string, label: string
+): Promise<void> {
+  if (!isPowerAppsHost()) {
+    const all = load<T>(storageKey).filter((r) => r.id !== id);
+    persist(storageKey, all);
+    return;
+  }
+  try {
+    const result = await retryWithBackoff(() =>
+      MicrosoftDataverseService.DeleteRecordWithOrganization(orgUrl(), setName, id)
+    );
+    unwrap(result, label);
+  } catch (err) {
+    if (isNotFoundError(err)) return;
+    throw err;
+  }
+}
+
+export async function deleteTask(id: string): Promise<void> {
+  return deleteRecord<Task>(STORAGE_KEYS.tasks, SETS.tasks, id, "Delete task");
+}
+
 // ---------------------------------------------------------------------------
 // Time Entries — scoped to the current user
 // ---------------------------------------------------------------------------
@@ -696,25 +723,7 @@ function isNotFoundError(err: unknown): boolean {
 }
 
 export async function deleteTimeEntry(id: string): Promise<void> {
-  if (!isPowerAppsHost()) {
-    const all = load<TimeEntry>(STORAGE_KEYS.entries).filter((e) => e.id !== id);
-    persist(STORAGE_KEYS.entries, all);
-    return;
-  }
-  try {
-    const result = await retryWithBackoff(() =>
-      MicrosoftDataverseService.DeleteRecordWithOrganization(orgUrl(), SETS.entries, id)
-    );
-    unwrap(result, "Delete entry");
-  } catch (err) {
-    // Delete is idempotent: a retried attempt can legitimately 404 if an
-    // earlier attempt actually succeeded server-side but its response was
-    // lost (e.g. a transient 503 reported after the record was already
-    // removed). The caller's goal — the record no longer exists — is
-    // already satisfied, so don't surface this as a failure.
-    if (isNotFoundError(err)) return;
-    throw err;
-  }
+  return deleteRecord<TimeEntry>(STORAGE_KEYS.entries, SETS.entries, id, "Delete entry");
 }
 
 // ---------------------------------------------------------------------------

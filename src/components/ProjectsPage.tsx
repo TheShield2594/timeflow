@@ -14,6 +14,7 @@ interface Props {
   onAddProject: (data: Omit<Project, "id" | "createdAt">) => Promise<Project>;
   onEditProject: (id: string, data: Partial<Project>) => Promise<Project>;
   onAddTask: (data: Omit<Task, "id">) => Promise<Task>;
+  onDeleteTask: (task: Task) => void;
 }
 
 const PALETTE = [
@@ -50,7 +51,7 @@ const EMPTY_DRAFT: FormDraft = {
 };
 
 export const ProjectsPage: React.FC<Props> = ({
-  projects, tasks, totalMinutesByProject, onAddProject, onEditProject, onAddTask,
+  projects, tasks, totalMinutesByProject, onAddProject, onEditProject, onAddTask, onDeleteTask,
 }) => {
   const [draft, setDraft] = useState<FormDraft | null>(null);
   const [saving, setSaving] = useState(false);
@@ -235,7 +236,17 @@ export const ProjectsPage: React.FC<Props> = ({
 
                 <div className="project-card__tasks">
                   {projectTasks.map((t) => (
-                    <span key={t.id} className="task-chip">{t.name}</span>
+                    <span key={t.id} className="task-chip">
+                      {t.name}
+                      <button
+                        className="task-chip__delete"
+                        onClick={() => onDeleteTask(t)}
+                        title="Delete task"
+                        aria-label={`Delete task ${t.name}`}
+                      >
+                        <IconX size={11} />
+                      </button>
+                    </span>
                   ))}
                   {addingTaskFor === project.id ? (
                     <div className="inline-task-form">

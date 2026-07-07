@@ -10,7 +10,7 @@ import { setPaginationWarningHandler } from "./services/dataverseService";
 import { ToastProvider, useToast } from "./contexts/ToastContext";
 import { DataRangeProvider, useDataRange } from "./contexts/DataRangeContext";
 
-import type { TimeEntry } from "./types";
+import type { TimeEntry, Task } from "./types";
 import logoUrl from "./everence-logo.png";
 
 // ---------------------------------------------------------------------------
@@ -98,7 +98,7 @@ const AppContent: React.FC = () => {
   }, [toast]);
 
   const { projects, addProject, editProject } = useProjects();
-  const { tasks, addTask, loadTasksForProject } = useTasks();
+  const { tasks, addTask, deleteTask, loadTasksForProject } = useTasks();
   const { entries, loading, deleteEntry, editEntry, createEntry, refresh } = useTimeEntries(from, to);
 
   const handleNewEntry = useCallback(
@@ -123,6 +123,19 @@ const AppContent: React.FC = () => {
       });
     }
   }, [entries, deleteEntry, createEntry, toast]);
+
+  const deleteTaskWithUndo = useCallback(async (task: Task) => {
+    try {
+      await deleteTask(task);
+    } catch {
+      return;
+    }
+    const { id: _omit, ...data } = task;
+    toast("Task deleted.", "info", {
+      label: "Undo",
+      onAction: () => { addTask(data).catch(() => { /* toasted by hook */ }); },
+    });
+  }, [deleteTask, addTask, toast]);
 
   const lastActivity = useActivityTracker();
 
@@ -240,6 +253,7 @@ const AppContent: React.FC = () => {
             onAddProject={addProject}
             onEditProject={editProject}
             onAddTask={addTask}
+            onDeleteTask={deleteTaskWithUndo}
             onLoadTasksForProject={loadTasksForProject}
           />
         </div>

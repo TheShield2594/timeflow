@@ -51,5 +51,23 @@ export function useTasks() {
     }
   }, [toast]);
 
-  return { tasks, addTask, loadTasksForProject };
+  const deleteTask = useCallback(async (task: Task) => {
+    const projectId = task.projectId;
+    setTasksByProject((prev) => {
+      const existing = (prev.get(projectId) ?? []).filter((t) => t.id !== task.id);
+      return new Map([...prev, [projectId, existing]]);
+    });
+    try {
+      if (!isTempId(task.id)) await svc.deleteTask(task.id);
+    } catch (err) {
+      setTasksByProject((prev) => {
+        const existing = prev.get(projectId) ?? [];
+        return new Map([...prev, [projectId, [...existing, task]]]);
+      });
+      toast(`Could not delete task: ${errMsg(err)}`, "error");
+      throw err;
+    }
+  }, [toast]);
+
+  return { tasks, addTask, deleteTask, loadTasksForProject };
 }
