@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import type { Project, Task } from "../types";
 import { formatMinutes, parseRatioInput } from "../hooks";
 import { useFocusTrap } from "../hooks/useFocusTrap";
+import { localDateStr } from "../utils/dates";
 import { IconX } from "./Icons";
 
 export interface EntryDraft {
@@ -99,12 +100,12 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOvernightConflict]);
 
-  // An end of 00:00 OR "keep" overnight mode means end is next calendar day.
+  // An end of 00:00, or "keep"/"split" overnight mode, means end is next calendar day.
   const nextDayOffset = 24 * 60 * 60 * 1000;
   const endDt = draft.date && draft.endTime
     ? new Date(
         new Date(`${draft.date}T${draft.endTime}:00`).getTime() +
-        (draft.endTime === "00:00" || overnightMode === 'keep' ? nextDayOffset : 0)
+        (draft.endTime === "00:00" || overnightMode === 'keep' || overnightMode === 'split' ? nextDayOffset : 0)
       )
     : null;
   const durationMinutes = startDt && endDt
@@ -134,7 +135,7 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
         const midnight = new Date(`${draft.date}T00:00:00`).getTime() + nextDayOffset;
         const midnightIso = new Date(midnight).toISOString();
         // Next calendar day string.
-        const nextDay = new Date(midnight).toISOString().slice(0, 10);
+        const nextDay = localDateStr(new Date(midnight));
         const endIso = endDt.toISOString();
         await onSave({
           ...common, date: draft.date,

@@ -39,6 +39,13 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
     if (localState) return;
     svc.getOpenTimerEntry().then((open) => {
       if (!open || !open.projectId || !open.startTime) return;
+      // Ownership is already enforced server-side by getOpenTimerEntry's
+      // eq-userid FetchXML filter, which Dataverse resolves authoritatively
+      // for "the calling user" — unlike a client-side compare against the
+      // stored ever_userid column, it isn't vulnerable to that column's
+      // known objectId drift across SDK sessions (see README "Row security
+      // matters"), so re-checking open.userId here would risk rejecting the
+      // user's own timer instead of adding real protection.
       const restored: TimerState = {
         isRunning: true,
         startTime: open.startTime,

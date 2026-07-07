@@ -75,6 +75,8 @@ export const TimerBar: React.FC<Props> = ({
       }
       setAddingNewTask(false);
       setNewTaskName("");
+    } catch {
+      // The data hooks already toast the failure; keep the form open for retry.
     } finally {
       setSavingTask(false);
     }
