@@ -454,6 +454,25 @@ export async function createTask(data: Omit<Task, "id">): Promise<Task> {
   return mergeOver(inputAsTask, mapTask(unwrapRow(unwrap(result, "Create task"))));
 }
 
+export async function deleteTask(id: string): Promise<void> {
+  if (!isPowerAppsHost()) {
+    const all = load<Task>(STORAGE_KEYS.tasks).filter((t) => t.id !== id);
+    persist(STORAGE_KEYS.tasks, all);
+    return;
+  }
+  try {
+    const result = await retryWithBackoff(() =>
+      MicrosoftDataverseService.DeleteRecordWithOrganization(orgUrl(), SETS.tasks, id)
+    );
+    unwrap(result, "Delete task");
+  } catch (err) {
+    // See deleteTimeEntry: a retried delete can legitimately 404 once the
+    // first attempt already succeeded server-side.
+    if (isNotFoundError(err)) return;
+    throw err;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Time Entries — scoped to the current user
 // ---------------------------------------------------------------------------
