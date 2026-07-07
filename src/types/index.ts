@@ -66,4 +66,5 @@ export interface CurrentUser {
   id: string;
   email: string;
   displayName: string;
+  environmentId: string;
 }

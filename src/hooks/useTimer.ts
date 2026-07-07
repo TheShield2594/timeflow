@@ -13,8 +13,14 @@ const RESET_TIMER: TimerState = {
 
 export function useTimer(onStop: (entry: TimeEntry) => void) {
   const user = getCurrentUser();
-  const timerKey = `${TIMER_KEY_PREFIX}${user.id}`;
+  const timerKey = `${TIMER_KEY_PREFIX}${user.environmentId}:${user.id}`;
   const toast = useToast();
+
+  // One-time cleanup of the pre-environment-scoping key, which could hold a
+  // different environment's timer (e.g. QA restoring Dev's draftEntryId).
+  useEffect(() => {
+    localStorage.removeItem(`${TIMER_KEY_PREFIX}${user.id}`);
+  }, [user.id]);
 
   const [timer, setTimer] = useState<TimerState>(() => {
     try {

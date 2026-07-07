@@ -33,6 +33,7 @@ export async function initCurrentUser(): Promise<CurrentUser> {
           id,
           email: u.userPrincipalName ?? "",
           displayName: u.fullName ?? u.userPrincipalName ?? "You",
+          environmentId: ctx.app.environmentId ?? "unknown-env",
         };
         return cached;
       }
@@ -48,11 +49,16 @@ export async function initCurrentUser(): Promise<CurrentUser> {
       id: "local-" + crypto.randomUUID(),
       email: "local@dev",
       displayName: "Local User",
+      environmentId: "local-dev",
     };
     raw = JSON.stringify(fresh);
     localStorage.setItem(LOCAL_USER_KEY, raw);
   }
   cached = JSON.parse(raw) as CurrentUser;
+  if (!cached.environmentId) {
+    cached.environmentId = "local-dev";
+    localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(cached));
+  }
   return cached;
 }
 
