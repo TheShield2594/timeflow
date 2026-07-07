@@ -30,6 +30,7 @@ Tracks time against projects and tasks, stores data in Microsoft Dataverse, and 
 ### Prerequisites
 - Node.js 18+
 - npm or pnpm
+- **Linux only:** `libsecret-1-dev` (`sudo apt install libsecret-1-dev` on Debian/Ubuntu). It's pulled in natively by `@microsoft/power-apps` → `@azure/msal-node-extensions` → `keytar`. GitHub-hosted CI runners have it preinstalled; a fresh Linux box doesn't, and `npm install`/`npm ci` fails with a cryptic `node-gyp` build error without it.
 
 ### Run locally
 ```bash
@@ -38,7 +39,7 @@ npm run dev
 ```
 
 The app runs with **mock data** in localStorage when `window.PowerApps` is not present.
-Seed data (3 projects, tasks, 1 week of entries) is auto-generated on first run.
+There is no seed data — a fresh `npm run dev` starts with an empty workspace; create your first project from the Projects page.
 
 ---
 
@@ -94,11 +95,15 @@ The app expects these tables (logical names singular, entity-set names get the
 
 Active/inactive state uses the standard Dataverse `statecode` column.
 
-> **Row security matters.** The app does NOT filter entries by `ever_userid`
-> on reads (the SDK has returned inconsistent user ids across sessions).
-> Per-user data isolation relies on Dataverse **owner-based row security** —
-> make sure the `ever_timeentries` table is configured with user-level
-> ownership and user-scope read privileges, or every user will see all rows.
+> **Row security matters.** Reads filter server-side via FetchXML's
+> `eq-userid` operator (Dataverse resolves this to "the calling user" itself,
+> so it doesn't depend on comparing stored ids from the client — the SDK has
+> returned inconsistent user ids across sessions for the `ever_userid`
+> column, which is why that column is stamped for display/audit purposes but
+> not used to filter). This still relies on `ever_timeentries` having
+> **user-level ownership** configured — `eq-userid` filters against
+> `ownerid`, which only has per-user meaning under that ownership scope. Make
+> sure the table is configured accordingly, or every user will see all rows.
 
 #### Dataverse Security Configuration
 
@@ -110,7 +115,7 @@ Correct table-level security role configuration is required to keep each user's 
 | `ever_projects` | Organization | Basic (Create / Read / Write / Delete) |
 | `ever_workitems` | Organization | Basic (Create / Read / Write / Delete) |
 
-**Why this matters:** Without user-scope ownership on `ever_timeentries`, every user can read every other user's time entries. There is no application-layer fallback.
+**Why this matters:** Without user-scope ownership on `ever_timeentries`, the app's `eq-userid` read filter (see "Row security matters" above) has no per-user `ownerid` to match against, and every user can read every other user's time entries.
 
 **How to verify in the maker portal:**
 1. Go to [make.powerapps.com](https://make.powerapps.com) → **Tables** → select `ever_timeentries`.
@@ -118,17 +123,15 @@ Correct table-level security role configuration is required to keep each user's 
 3. In your Security Role, confirm the `ever_timeentries` row is set to **User** scope for Read/Write/Create/Delete.
 4. Repeat for `ever_projects` and `ever_workitems` (Organization scope for shared data is correct).
 
-**Runtime detection (UAT sign-off check):** the app cannot fix a misconfigured
-security role from the client, but it does detect one. On the first entries
-refresh, `useTimeEntries` calls `hasForeignUserEntries()` to check whether any
-returned row belongs to someone other than the signed-in user. If it ever
-does, the UI shows a "Data isolation warning" toast and logs detail to the
-console — that's a clear signal during UAT that step 2/3 above need to be
-revisited before going to production. The check only runs once per page
-load (a guard flag skips it on later refreshes) so the toast doesn't repeat
-on every poll. Seeing this warning during a UAT session with two or more
-test accounts is the practical way to confirm isolation is (or isn't)
-actually enforced, since it can't be verified from the app code alone.
+**Runtime detection (UAT sign-off check):** as defense in depth, on the first
+entries refresh `useTimeEntries` calls `hasForeignUserEntries()` to check
+whether any returned row belongs to someone other than the signed-in user.
+This should never trip given the `eq-userid` read filter above, but if it
+ever does, the UI shows a "Data isolation warning" toast and logs detail to
+the console — a signal that something is seriously wrong (e.g. an
+unexpected Dataverse behavior) and step 2/3 above need to be revisited
+before going to production. The check only runs once per page load (a guard
+flag skips it on later refreshes) so the toast doesn't repeat on every poll.
 
 #### Entity Relationship Diagram
 
@@ -166,12 +169,15 @@ erDiagram
     ever_workitems ||--o{ ever_timeentries : "categorizes"
 ```
 
-### Step 3 — (Optional) Point at a different environment
+### Step 3 — Environment targeting
 
 `src/services/dataverseService.ts` talks to Dataverse through the
-`@microsoft/power-apps` SDK code generated in `src/generated/`. The org URL
-defaults to the dev environment and can be overridden with
-`VITE_DATAVERSE_ORG_URL` in a `.env` file.
+`@microsoft/power-apps` SDK code generated in `src/generated/`. Every
+`*WithOrganization` call passes the connector's `"current"` token instead of
+a baked-in org URL, so there is nothing to configure — a single build
+artifact targets whichever environment it's deployed into (dev, QA, or
+prod) automatically. There is no `VITE_DATAVERSE_ORG_URL` (or any other org
+URL) setting; see `.env.example`.
 
 Lookup writes use the `@odata.bind` form with entity-set paths
 (`ever_project@odata.bind: /ever_projectses(<guid>)`); reads surface lookups

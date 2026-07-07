@@ -129,7 +129,12 @@ export function setPaginationWarningHandler(fn: WarningHandler | null): void {
   paginationWarningHandler = fn;
 }
 
-async function listAllPages(entitySet: string, filter: string | undefined, orderby: string): Promise<Raw[]> {
+async function listAllPages(
+  entitySet: string,
+  filter: string | undefined,
+  orderby: string | undefined,
+  fetchXml?: string,
+): Promise<Raw[]> {
   const rows: Raw[] = [];
   let skiptoken: string | undefined;
   for (let page = 0; page < MAX_PAGES; page++) {
@@ -143,10 +148,10 @@ async function listAllPages(entitySet: string, filter: string | undefined, order
         undefined, // x-ms-odata-metadata-full
         undefined, // MSCRM.IncludeMipSensitivityLabel
         undefined, // $select
-        filter,
-        orderby,
+        fetchXml ? undefined : filter,
+        fetchXml ? undefined : orderby,
         undefined, // $expand
-        undefined, // fetchXml
+        fetchXml,
         undefined, // $top
         skiptoken,
       );
@@ -434,6 +439,15 @@ function fmtDate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+// Minimal escaping for values interpolated into FetchXML condition attributes.
+function escapeXmlAttr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 export async function getTimeEntries(opts: { from?: string; to?: string } = {}): Promise<TimeEntry[]> {
   const user = getCurrentUser();
   // Always apply a date range — default to the last 30 days to avoid
@@ -449,29 +463,41 @@ export async function getTimeEntries(opts: { from?: string; to?: string } = {}):
       .filter((e) => e.userId === user.id && e.date >= from && e.date <= to)
       .sort((a, b) => b.startTime.localeCompare(a.startTime));
   }
-  // No ever_userid filter — rely on Dataverse owner-based row security so
-  // the user sees their own records. Our column-level ever_userid filter
-  // was rejecting valid rows whose stored id didn't match the SDK's reported
-  // ctx.user.objectId (the SDK has returned slightly different identifiers
-  // across sessions, which we can't reconcile from this layer).
-  const filterStr = `ever_date ge ${from} and ever_date le ${to}`;
-  const rows = await listAllPages(SETS.entries, filterStr, "ever_starttime desc");
+  // Filters server-side via FetchXML's eq-userid operator, which Dataverse
+  // resolves to "the calling user" itself. This is a genuine data-level
+  // filter — unlike the ever_userid column filter removed here previously
+  // (which broke on objectId drift across SDK sessions), eq-userid doesn't
+  // depend on comparing stored ids from this layer, and it holds even if
+  // the ever_timeentries security role's row-scope is misconfigured (see
+  // README "Row security matters" / hasForeignUserEntries below).
+  const fetchXml =
+    '<fetch>' +
+      '<entity name="ever_timeentries">' +
+        '<all-attributes />' +
+        '<filter>' +
+          `<condition attribute="ever_date" operator="ge" value="${escapeXmlAttr(from)}" />` +
+          `<condition attribute="ever_date" operator="le" value="${escapeXmlAttr(to)}" />` +
+          '<condition attribute="ownerid" operator="eq-userid" />' +
+        '</filter>' +
+        '<order attribute="ever_starttime" descending="true" />' +
+      '</entity>' +
+    '</fetch>';
+  const rows = await listAllPages(SETS.entries, undefined, undefined, fetchXml);
   return rows.map((r) => {
     const entry = mapEntry(r);
-    if (!entry.userDisplayName && entry.userId === user.id) {
-      entry.userDisplayName = user.displayName;
-    }
+    if (!entry.userDisplayName) entry.userDisplayName = user.displayName;
     return entry;
   });
 }
 
 /**
  * True if any entry in a getTimeEntries() result belongs to someone other
- * than currentUserId. getTimeEntries() deliberately doesn't filter by
- * ever_userid (see README "Dataverse Security Configuration") — isolation
- * is enforced entirely by Dataverse row-level security. If this ever
- * returns true, that security role is misconfigured and is leaking other
- * users' time entries to the client.
+ * than currentUserId. getTimeEntries() filters server-side by eq-userid, so
+ * this should never trip — it's a defense-in-depth / UAT sign-off check. If
+ * this ever returns true, something is seriously wrong (e.g. a stale
+ * FetchXML condition, or a Dataverse version that doesn't honor eq-userid
+ * the way this app expects) and other users' time entries are leaking to
+ * the client.
  *
  * Caveat: this compares the stored ever_userid against the current
  * getCurrentUser().id, both ultimately sourced from the SDK's
@@ -567,9 +593,9 @@ export async function createDraftTimerEntry(data: {
   if (data.description) raw.ever_description = data.description;
   if (data.ratio !== undefined) raw.ever_ratio = data.ratio;
   if (data.taskId) raw[`ever_workitem@odata.bind`] = `/${SETS.tasks}(${data.taskId})`;
-  const result = await MicrosoftDataverseService.CreateRecordWithOrganization(
+  const result = await retryWithBackoff(() => MicrosoftDataverseService.CreateRecordWithOrganization(
     PREFER_RETURN, ACCEPT, orgUrl(), SETS.entries, raw,
-  );
+  ));
   const row = unwrapRow(unwrap(result, "Create draft timer entry"));
   return (row["ever_timeentriesid"] ?? row["id"]) as string;
 }
@@ -577,6 +603,13 @@ export async function createDraftTimerEntry(data: {
 /**
  * Queries for an open timer entry (ever_endtime null) owned by the current
  * user. Used on app bootstrap to restore timer state after a page reload (#15).
+ *
+ * Filters server-side via FetchXML's eq-userid operator, which Dataverse
+ * resolves to "the calling user" itself — this sidesteps the objectId-drift
+ * problem that motivated removing the ever_userid filter from getTimeEntries()
+ * (see README "Row security matters") while still preventing a user with
+ * broader read privileges (admins, BU-level managers) from restoring someone
+ * else's in-progress timer into their own timer bar.
  */
 export async function getOpenTimerEntry(): Promise<TimeEntry | null> {
   if (!isPowerAppsHost()) {
@@ -585,10 +618,42 @@ export async function getOpenTimerEntry(): Promise<TimeEntry | null> {
     const open = all.find((e) => e.userId === user.id && !e.endTime);
     return open ?? null;
   }
+  const fetchXml =
+    '<fetch top="1">' +
+      '<entity name="ever_timeentries">' +
+        '<all-attributes />' +
+        '<filter>' +
+          '<condition attribute="ever_endtime" operator="null" />' +
+          '<condition attribute="ownerid" operator="eq-userid" />' +
+        '</filter>' +
+        '<order attribute="ever_starttime" descending="true" />' +
+      '</entity>' +
+    '</fetch>';
   try {
-    const rows = await listAllPages(SETS.entries, "ever_endtime eq null", "ever_starttime desc");
+    const result = await MicrosoftDataverseService.ListRecordsWithOrganization(
+      orgUrl(),
+      SETS.entries,
+      undefined, // prefer
+      ACCEPT,
+      undefined, // x-ms-odata-metadata-full
+      undefined, // MSCRM.IncludeMipSensitivityLabel
+      undefined, // $select
+      undefined, // $filter
+      undefined, // $orderby
+      undefined, // $expand
+      fetchXml,
+      undefined, // $top
+      undefined, // $skiptoken
+    );
+    const env = unwrap(result, "Get open timer entry") as unknown as ListEnvelope;
+    const rows = (env?.value ?? []).map(unwrapRow);
     if (!rows.length) return null;
-    return mapEntry(rows[0]);
+    const entry = mapEntry(rows[0]);
+    // Belt-and-suspenders: skip a row that isn't the caller's own even if
+    // the server-side filter somehow let it through.
+    const user = getCurrentUser();
+    if (entry.userId && entry.userId !== user.id) return null;
+    return entry;
   } catch {
     // If the query fails (e.g. column not filterable), fail gracefully.
     return null;
@@ -601,45 +666,20 @@ export async function deleteTimeEntry(id: string): Promise<void> {
     persist(STORAGE_KEYS.entries, all);
     return;
   }
-  const result = await MicrosoftDataverseService.DeleteRecordWithOrganization(orgUrl(), SETS.entries, id);
+  const result = await retryWithBackoff(() =>
+    MicrosoftDataverseService.DeleteRecordWithOrganization(orgUrl(), SETS.entries, id)
+  );
   unwrap(result, "Delete entry");
 }
 
 // ---------------------------------------------------------------------------
-// Bulk writes — OData $batch (issue #8)
-//
-// Pattern: each caller passes `batch: true` to pack creates/updates into a
-// single multipart/mixed request, cutting N round-trips to 1. When `batch`
-// is omitted or false, requests run in parallel via Promise.all (still faster
-// than serial but without the 1-round-trip guarantee).
-//
-// OData $batch envelope shape:
-//   POST {orgUrl}/api/data/v9.2/$batch
-//   Content-Type: multipart/mixed;boundary=batch_<id>
-//
-//   --batch_<id>
-//   Content-Type: multipart/mixed;boundary=changeset_<id>
-//
-//   --changeset_<id>
-//   Content-Type: application/http
-//   Content-Transfer-Encoding: binary
-//
-//   POST /api/data/v9.2/ever_timeentrieses HTTP/1.1
-//   Content-Type: application/json;type=entry
-//
-//   { ...row }
-//
-//   --changeset_<id>--
-//   --batch_<id>--
+// Bulk writes (issue #8) — creates run in parallel via Promise.all, which is
+// faster than serial requests even without a single-round-trip guarantee.
 // ---------------------------------------------------------------------------
 
-/**
- * Bulk-creates time entries. Pass `{ batch: true }` to use a single OData
- * $batch request; omit for parallel individual creates.
- */
+/** Bulk-creates time entries via parallel individual creates. */
 export async function batchCreateTimeEntries(
   items: Omit<TimeEntry, "id">[],
-  opts: { batch?: boolean } = {},
 ): Promise<TimeEntry[]> {
   if (!isPowerAppsHost() || items.length === 0) {
     // Dev mock: insert all at once.
@@ -655,69 +695,5 @@ export async function batchCreateTimeEntries(
     return created;
   }
 
-  if (!opts.batch) {
-    return Promise.all(items.map((data) => createTimeEntry(data)));
-  }
-
-  return sendODataBatch(items);
-}
-
-async function sendODataBatch(items: Omit<TimeEntry, "id">[]): Promise<TimeEntry[]> {
-  const user = getCurrentUser();
-  const batchId = crypto.randomUUID().replace(/-/g, "");
-  const changesetId = crypto.randomUUID().replace(/-/g, "");
-  const apiBase = `${orgUrl()}/api/data/v9.2`;
-
-  const changesetParts = items
-    .map((data) => {
-      const owned = { ...data, userId: user.id, userDisplayName: user.displayName };
-      const body = JSON.stringify(entryToDataverse(owned));
-      return [
-        `--changeset_${changesetId}`,
-        "Content-Type: application/http",
-        "Content-Transfer-Encoding: binary",
-        "",
-        `POST ${apiBase}/${SETS.entries} HTTP/1.1`,
-        "Content-Type: application/json;type=entry",
-        "Prefer: return=representation",
-        "",
-        body,
-      ].join("\r\n");
-    })
-    .join("\r\n");
-
-  const batchBody = [
-    `--batch_${batchId}`,
-    `Content-Type: multipart/mixed;boundary=changeset_${changesetId}`,
-    "",
-    changesetParts,
-    `\r\n--changeset_${changesetId}--`,
-    `--batch_${batchId}--`,
-  ].join("\r\n");
-
-  const resp = await fetch(`${apiBase}/$batch`, {
-    method: "POST",
-    headers: {
-      "Content-Type": `multipart/mixed;boundary=batch_${batchId}`,
-      Accept: "application/json",
-      "OData-MaxVersion": "4.0",
-      "OData-Version": "4.0",
-    },
-    body: batchBody,
-  });
-
-  if (!resp.ok) {
-    throw new Error(`OData $batch failed: ${resp.status} ${resp.statusText}`);
-  }
-
-  // The response is multipart; parsing it requires extracting each HTTP
-  // sub-response. For now we return optimistic records so the caller can
-  // refresh the list without waiting for the full parse.
-  const optimistic: TimeEntry[] = items.map((data) => ({
-    ...data,
-    id: "",
-    userId: user.id,
-    userDisplayName: user.displayName,
-  }));
-  return optimistic;
+  return Promise.all(items.map((data) => createTimeEntry(data)));
 }

@@ -39,6 +39,9 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
     if (localState) return;
     svc.getOpenTimerEntry().then((open) => {
       if (!open || !open.projectId || !open.startTime) return;
+      // Defense in depth: never restore another user's running timer into
+      // this session, even if broader read privileges let the query return it.
+      if (open.userId && open.userId !== user.id) return;
       const restored: TimerState = {
         isRunning: true,
         startTime: open.startTime,

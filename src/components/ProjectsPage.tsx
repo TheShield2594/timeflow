@@ -77,12 +77,16 @@ export const ProjectsPage: React.FC<Props> = ({
       jiraTicket: draft.jiraTicket.trim() || undefined,
       isActive: true,
     };
-    if (draft.editingId) {
-      await onEditProject(draft.editingId, payload);
-    } else {
-      await onAddProject(payload);
+    try {
+      if (draft.editingId) {
+        await onEditProject(draft.editingId, payload);
+      } else {
+        await onAddProject(payload);
+      }
+      setDraft(null);
+    } catch {
+      // The data hooks already toast the failure; keep the form open for retry.
     }
-    setDraft(null);
   };
 
   const handleAddTask = async (projectId: string) => {
