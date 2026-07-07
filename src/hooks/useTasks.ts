@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useRef } from "react";
 import type { Task } from "../types";
 import * as svc from "../services/dataverseService";
 import { useToast } from "../contexts/ToastContext";
-import { tempId, errMsg } from "./_shared";
+import { tempId, isTempId, errMsg } from "./_shared";
 
 export function useTasks() {
   const [tasksByProject, setTasksByProject] = useState<Map<string, Task[]>>(new Map());
@@ -25,6 +25,10 @@ export function useTasks() {
   const tasks = useMemo(() => [...tasksByProject.values()].flat(), [tasksByProject]);
 
   const addTask = useCallback(async (data: Omit<Task, "id">) => {
+    if (isTempId(data.projectId)) {
+      toast("Project is still saving — please wait a moment and try again", "error");
+      throw new Error("Project not yet saved");
+    }
     const optimistic: Task = { ...data, id: tempId() };
     setTasksByProject((prev) => {
       const existing = prev.get(data.projectId) ?? [];

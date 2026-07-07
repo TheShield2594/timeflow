@@ -252,7 +252,12 @@ export const ProjectsPage: React.FC<Props> = ({
                       <button className="inline-task-form__cancel" onClick={() => setAddingTaskFor(null)} aria-label="Cancel"><IconX size={14} /></button>
                     </div>
                   ) : (
-                    <button className="task-chip task-chip--add" onClick={() => { setAddingTaskFor(project.id); setNewTaskName(""); }}>
+                    <button
+                      className="task-chip task-chip--add"
+                      onClick={() => { setAddingTaskFor(project.id); setNewTaskName(""); }}
+                      disabled={project.id.startsWith("temp-")}
+                      title={project.id.startsWith("temp-") ? "Project is saving…" : undefined}
+                    >
                       <IconPlus size={11} /> Task
                     </button>
                   )}
