@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { TimeEntry, Project, Task } from "../types";
 import { formatMinutes } from "../hooks";
 import { useDataRange } from "../contexts/DataRangeContext";
@@ -65,15 +65,26 @@ const SvgBarChart: React.FC<SvgBarChartProps> = ({ chartData, maxBar, shortDate,
   // non-uniformly whenever the container's actual width differed from it,
   // which is what made every range's day labels look horizontally smeared.
   const [containerWidth, setContainerWidth] = useState(600);
+  const rafRef = useRef<number | null>(null);
 
-  useEffect(() => {
+  // useLayoutEffect (not useEffect) so the first measurement lands before
+  // paint — otherwise the chart would flash at the 600px fallback first.
+  useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    setContainerWidth(el.getBoundingClientRect().width || 600);
     const observer = new ResizeObserver(([entry]) => {
-      if (entry) setContainerWidth(entry.contentRect.width);
+      if (!entry) return;
+      // Coalesce rapid-fire resize notifications (e.g. a window drag) to one
+      // update per frame instead of re-rendering on every callback.
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(() => setContainerWidth(entry.contentRect.width));
     });
     observer.observe(el);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    };
   }, []);
 
   const totalHeight = CHART_HEIGHT + LABEL_HEIGHT;

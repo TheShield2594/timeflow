@@ -244,7 +244,7 @@ export const ProjectsPage: React.FC<Props> = ({
                         title="Delete task"
                         aria-label={`Delete task ${t.name}`}
                       >
-                        <IconX size={10} />
+                        <IconX size={11} />
                       </button>
                     </span>
                   ))}
