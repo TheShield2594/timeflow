@@ -249,6 +249,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
           </div>
         )}
         <button
+          type="button"
           className="sidebar__theme-toggle"
           onClick={onToggleTheme}
           title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}

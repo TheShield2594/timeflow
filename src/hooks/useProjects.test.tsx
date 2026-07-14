@@ -102,4 +102,63 @@ describe("useProjects", () => {
     expect(result.current.projects).toEqual([original]);
     expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining("save failed"), "error");
   });
+
+  it("archiveProject optimistically flags the project inactive and keeps it in the list", async () => {
+    vi.mocked(svc.getProjects).mockResolvedValue([makeProject()]);
+
+    const { result } = renderHook(() => useProjects());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.archiveProject(result.current.projects[0]);
+    });
+
+    expect(svc.deactivateProject).toHaveBeenCalledWith("p1");
+    expect(result.current.projects).toHaveLength(1);
+    expect(result.current.projects[0].isActive).toBe(false);
+  });
+
+  it("rolls the archive back and toasts when the server call fails", async () => {
+    vi.mocked(svc.getProjects).mockResolvedValue([makeProject()]);
+    vi.mocked(svc.deactivateProject).mockRejectedValueOnce(new Error("offline"));
+
+    const { result } = renderHook(() => useProjects());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await expect(result.current.archiveProject(result.current.projects[0])).rejects.toThrow("offline");
+    });
+
+    expect(result.current.projects[0].isActive).toBe(true);
+    expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining("offline"), "error");
+  });
+
+  it("restoreProject reactivates an archived project", async () => {
+    vi.mocked(svc.getProjects).mockResolvedValue([makeProject({ isActive: false })]);
+
+    const { result } = renderHook(() => useProjects());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.restoreProject(result.current.projects[0]);
+    });
+
+    expect(svc.reactivateProject).toHaveBeenCalledWith("p1");
+    expect(result.current.projects[0].isActive).toBe(true);
+  });
+
+  it("rolls the restore back and toasts when the server call fails", async () => {
+    vi.mocked(svc.getProjects).mockResolvedValue([makeProject({ isActive: false })]);
+    vi.mocked(svc.reactivateProject).mockRejectedValueOnce(new Error("offline"));
+
+    const { result } = renderHook(() => useProjects());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await expect(result.current.restoreProject(result.current.projects[0])).rejects.toThrow("offline");
+    });
+
+    expect(result.current.projects[0].isActive).toBe(false);
+    expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining("offline"), "error");
+  });
 });

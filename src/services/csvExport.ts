@@ -81,7 +81,9 @@ export function exportToCSV(
       const roundedMinutes = e.durationMinutes !== undefined
         ? applyRounding(e.durationMinutes, rounding)
         : undefined;
-      const durationHours = roundedMinutes
+      // Defined-check, not truthy: a 0-minute duration exports as "0.00",
+      // only a missing duration leaves the cell blank.
+      const durationHours = roundedMinutes !== undefined
         ? (roundedMinutes / 60).toFixed(2)
         : "";
 

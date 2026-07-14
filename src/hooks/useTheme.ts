@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useLayoutEffect, useState } from "react";
 
 export type Theme = "light" | "dark";
 
@@ -20,7 +20,9 @@ function readTheme(): Theme {
 export function useTheme(): { theme: Theme; toggleTheme: () => void } {
   const [theme, setTheme] = useState<Theme>(readTheme);
 
-  useEffect(() => {
+  // Layout effect so the attribute lands before paint — a plain effect would
+  // flash one frame of the previous theme on toggle.
+  useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 

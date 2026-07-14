@@ -43,6 +43,20 @@ export const TimerBar: React.FC<Props> = ({
   const projectTasks = tasks.filter((t) => t.isActive && t.projectId === (isRunning ? currentProjectId : selectedProject));
   const activeProject = projects.find((p) => p.id === (isRunning ? currentProjectId : selectedProject));
 
+  // Selections can go stale while the bar sits idle: the chosen project can
+  // be archived (or the task deleted) from the Projects page, and Start would
+  // then tag new time against an inactive record. Reset them when that
+  // happens — the archived record stays in props for display-name resolution.
+  useEffect(() => {
+    if (isRunning) return;
+    if (selectedProject && !projects.some((p) => p.id === selectedProject && p.isActive)) {
+      setSelectedProject("");
+      setSelectedTask("");
+    } else if (selectedTask && !tasks.some((t) => t.id === selectedTask && t.isActive)) {
+      setSelectedTask("");
+    }
+  }, [isRunning, projects, tasks, selectedProject, selectedTask]);
+
   // When a session ends, clear the per-session fields so the bar doesn't
   // resurrect stale pre-start text. The project stays selected — starting
   // another session on the same project is the common case.

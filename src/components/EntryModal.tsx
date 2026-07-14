@@ -86,12 +86,17 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
 
   // Tracks whether the first half of an overnight split has already been
   // saved, so retrying after the second half failed doesn't duplicate it.
-  // Any edit invalidates the flag — the saved half no longer matches.
+  // Only edits to the fields that define the saved half's time span reset it —
+  // re-creating the first half over a description/ratio/ticket tweak would
+  // double-count the time, which is worse than those fields staying stale on
+  // the already-saved half.
   const splitFirstSaved = useRef(false);
 
   // Reset overnight choice whenever times change in a way that removes the conflict.
   const set = (patch: Partial<EntryDraft>) => {
-    splitFirstSaved.current = false;
+    if (patch.date !== undefined || patch.startTime !== undefined || patch.endTime !== undefined) {
+      splitFirstSaved.current = false;
+    }
     setDraft((d) => {
       const next = { ...d, ...patch };
       const stillOvernight = next.startTime && next.endTime && next.endTime !== "00:00" &&

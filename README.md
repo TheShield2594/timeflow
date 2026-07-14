@@ -106,9 +106,11 @@ null the lookup on historical time entries and silently strip names from past
 reports and exports. Undo/Restore reactivates the same record. Time entries
 are the only records the app hard-deletes.
 
-User preferences (theme, weekly target hours, export rounding) are stored in
-`localStorage` scoped per environment + user — Code Apps have no per-user
-settings store, and this keeps the app free of extra Dataverse tables.
+User preferences live in `localStorage` — Code Apps have no per-user settings
+store, and this keeps the app free of extra Dataverse tables. Weekly target
+hours and export rounding are scoped per environment + user; the theme is a
+device/browser preference stored under a flat `tt_theme` key so it applies
+before sign-in resolves (see `useTheme`).
 
 > **Row security matters.** Reads filter server-side via FetchXML's
 > `eq-userid` operator (Dataverse resolves this to "the calling user" itself,

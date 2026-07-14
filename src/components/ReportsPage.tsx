@@ -197,11 +197,17 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks }) => {
   );
 
   // The "all" preset resolves to 1970→9999; the chart/matrix axes must never
-  // enumerate that. Clamp the *display* range to the dates that actually hold
-  // data (falling back to today) — `filtered` itself still uses from/to, and
-  // the clamped bounds cover every filtered entry by construction.
+  // enumerate that, so for "all" (and only "all" — short presets keep their
+  // leading/trailing empty days) clamp the *display* range to the dates that
+  // actually hold data, falling back to today. `filtered` itself still uses
+  // from/to, and the clamped bounds cover every filtered entry by
+  // construction. Both bounds are ordered: effFrom <= effTo always holds.
   const { effFrom, effTo } = useMemo(() => {
     const today = localDateStr();
+    if (rangeState.preset !== "all") {
+      // Guard against an inverted custom range (customFrom after customTo).
+      return { effFrom: from, effTo: to >= from ? to : from };
+    }
     let min = "";
     let max = "";
     for (const e of filtered) {
@@ -209,11 +215,10 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks }) => {
       if (!min || e.date < min) min = e.date;
       if (!max || e.date > max) max = e.date;
     }
-    return {
-      effFrom: from < (min || today) ? (min || today) : from,
-      effTo: to > (max > today ? max : today) ? (max > today ? max : today) : to,
-    };
-  }, [filtered, from, to]);
+    const lower = min || today;
+    const upper = max > today ? max : today;
+    return { effFrom: lower, effTo: upper >= lower ? upper : lower };
+  }, [rangeState.preset, filtered, from, to]);
 
   const handleRoundingChange = (rule: RoundingRule) => {
     setRounding(rule);
@@ -372,6 +377,7 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks }) => {
                 ))}
               </select>
               <button
+                type="button"
                 className={`export-btn btn-icon ${exporting ? "export-btn--loading" : ""}`}
                 onClick={handleExport}
                 disabled={filtered.length === 0 || exporting}
