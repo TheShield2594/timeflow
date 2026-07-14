@@ -94,6 +94,11 @@ The app expects these tables (logical names singular, entity-set names get the
 | ever_userid | Text | Stamped with the Entra ID object id on write |
 
 Active/inactive state uses the standard Dataverse `statecode` column.
+Deleting a task in the app **deactivates** it (`statecode` = Inactive) rather
+than deleting the row — a hard delete would null the `ever_workitem` lookup on
+historical time entries and silently strip task names from past reports and
+exports. Undoing a task delete reactivates the same record. Time entries are
+the only records the app hard-deletes.
 
 > **Row security matters.** Reads filter server-side via FetchXML's
 > `eq-userid` operator (Dataverse resolves this to "the calling user" itself,

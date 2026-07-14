@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { Project, Task } from "../types";
 import { formatMinutes, parseRatioInput } from "../hooks";
 import { useFocusTrap } from "../hooks/useFocusTrap";
-import { localDateStr } from "../utils/dates";
+import { addDaysStr } from "../utils/dates";
 import { IconX } from "./Icons";
 
 export interface EntryDraft {
@@ -52,9 +52,11 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
   // null = no overnight conflict; 'ask' = prompt shown; 'keep' = treat end as next day; 'split' = save two entries
   const [overnightMode, setOvernightMode] = useState<'ask' | 'keep' | 'split' | null>(null);
 
+  // Active tasks only — except the entry's current task, which stays listed
+  // even if deactivated so editing an old entry doesn't silently clear it.
   const projectTasks = useMemo(
-    () => tasks.filter((t) => t.projectId === draft.projectId),
-    [tasks, draft.projectId]
+    () => tasks.filter((t) => t.projectId === draft.projectId && (t.isActive || t.id === draft.taskId)),
+    [tasks, draft.projectId, draft.taskId]
   );
 
   // Load tasks for the initially-selected project and whenever it changes.
@@ -82,8 +84,14 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
     timeToMinutes(draft.endTime) < timeToMinutes(draft.startTime)
   );
 
+  // Tracks whether the first half of an overnight split has already been
+  // saved, so retrying after the second half failed doesn't duplicate it.
+  // Any edit invalidates the flag — the saved half no longer matches.
+  const splitFirstSaved = useRef(false);
+
   // Reset overnight choice whenever times change in a way that removes the conflict.
   const set = (patch: Partial<EntryDraft>) => {
+    splitFirstSaved.current = false;
     setDraft((d) => {
       const next = { ...d, ...patch };
       const stillOvernight = next.startTime && next.endTime && next.endTime !== "00:00" &&
@@ -100,13 +108,12 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOvernightConflict]);
 
-  // An end of 00:00, or "keep"/"split" overnight mode, means end is next calendar day.
-  const nextDayOffset = 24 * 60 * 60 * 1000;
+  // An end of 00:00, or "keep"/"split" overnight mode, means end is next
+  // calendar day. Walk the calendar (addDaysStr) rather than adding 24h of
+  // milliseconds, which is an hour off across a DST transition.
+  const endsNextDay = draft.endTime === "00:00" || overnightMode === 'keep' || overnightMode === 'split';
   const endDt = draft.date && draft.endTime
-    ? new Date(
-        new Date(`${draft.date}T${draft.endTime}:00`).getTime() +
-        (draft.endTime === "00:00" || overnightMode === 'keep' || overnightMode === 'split' ? nextDayOffset : 0)
-      )
+    ? new Date(`${endsNextDay ? addDaysStr(draft.date, 1) : draft.date}T${draft.endTime}:00`)
     : null;
   const durationMinutes = startDt && endDt
     ? Math.round((endDt.getTime() - startDt.getTime()) / 60000)
@@ -131,20 +138,24 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
     };
     try {
       if (overnightMode === 'split') {
-        // Midnight at the end of the start date.
-        const midnight = new Date(`${draft.date}T00:00:00`).getTime() + nextDayOffset;
+        // Midnight at the end of the start date = 00:00 on the next calendar
+        // day (computed on the calendar, so it's exact on DST days too).
+        const nextDay = addDaysStr(draft.date, 1);
+        const midnight = new Date(`${nextDay}T00:00:00`).getTime();
         const midnightIso = new Date(midnight).toISOString();
-        // Next calendar day string.
-        const nextDay = localDateStr(new Date(midnight));
-        const endIso = endDt.toISOString();
-        await onSave({
-          ...common, date: draft.date,
-          startTime: startDt.toISOString(), endTime: midnightIso,
-          durationMinutes: Math.round((midnight - startDt.getTime()) / 60000),
-        });
+        // Skip the first half if a previous attempt already saved it and only
+        // the second half failed — retrying must not duplicate it.
+        if (!splitFirstSaved.current) {
+          await onSave({
+            ...common, date: draft.date,
+            startTime: startDt.toISOString(), endTime: midnightIso,
+            durationMinutes: Math.round((midnight - startDt.getTime()) / 60000),
+          });
+          splitFirstSaved.current = true;
+        }
         await onSave({
           ...common, date: nextDay,
-          startTime: midnightIso, endTime: endIso,
+          startTime: midnightIso, endTime: endDt.toISOString(),
           durationMinutes: Math.round((endDt.getTime() - midnight) / 60000),
         });
       } else {

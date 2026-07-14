@@ -284,25 +284,29 @@ export const TimesheetPage: React.FC<Props> = ({
                         </div>
                       </div>
                       {/* Running sessions are owned by the timer bar — only
-                          completed entries are editable here. */}
+                          completed entries can be edited or deleted here.
+                          (Deleting the running draft row would strand the
+                          timer's stop in a 404-retry loop.) */}
                       {entry.endTime && (
-                        <button
-                          className="entry-row__edit"
-                          onClick={() => openEdit(entry)}
-                          title="Edit entry"
-                          aria-label="Edit entry"
-                        >
-                          <IconPencil />
-                        </button>
+                        <>
+                          <button
+                            className="entry-row__edit"
+                            onClick={() => openEdit(entry)}
+                            title="Edit entry"
+                            aria-label="Edit entry"
+                          >
+                            <IconPencil />
+                          </button>
+                          <button
+                            className="entry-row__delete"
+                            onClick={() => onDelete(entry.id)}
+                            title="Delete entry"
+                            aria-label="Delete entry"
+                          >
+                            <IconX />
+                          </button>
+                        </>
                       )}
-                      <button
-                        className="entry-row__delete"
-                        onClick={() => onDelete(entry.id)}
-                        title="Delete entry"
-                        aria-label="Delete entry"
-                      >
-                        <IconX />
-                      </button>
                     </div>
                   );
                 })}

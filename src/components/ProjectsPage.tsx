@@ -212,7 +212,7 @@ export const ProjectsPage: React.FC<Props> = ({
 
       <div className="project-cards">
         {projects.map((project) => {
-          const projectTasks = tasks.filter((t) => t.projectId === project.id);
+          const projectTasks = tasks.filter((t) => t.projectId === project.id && t.isActive);
           const totalMins = totalMinutesByProject.get(project.id) || 0;
 
           return (

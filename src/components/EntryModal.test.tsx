@@ -74,4 +74,33 @@ describe("EntryModal overnight split — UTC+ timezone", () => {
     expect(secondHalf.endTime).toBe("2026-07-07T16:00:00.000Z");   // 02:00 AEST on the 8th
     expect(secondHalf.durationMinutes).toBe(120);
   });
+
+  it("does not duplicate the already-saved first half when retrying after the second half fails", async () => {
+    const onSave = vi.fn<(data: EntrySaveData) => Promise<unknown>>()
+      .mockResolvedValueOnce(undefined)              // first half saves
+      .mockRejectedValueOnce(new Error("offline"))   // second half fails
+      .mockResolvedValue(undefined);                 // retry succeeds
+    render(
+      <EntryModal
+        title="Log Time"
+        initial={baseDraft}
+        projects={projects}
+        tasks={[]}
+        onSave={onSave}
+        onClose={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByText("Split at midnight"));
+    fireEvent.click(screen.getByText("Save"));
+    await vi.waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
+
+    // The modal stays open after the failure; a retry must only re-attempt
+    // the second half, not re-create the first.
+    fireEvent.click(screen.getByText("Save"));
+    await vi.waitFor(() => expect(onSave).toHaveBeenCalledTimes(3));
+
+    const dates = onSave.mock.calls.map((c) => c[0].date);
+    expect(dates).toEqual(["2026-07-07", "2026-07-08", "2026-07-08"]);
+  });
 });

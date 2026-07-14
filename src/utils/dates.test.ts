@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { localDateStr, localDateDaysAgo, friendlyDate, toTimeInput, minutesOfDay } from "./dates";
+import { localDateStr, localDateDaysAgo, addDaysStr, friendlyDate, toTimeInput, minutesOfDay } from "./dates";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -23,6 +23,30 @@ describe("localDateStr", () => {
 
   it("does not roll the date forward near local midnight (the UTC bug this helper avoids)", () => {
     expect(localDateStr(new Date(2024, 11, 31, 23, 30))).toBe("2024-12-31");
+  });
+});
+
+describe("addDaysStr", () => {
+  it("adds a day within a month", () => {
+    expect(addDaysStr("2026-07-07", 1)).toBe("2026-07-08");
+  });
+
+  it("rolls over month and year boundaries", () => {
+    expect(addDaysStr("2026-01-31", 1)).toBe("2026-02-01");
+    expect(addDaysStr("2026-12-31", 1)).toBe("2027-01-01");
+  });
+
+  it("handles leap-day rollover", () => {
+    expect(addDaysStr("2028-02-28", 1)).toBe("2028-02-29");
+    expect(addDaysStr("2028-02-29", 1)).toBe("2028-03-01");
+  });
+
+  it("lands on the exact next calendar day across a DST transition (not 24h later)", () => {
+    // US DST starts 2026-03-08 (America/New_York): that day is only 23 hours
+    // long, so start-midnight + 24h would land on 03-09T01:00, not midnight.
+    vi.stubEnv("TZ", "America/New_York");
+    expect(addDaysStr("2026-03-07", 1)).toBe("2026-03-08");
+    expect(addDaysStr("2026-03-08", 1)).toBe("2026-03-09");
   });
 });
 

@@ -9,6 +9,7 @@ import { useAppBootstrap } from "./hooks/useAppBootstrap";
 import { setPaginationWarningHandler } from "./services/dataverseService";
 import { ToastProvider, useToast } from "./contexts/ToastContext";
 import { DataRangeProvider, useDataRange } from "./contexts/DataRangeContext";
+import { isTempId } from "./hooks/_shared";
 
 import type { TimeEntry, Task } from "./types";
 import logoUrl from "./everence-logo.png";
@@ -98,7 +99,7 @@ const AppContent: React.FC = () => {
   }, [toast]);
 
   const { projects, addProject, editProject } = useProjects();
-  const { tasks, addTask, deleteTask, loadTasksForProject } = useTasks();
+  const { tasks, addTask, deleteTask, restoreTask, loadTasksForProject } = useTasks();
   const { entries, loading, deleteEntry, editEntry, createEntry, refresh } = useTimeEntries(from, to);
 
   const handleNewEntry = useCallback(
@@ -130,12 +131,15 @@ const AppContent: React.FC = () => {
     } catch {
       return;
     }
+    // Delete deactivates the record, so undo reactivates that same record —
+    // historical entries keep pointing at it. A temp-id task was never saved
+    // server-side, so recreate it instead.
     const { id: _omit, ...data } = task;
-    toast("Task deleted.", "info", {
-      label: "Undo",
-      onAction: () => { addTask(data).catch(() => { /* toasted by hook */ }); },
-    });
-  }, [deleteTask, addTask, toast]);
+    const undo = isTempId(task.id)
+      ? () => { addTask(data).catch(() => { /* toasted by hook */ }); }
+      : () => { restoreTask(task).catch(() => { /* toasted by hook */ }); };
+    toast("Task deleted.", "info", { label: "Undo", onAction: undo });
+  }, [deleteTask, restoreTask, addTask, toast]);
 
   const lastActivity = useActivityTracker();
 
@@ -179,11 +183,14 @@ const AppContent: React.FC = () => {
     setIdleAlert(null);
   }, [lastActivity]);
 
-  const handleIdleDiscard = useCallback(() => {
-    cancel();
+  const handleIdleDiscard = useCallback(async () => {
     setIdleAlert(null);
+    // cancel() resolves once the draft row is deleted; refresh after so the
+    // discarded session's "Running…" row disappears from the timesheet too.
+    await cancel();
+    refresh();
     toast("Session discarded.", "info");
-  }, [cancel, toast]);
+  }, [cancel, refresh, toast]);
 
   const totalMinutesByProject = useMemo(() => {
     const map = new Map<string, number>();

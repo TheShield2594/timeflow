@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import type { TimeEntry } from "../types";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { Task, TimeEntry } from "../types";
 
 vi.mock("./userService", () => ({
   getCurrentUser: () => ({ id: "user-1", email: "user1@example.com", displayName: "User One", environmentId: "env-1" }),
@@ -10,7 +10,10 @@ vi.mock("./userService", () => ({
 // tests don't depend on @microsoft/power-apps/data being installed/buildable.
 vi.mock("../generated", () => ({ MicrosoftDataverseService: {} }));
 
-const { mapEntry, entryToDataverse, mergeOver, hasForeignUserEntries } = await import("./dataverseService");
+const {
+  mapEntry, entryToDataverse, mergeOver, hasForeignUserEntries,
+  deactivateTask, reactivateTask, getAllTasks, getTasksForProject,
+} = await import("./dataverseService");
 
 function makeEntry(overrides: Partial<TimeEntry> = {}): TimeEntry {
   return {
@@ -175,6 +178,44 @@ describe("mergeOver", () => {
   it("keeps non-empty falsy-looking values like 0", () => {
     const result = mergeOver({ ratio: 1 }, { ratio: 0 });
     expect(result).toEqual({ ratio: 0 });
+  });
+});
+
+describe("task soft delete (dev mock path)", () => {
+  const seed = (tasks: Task[]) => localStorage.setItem("tt_tasks", JSON.stringify(tasks));
+
+  beforeEach(() => {
+    localStorage.clear();
+    seed([
+      { id: "t1", projectId: "p1", name: "Design", isActive: true },
+      { id: "t2", projectId: "p1", name: "Build", isActive: true },
+    ]);
+  });
+
+  it("deactivateTask flags the task inactive instead of removing the record", async () => {
+    await deactivateTask("t1");
+    const all = await getAllTasks();
+    expect(all).toHaveLength(2);
+    expect(all.find((t) => t.id === "t1")?.isActive).toBe(false);
+    expect(all.find((t) => t.id === "t2")?.isActive).toBe(true);
+  });
+
+  it("reactivateTask restores the same record (delete-undo flow)", async () => {
+    await deactivateTask("t1");
+    await reactivateTask("t1");
+    const all = await getAllTasks();
+    expect(all.find((t) => t.id === "t1")?.isActive).toBe(true);
+  });
+
+  it("getTasksForProject still returns inactive tasks so old entries resolve their names", async () => {
+    await deactivateTask("t1");
+    const tasks = await getTasksForProject("p1");
+    expect(tasks.map((t) => t.id).sort()).toEqual(["t1", "t2"]);
+  });
+
+  it("deactivating a missing task is a no-op rather than an error", async () => {
+    await expect(deactivateTask("nope")).resolves.toBeUndefined();
+    expect(await getAllTasks()).toHaveLength(2);
   });
 });
 

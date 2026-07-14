@@ -383,6 +383,9 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
   // Click or keyboard-activate existing entry → edit
   const handleEntryClick = useCallback((e: React.MouseEvent | React.KeyboardEvent, entry: TimeEntry) => {
     e.stopPropagation();
+    // The running session is owned by the timer bar; editing (or deleting)
+    // its draft row here would strand the timer's stop in a 404-retry loop.
+    if (!entry.endTime) return;
     setModal({
       editingId: entry.id,
       draft: {
