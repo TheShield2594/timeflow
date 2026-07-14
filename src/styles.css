@@ -574,8 +574,12 @@ input, select { font-family: inherit; }
 .calendar__time-slot { height: 36px; display: flex; align-items: flex-start; justify-content: flex-end; padding-right: 8px; flex-shrink: 0; }
 .calendar__time-label { font-size: 10px; font-weight: 600; color: var(--text-faint); white-space: nowrap; transform: translateY(-6px); font-family: var(--mono); }
 
-.calendar__day-col { border-left: 1px solid var(--border-subtle); position: relative; grid-row: 1 / span 48; pointer-events: none; }
-.calendar__day-col--today { background: rgba(113,149,0,0.02); }
+/* Explicit (not transparent) background: at fractional device-pixel column
+   widths (1fr columns, non-integer display scaling like 125%), leaving this
+   transparent lets 48 stacked hairline-bordered slot-lines rasterize with
+   visible seams that read as a solid dark box. An opaque fill avoids it. */
+.calendar__day-col { border-left: 1px solid var(--border-subtle); position: relative; grid-row: 1 / span 48; pointer-events: none; background: var(--surface); }
+.calendar__day-col--today { background: color-mix(in srgb, var(--ev-green) 2%, var(--surface)); }
 .calendar__slot-line { height: 36px; border-bottom: 1px solid var(--border-subtle); flex-shrink: 0; }
 .calendar__slot-line--half { border-bottom-style: dashed; opacity: 0.55; }
 
