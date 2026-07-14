@@ -43,19 +43,25 @@ interface Props {
   projects: Project[];
   tasks: Task[];
   totalMinutesByProject: Map<string, number>;
+  timerBusy: boolean;
   onDelete: (id: string) => void;
   onEdit: (id: string, data: Partial<TimeEntry>) => Promise<TimeEntry>;
   onCreate: (data: Omit<TimeEntry, "id">) => Promise<TimeEntry>;
+  onContinue: (entry: TimeEntry) => void;
   onAddProject: (data: Omit<Project, "id" | "createdAt">) => Promise<Project>;
   onEditProject: (id: string, data: Partial<Project>) => Promise<Project>;
+  onArchiveProject: (project: Project) => void;
+  onRestoreProject: (project: Project) => Promise<void>;
   onAddTask: (data: Omit<Task, "id">) => Promise<Task>;
   onDeleteTask: (task: Task) => void;
+  onRenameTask: (task: Task, newName: string) => Promise<void>;
   onLoadTasksForProject: (projectId: string) => void;
 }
 
 export const PageRouter: React.FC<Props> = ({
-  page, loading, entries, projects, tasks, totalMinutesByProject,
-  onDelete, onEdit, onCreate, onAddProject, onEditProject, onAddTask, onDeleteTask, onLoadTasksForProject,
+  page, loading, entries, projects, tasks, totalMinutesByProject, timerBusy,
+  onDelete, onEdit, onCreate, onContinue, onAddProject, onEditProject,
+  onArchiveProject, onRestoreProject, onAddTask, onDeleteTask, onRenameTask, onLoadTasksForProject,
 }) => {
   if (loading) {
     return page === "reports" ? <ReportsSkeleton /> : <PageSkeleton />;
@@ -67,9 +73,11 @@ export const PageRouter: React.FC<Props> = ({
         entries={entries}
         projects={projects}
         tasks={tasks}
+        timerBusy={timerBusy}
         onDelete={onDelete}
         onEdit={onEdit}
         onCreate={onCreate}
+        onContinue={onContinue}
         onLoadTasksForProject={onLoadTasksForProject}
       />
     );
@@ -107,8 +115,11 @@ export const PageRouter: React.FC<Props> = ({
         totalMinutesByProject={totalMinutesByProject}
         onAddProject={onAddProject}
         onEditProject={onEditProject}
+        onArchiveProject={onArchiveProject}
+        onRestoreProject={onRestoreProject}
         onAddTask={onAddTask}
         onDeleteTask={onDeleteTask}
+        onRenameTask={onRenameTask}
         onLoadTasksForProject={onLoadTasksForProject}
       />
     );

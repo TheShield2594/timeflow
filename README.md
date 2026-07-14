@@ -16,11 +16,17 @@ Tracks time against projects and tasks, stores data in Microsoft Dataverse, and 
 | Week calendar (24h grid, overlap layout, running session) | ✅ |
 | Reports dashboard (daily/weekly bar chart, project %, top tasks) | ✅ |
 | KPI strip (total, avg per active day, sessions, projects) | ✅ |
-| Projects management (create projects + tasks) | ✅ |
+| Projects management (create, edit, archive/restore) | ✅ |
+| Tasks (create, rename, delete with undo) | ✅ |
+| Continue a past entry (one-click timer restart) | ✅ |
+| Weekly target with progress (calendar + timesheet) | ✅ |
 | Timer persists across page refresh | ✅ |
+| Multi-tab timer sync | ✅ |
 | Idle detection + 12h auto-stop safety net | ✅ |
 | Delete with Undo | ✅ |
-| CSV export (incl. Jira ticket + ratio) | ✅ |
+| CSV export (incl. Jira ticket + ratio, billing-style rounding) | ✅ |
+| Reports: project × period matrix, weighted total, all-time range | ✅ |
+| Light + dark theme | ✅ |
 | Dataverse backend wired (@microsoft/power-apps SDK) | ✅ |
 
 ---
@@ -94,6 +100,17 @@ The app expects these tables (logical names singular, entity-set names get the
 | ever_userid | Text | Stamped with the Entra ID object id on write |
 
 Active/inactive state uses the standard Dataverse `statecode` column.
+Deleting a task or archiving a project in the app **deactivates** the record
+(`statecode` = Inactive) rather than deleting the row — a hard delete would
+null the lookup on historical time entries and silently strip names from past
+reports and exports. Undo/Restore reactivates the same record. Time entries
+are the only records the app hard-deletes.
+
+User preferences live in `localStorage` — Code Apps have no per-user settings
+store, and this keeps the app free of extra Dataverse tables. Weekly target
+hours and export rounding are scoped per environment + user; the theme is a
+device/browser preference stored under a flat `tt_theme` key so it applies
+before sign-in resolves (see `useTheme`).
 
 > **Row security matters.** Reads filter server-side via FetchXML's
 > `eq-userid` operator (Dataverse resolves this to "the calling user" itself,
@@ -222,7 +239,7 @@ src/
     ReportsPage.tsx       — Dashboard with charts and KPIs
     ProjectsPage.tsx      — Project/task management
   App.tsx                 — Root layout, sign-in bootstrap, page routing
-  styles.css              — Full dark theme CSS (no external UI library needed)
+  styles.css              — Full theme CSS, light + dark (no external UI library needed)
   main.tsx                — React entry point
 ```
 

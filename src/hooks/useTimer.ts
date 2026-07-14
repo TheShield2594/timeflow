@@ -32,6 +32,34 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
   const [elapsed, setElapsed] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Mirror of the latest timer state for async callbacks (e.g. the draft
+  // create resolving after the user already stopped). The effect below keeps
+  // it in sync as a backstop, but every direct state write goes through
+  // applyTimer so the ref is correct *synchronously* — a draft create can
+  // resolve before React commits, and reading a stale snapshot there would
+  // misclassify a live draft as orphaned.
+  const timerRef = useRef(timer);
+  useEffect(() => { timerRef.current = timer; }, [timer]);
+  const applyTimer = useCallback((next: TimerState) => {
+    timerRef.current = next;
+    setTimer(next);
+  }, []);
+
+  // Keep multiple tabs coherent: when another tab starts/stops this user's
+  // timer, its localStorage write fires a storage event here (the event never
+  // fires in the writing tab). Without this, a second tab still shows the old
+  // state and can start a second, overlapping timer.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== timerKey) return;
+      try {
+        applyTimer(JSON.parse(e.newValue || "null") || RESET_TIMER);
+      } catch { /* ignore malformed writes */ }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [timerKey]);
+
   useEffect(() => {
     const localState = (() => {
       try { return JSON.parse(localStorage.getItem(timerKey) || "null"); } catch { return null; }
@@ -55,7 +83,7 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
         ratio: open.ratio,
         draftEntryId: open.id,
       };
-      setTimer(restored);
+      applyTimer(restored);
       localStorage.setItem(timerKey, JSON.stringify(restored));
     }).catch(() => { /* non-critical */ });
   // Empty deps: timerKey is stable (derived from the immutable user.id), and
@@ -95,7 +123,7 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       description,
       ratio,
     };
-    setTimer(newTimer);
+    applyTimer(newTimer);
     localStorage.setItem(timerKey, JSON.stringify(newTimer));
 
     svc.createDraftTimerEntry({
@@ -106,8 +134,17 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       date: localDateStr(new Date(newTimer.startTime!)),
       ratio,
     }).then((draftEntryId) => {
+      // If the user already stopped or discarded this session while the draft
+      // create was in flight, the completed entry (if any) was created via the
+      // no-draft path — this row would linger open (endTime null) and be
+      // restored as a phantom running timer on the next reload. Delete it.
+      const current = timerRef.current;
+      if (!current.isRunning || current.startTime !== newTimer.startTime) {
+        svc.deleteTimeEntry(draftEntryId).catch(() => { /* best effort */ });
+        return;
+      }
       setTimer((prev) => {
-        if (!prev.isRunning) return prev;
+        if (!prev.isRunning || prev.startTime !== newTimer.startTime) return prev;
         const next = { ...prev, draftEntryId };
         localStorage.setItem(timerKey, JSON.stringify(next));
         return next;
@@ -125,34 +162,44 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
     const durationMinutes = Math.max(0, Math.round((endMs - startMs) / 60000));
 
     const stoppedTimer: TimerState = { ...activeTimer, isRunning: false, pendingStopAt: endIso };
-    setTimer(stoppedTimer);
+    applyTimer(stoppedTimer);
     localStorage.setItem(timerKey, JSON.stringify(stoppedTimer));
+
+    const completed: Omit<TimeEntry, "id"> = {
+      projectId: activeTimer.projectId,
+      taskId: activeTimer.taskId || undefined,
+      description: activeTimer.description,
+      startTime: activeTimer.startTime,
+      endTime: endIso,
+      durationMinutes,
+      ratio: activeTimer.ratio,
+      date: localDateStr(new Date(activeTimer.startTime)),
+      userId: user.id,
+      userDisplayName: user.displayName,
+    };
 
     try {
       let entry: TimeEntry;
       if (activeTimer.draftEntryId) {
-        entry = await svc.updateTimeEntry(activeTimer.draftEntryId, {
-          endTime: endIso,
-          durationMinutes,
-          description: activeTimer.description,
-          ratio: activeTimer.ratio,
-          taskId: activeTimer.taskId || undefined,
-        });
+        try {
+          entry = await svc.updateTimeEntry(activeTimer.draftEntryId, {
+            endTime: endIso,
+            durationMinutes,
+            description: activeTimer.description,
+            ratio: activeTimer.ratio,
+            taskId: activeTimer.taskId || undefined,
+          });
+        } catch (err) {
+          // The draft row can be gone (deleted from the timesheet, another
+          // tab, or by an admin). Falling back to a create keeps stop from
+          // retrying an update that will 404 forever.
+          if (!svc.isNotFoundError(err)) throw err;
+          entry = await svc.createTimeEntry(completed);
+        }
       } else {
-        entry = await svc.createTimeEntry({
-          projectId: activeTimer.projectId,
-          taskId: activeTimer.taskId || undefined,
-          description: activeTimer.description,
-          startTime: activeTimer.startTime,
-          endTime: endIso,
-          durationMinutes,
-          ratio: activeTimer.ratio,
-          date: localDateStr(new Date(activeTimer.startTime)),
-          userId: user.id,
-          userDisplayName: user.displayName,
-        });
+        entry = await svc.createTimeEntry(completed);
       }
-      setTimer(RESET_TIMER);
+      applyTimer(RESET_TIMER);
       localStorage.removeItem(timerKey);
       onStop(entry);
       return entry;
@@ -164,10 +211,17 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
 
   const stop = useCallback(() => stopAt(new Date().toISOString()), [stopAt]);
 
-  const cancel = useCallback(() => {
-    setTimer(RESET_TIMER);
+  const cancel = useCallback(async () => {
+    const draftId = timer.draftEntryId;
+    applyTimer(RESET_TIMER);
     localStorage.removeItem(timerKey);
-  }, [timerKey]);
+    // Discarding the session must also remove the draft row, or it would be
+    // restored as a phantom running timer on the next reload. deleteTimeEntry
+    // already retries transient failures and tolerates 404s.
+    if (draftId) {
+      await svc.deleteTimeEntry(draftId).catch(() => { /* best effort */ });
+    }
+  }, [timer.draftEntryId, timerKey]);
 
   const update = useCallback((patch: Partial<TimerState>) => {
     setTimer((prev) => {

@@ -1111,6 +1111,7 @@ input, select { font-family: inherit; }
   .sidebar__link-label { display: none; }
   .sidebar__running { justify-content: center; padding: 9px 0; }
   .sidebar__running-label { display: none; }
+  .sidebar__theme-toggle { justify-content: center; padding: 10px 0; }
   .main__content { padding: 18px 16px; }
   .reports__kpis { grid-template-columns: repeat(2, 1fr); }
   .reports__grid { grid-template-columns: 1fr; }
@@ -1251,3 +1252,232 @@ input, select { font-family: inherit; }
   color: var(--text-muted);
   margin-bottom: 24px;
 }
+
+/* =====================================================================
+   THEME TOGGLE (sidebar footer)
+   ===================================================================== */
+.sidebar__theme-toggle {
+  margin: auto 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  color: var(--sidebar-muted);
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s var(--ease);
+  text-align: left;
+}
+.sidebar__theme-toggle:hover { background: rgba(255,255,255,0.06); color: var(--sidebar-text); }
+/* When the running indicator is present it already claims the auto margin. */
+.sidebar__running + .sidebar__theme-toggle { margin-top: 10px; }
+
+/* =====================================================================
+   CONTINUE BUTTON (timesheet rows)
+   ===================================================================== */
+.entry-row__continue {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: center;
+  padding: 4px 10px;
+  margin-left: 6px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ev-green-dark);
+  background: var(--ev-green-soft);
+  border: 1px solid rgba(113,149,0,0.3);
+  flex-shrink: 0;
+  transition: background 0.15s, opacity 0.15s;
+}
+.entry-row__continue:hover:not(:disabled) { background: var(--ev-green-mid); }
+.entry-row__continue:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* =====================================================================
+   WEEKLY TARGET — calendar header progress + timesheet chip
+   ===================================================================== */
+.week-target { display: inline-flex; align-items: center; gap: 8px; }
+.week-target__label { font-size: 12px; font-weight: 600; color: var(--text-muted); font-family: var(--mono); white-space: nowrap; }
+.week-target__track {
+  width: 110px; height: 6px;
+  border-radius: 3px;
+  background: var(--surface-3);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.week-target__fill { display: block; height: 100%; background: var(--ev-green); border-radius: 3px; transition: width 0.3s var(--ease); }
+.week-target__fill--met { background: var(--success); }
+.week-target__edit { display: inline-flex; align-items: center; padding: 3px; color: var(--text-faint); border-radius: 4px; }
+.week-target__edit:hover { color: var(--ev-green); }
+
+.week-target-set {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  border: 1px dashed var(--border);
+  border-radius: 20px;
+  padding: 3px 10px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.week-target-set:hover { color: var(--ev-green); border-color: var(--ev-green); }
+
+.week-target-editor { display: inline-flex; align-items: center; gap: 4px; }
+.week-target-editor__input {
+  width: 72px;
+  background: var(--surface);
+  border: 1.5px solid var(--ev-green);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+}
+.week-target-editor__ok { display: inline-flex; padding: 3px; color: var(--ev-grass); }
+.week-target-editor__cancel { display: inline-flex; padding: 3px; color: var(--text-muted); }
+
+.week-target-chip { display: inline-flex; align-items: center; gap: 7px; margin-left: 10px; }
+.week-target-chip__label { font-size: 12px; font-weight: 600; color: var(--text-muted); font-family: var(--mono); white-space: nowrap; }
+.week-target-chip__track { width: 70px; height: 5px; border-radius: 3px; background: var(--surface-3); overflow: hidden; flex-shrink: 0; }
+.week-target-chip__fill { display: block; height: 100%; background: var(--ev-green); border-radius: 3px; }
+.week-target-chip__fill--met { background: var(--success); }
+
+/* =====================================================================
+   PROJECT ARCHIVE
+   ===================================================================== */
+.project-card__archive {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.project-card__archive:hover:not(:disabled) { color: var(--ev-pumpkin-text); border-color: var(--ev-pumpkin); }
+.project-card__archive:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.archived-projects { margin-top: 26px; }
+.archived-projects__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: color 0.15s, border-color 0.15s;
+}
+.archived-projects__toggle:hover { color: var(--text); border-color: var(--text-faint); }
+.archived-projects__chevron { font-size: 10px; }
+.project-cards--archived { margin-top: 14px; }
+.project-card--archived { opacity: 0.75; }
+.project-card--archived .project-card__name { color: var(--text-muted); }
+.project-card--archived .project-card__edit { display: inline-flex; align-items: center; gap: 5px; }
+
+/* Task chip name doubles as the rename affordance */
+.task-chip__name {
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.task-chip__name:hover { color: var(--text); text-decoration: underline dotted; }
+
+/* =====================================================================
+   REPORTS — export rounding + project × period matrix
+   ===================================================================== */
+.reports__export-controls { display: flex; align-items: center; gap: 8px; }
+.rounding-select {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 7px 8px;
+  outline: none;
+  max-width: 170px;
+}
+.rounding-select:focus { border-color: var(--ev-green); }
+
+.matrix-wrap { overflow-x: auto; }
+.matrix { border-collapse: collapse; width: 100%; font-size: 12px; }
+.matrix th, .matrix td {
+  padding: 6px 9px;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border-subtle);
+  font-family: var(--mono);
+  color: var(--text-muted);
+}
+.matrix thead th { font-family: var(--font); font-weight: 600; color: var(--text-faint); font-size: 11px; }
+.matrix .matrix__proj-col {
+  text-align: left;
+  font-family: var(--font);
+  font-weight: 600;
+  color: var(--text);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.matrix .matrix__proj-col .project-breakdown__dot { margin-right: 6px; }
+.matrix .matrix__zero { color: var(--text-faint); opacity: 0.5; }
+.matrix .matrix__total-col { font-weight: 700; color: var(--text); }
+.matrix tfoot td { border-top: 1.5px solid var(--border); border-bottom: none; font-weight: 700; }
+.matrix__hint { margin-top: 8px; font-size: 11px; color: var(--text-faint); }
+
+/* =====================================================================
+   DARK THEME
+   Applied via data-theme on <html> (see useTheme). Buttons keep the brand
+   green + white text; only surfaces, text, borders and the AA text-safe
+   variants change. The sidebar is already dark and stays as-is.
+   ===================================================================== */
+:root[data-theme="dark"] {
+  --bg:             #121712;
+  --surface:        #1a211b;
+  --surface-2:      #212a22;
+  --surface-3:      #2b362c;
+  --border:         #3b483c;
+  --border-subtle:  #2b362c;
+
+  --text:           #e7ede3;
+  --text-muted:     #a8b6a4;
+  --text-faint:     #6f7f6c;
+
+  /* Brand tints re-balanced for dark surfaces */
+  --ev-green-soft:  rgba(143,179,42,0.14);
+  --ev-green-mid:   rgba(143,179,42,0.26);
+
+  /* AA text-safe variants (≥ 4.5:1 on --surface) */
+  --ev-green-dark:   #a9cb4b;
+  --ev-lime-text:    #d3dd66;
+  --ev-robin-text:   #7fd8ec;
+  --ev-lemon-text:   #f7c95c;
+  --ev-pumpkin-text: #f49264;
+
+  --danger:  #e87a45;
+  --success: #5cae7f;
+
+  --shadow:    0 1px 4px rgba(0,0,0,0.45), 0 4px 16px rgba(0,0,0,0.35);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
+}
+/* Buttons keep white-on-green; --ev-green-dark above is tuned for dark-surface
+   TEXT, which would wash out button hover — pin it back to the brand hover. */
+:root[data-theme="dark"] .btn-primary:hover { background: #5a7800; }
+/* The light shimmer is blinding on dark cards */
+:root[data-theme="dark"] .skeleton::after {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.09), transparent);
+}
+/* Swatch ring contrasts against the card, not white */
+:root[data-theme="dark"] .color-picker__swatch--active {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px currentColor;
+}
+/* Deepen modal overlays so dialogs still separate from the page */
+:root[data-theme="dark"] .cal-modal-overlay { background: rgba(0,0,0,0.6); }

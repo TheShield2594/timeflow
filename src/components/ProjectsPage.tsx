@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type { Project, Task } from "../types";
 import { formatMinutes, parseRatioInput } from "../hooks";
-import { IconCheck, IconPlus, IconX } from "./Icons";
+import { IconArchive, IconCheck, IconPlus, IconUndo, IconX } from "./Icons";
 
 function isValidHex(hex: string): boolean {
   return /^#[0-9A-Fa-f]{6}$/.test(hex);
@@ -13,8 +13,11 @@ interface Props {
   totalMinutesByProject: Map<string, number>;
   onAddProject: (data: Omit<Project, "id" | "createdAt">) => Promise<Project>;
   onEditProject: (id: string, data: Partial<Project>) => Promise<Project>;
+  onArchiveProject: (project: Project) => void;
+  onRestoreProject: (project: Project) => Promise<void>;
   onAddTask: (data: Omit<Task, "id">) => Promise<Task>;
   onDeleteTask: (task: Task) => void;
+  onRenameTask: (task: Task, newName: string) => Promise<void>;
   onLoadTasksForProject: (projectId: string) => void;
 }
 
@@ -52,12 +55,30 @@ const EMPTY_DRAFT: FormDraft = {
 };
 
 export const ProjectsPage: React.FC<Props> = ({
-  projects, tasks, totalMinutesByProject, onAddProject, onEditProject, onAddTask, onDeleteTask, onLoadTasksForProject,
+  projects, tasks, totalMinutesByProject, onAddProject, onEditProject,
+  onArchiveProject, onRestoreProject, onAddTask, onDeleteTask, onRenameTask, onLoadTasksForProject,
 }) => {
   const [draft, setDraft] = useState<FormDraft | null>(null);
   const [saving, setSaving] = useState(false);
   const [addingTaskFor, setAddingTaskFor] = useState<string | null>(null);
   const [newTaskName, setNewTaskName] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const [renamingTask, setRenamingTask] = useState<{ id: string; name: string } | null>(null);
+
+  const activeProjects = useMemo(() => projects.filter((p) => p.isActive), [projects]);
+  const archivedProjects = useMemo(() => projects.filter((p) => !p.isActive), [projects]);
+
+  const commitRename = async (task: Task) => {
+    if (!renamingTask) return;
+    const name = renamingTask.name.trim();
+    if (!name || name === task.name) { setRenamingTask(null); return; }
+    try {
+      await onRenameTask(task, name);
+      setRenamingTask(null);
+    } catch {
+      // The hook already toasts the failure; keep the input open for retry.
+    }
+  };
 
   // Tasks are otherwise only fetched lazily (timer bar project picker, entry
   // modal) — without this, a project's chips render empty on a fresh mount
@@ -211,8 +232,8 @@ export const ProjectsPage: React.FC<Props> = ({
       )}
 
       <div className="project-cards">
-        {projects.map((project) => {
-          const projectTasks = tasks.filter((t) => t.projectId === project.id);
+        {activeProjects.map((project) => {
+          const projectTasks = tasks.filter((t) => t.projectId === project.id && t.isActive);
           const totalMins = totalMinutesByProject.get(project.id) || 0;
 
           return (
@@ -241,22 +262,56 @@ export const ProjectsPage: React.FC<Props> = ({
                     >
                       Edit
                     </button>
+                    <button
+                      className="project-card__archive"
+                      onClick={() => onArchiveProject(project)}
+                      disabled={project.id.startsWith("temp-")}
+                      title="Archive project — removes it from pickers, keeps its history"
+                      aria-label={`Archive project ${project.name}`}
+                    >
+                      <IconArchive size={13} /> Archive
+                    </button>
                   </div>
                 </div>
 
                 <div className="project-card__tasks">
                   {projectTasks.map((t) => (
-                    <span key={t.id} className="task-chip">
-                      {t.name}
-                      <button
-                        className="task-chip__delete"
-                        onClick={() => onDeleteTask(t)}
-                        title="Delete task"
-                        aria-label={`Delete task ${t.name}`}
-                      >
-                        <IconX size={11} />
-                      </button>
-                    </span>
+                    renamingTask?.id === t.id ? (
+                      <div key={t.id} className="inline-task-form">
+                        <input
+                          className="inline-task-form__input"
+                          value={renamingTask.name}
+                          onChange={(e) => setRenamingTask({ id: t.id, name: e.target.value })}
+                          maxLength={100}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") commitRename(t);
+                            if (e.key === "Escape") setRenamingTask(null);
+                          }}
+                          aria-label={`Rename task ${t.name}`}
+                          autoFocus
+                        />
+                        <button className="inline-task-form__ok" onClick={() => commitRename(t)} aria-label="Save task name"><IconCheck size={14} /></button>
+                        <button className="inline-task-form__cancel" onClick={() => setRenamingTask(null)} aria-label="Cancel rename"><IconX size={14} /></button>
+                      </div>
+                    ) : (
+                      <span key={t.id} className="task-chip">
+                        <button
+                          className="task-chip__name"
+                          onClick={() => setRenamingTask({ id: t.id, name: t.name })}
+                          title="Rename task"
+                        >
+                          {t.name}
+                        </button>
+                        <button
+                          className="task-chip__delete"
+                          onClick={() => onDeleteTask(t)}
+                          title="Delete task"
+                          aria-label={`Delete task ${t.name}`}
+                        >
+                          <IconX size={11} />
+                        </button>
+                      </span>
+                    )
                   ))}
                   {addingTaskFor === project.id ? (
                     <div className="inline-task-form">
@@ -288,6 +343,49 @@ export const ProjectsPage: React.FC<Props> = ({
           );
         })}
       </div>
+
+      {archivedProjects.length > 0 && (
+        <div className="archived-projects">
+          <button
+            className="archived-projects__toggle"
+            onClick={() => setShowArchived((v) => !v)}
+            aria-expanded={showArchived}
+          >
+            <IconArchive size={13} /> Archived ({archivedProjects.length})
+            <span className="archived-projects__chevron">{showArchived ? "▾" : "▸"}</span>
+          </button>
+          {showArchived && (
+            <div className="project-cards project-cards--archived">
+              {archivedProjects.map((project) => (
+                <div key={project.id} className="project-card project-card--archived">
+                  <div className="project-card__stripe" style={{ background: project.color }} />
+                  <div className="project-card__body">
+                    <div className="project-card__top">
+                      <div>
+                        <div className="project-card__name">{project.name}</div>
+                        {project.description && (
+                          <div className="project-card__desc">{project.description}</div>
+                        )}
+                      </div>
+                      <div className="project-card__top-right">
+                        <div className="project-card__total">{formatMinutes(totalMinutesByProject.get(project.id) || 0)}</div>
+                        <button
+                          className="project-card__edit"
+                          onClick={() => { onRestoreProject(project).catch(() => { /* toasted by hook */ }); }}
+                          title="Restore project to the active list"
+                          aria-label={`Restore project ${project.name}`}
+                        >
+                          <IconUndo size={12} /> Restore
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

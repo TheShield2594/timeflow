@@ -2,15 +2,17 @@ import React, { useState, useMemo, useCallback, useEffect, Component } from "rea
 import { TimerBar } from "./components/TimerBar";
 import { IdleModal } from "./components/IdleModal";
 import { PageRouter, Page } from "./components/PageRouter";
-import { IconTimesheet, IconCalendar, IconChart, IconFolder } from "./components/Icons";
+import { IconTimesheet, IconCalendar, IconChart, IconFolder, IconMoon, IconSun } from "./components/Icons";
 import { useProjects, useTasks, useTimeEntries, useTimer } from "./hooks";
 import { useActivityTracker, useTimerSafetyMonitor, MAX_DURATION_MS } from "./hooks/useTimerSafety";
 import { useAppBootstrap } from "./hooks/useAppBootstrap";
+import { useTheme, Theme } from "./hooks/useTheme";
 import { setPaginationWarningHandler } from "./services/dataverseService";
 import { ToastProvider, useToast } from "./contexts/ToastContext";
 import { DataRangeProvider, useDataRange } from "./contexts/DataRangeContext";
+import { isTempId } from "./hooks/_shared";
 
-import type { TimeEntry, Task } from "./types";
+import type { TimeEntry, Task, Project } from "./types";
 import logoUrl from "./everence-logo.png";
 
 // ---------------------------------------------------------------------------
@@ -67,6 +69,9 @@ const NAV_ITEMS: { key: Page; label: string; icon: React.ReactNode }[] = [
 
 const App: React.FC = () => {
   const { user, authError } = useAppBootstrap();
+  // Theme lives above sign-in so the loading screen renders in the right
+  // colors too (it's applied via data-theme on <html>).
+  const { theme, toggleTheme } = useTheme();
 
   if (authError) {
     return <div className="loading">Sign-in failed: {authError}</div>;
@@ -79,14 +84,14 @@ const App: React.FC = () => {
     <ErrorBoundary>
       <ToastProvider>
         <DataRangeProvider>
-          <AppContent />
+          <AppContent theme={theme} onToggleTheme={toggleTheme} />
         </DataRangeProvider>
       </ToastProvider>
     </ErrorBoundary>
   );
 };
 
-const AppContent: React.FC = () => {
+const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ theme, onToggleTheme }) => {
   const [page, setPage] = useState<Page>("timesheet");
   const [idleAlert, setIdleAlert] = useState<IdleAlert | null>(null);
   const toast = useToast();
@@ -97,8 +102,8 @@ const AppContent: React.FC = () => {
     return () => setPaginationWarningHandler(null);
   }, [toast]);
 
-  const { projects, addProject, editProject } = useProjects();
-  const { tasks, addTask, deleteTask, loadTasksForProject } = useTasks();
+  const { projects, addProject, editProject, archiveProject, restoreProject } = useProjects();
+  const { tasks, addTask, deleteTask, restoreTask, renameTask, loadTasksForProject } = useTasks();
   const { entries, loading, deleteEntry, editEntry, createEntry, refresh } = useTimeEntries(from, to);
 
   const handleNewEntry = useCallback(
@@ -130,12 +135,34 @@ const AppContent: React.FC = () => {
     } catch {
       return;
     }
+    // Delete deactivates the record, so undo reactivates that same record —
+    // historical entries keep pointing at it. A temp-id task was never saved
+    // server-side, so recreate it instead.
     const { id: _omit, ...data } = task;
-    toast("Task deleted.", "info", {
+    const undo = isTempId(task.id)
+      ? () => { addTask(data).catch(() => { /* toasted by hook */ }); }
+      : () => { restoreTask(task).catch(() => { /* toasted by hook */ }); };
+    toast("Task deleted.", "info", { label: "Undo", onAction: undo });
+  }, [deleteTask, restoreTask, addTask, toast]);
+
+  const archiveProjectWithUndo = useCallback(async (project: Project) => {
+    try {
+      await archiveProject(project);
+    } catch {
+      return;
+    }
+    toast("Project archived.", "info", {
       label: "Undo",
-      onAction: () => { addTask(data).catch(() => { /* toasted by hook */ }); },
+      onAction: () => { restoreProject(project).catch(() => { /* toasted by hook */ }); },
     });
-  }, [deleteTask, addTask, toast]);
+  }, [archiveProject, restoreProject, toast]);
+
+  // "Continue" on a past entry: restart the timer with the same project,
+  // task, description and ratio. start() itself guards against an
+  // already-running timer (with a toast), so no re-check needed here.
+  const continueEntry = useCallback((entry: TimeEntry) => {
+    start(entry.projectId, entry.taskId ?? null, entry.description ?? "", entry.ratio);
+  }, [start]);
 
   const lastActivity = useActivityTracker();
 
@@ -179,11 +206,14 @@ const AppContent: React.FC = () => {
     setIdleAlert(null);
   }, [lastActivity]);
 
-  const handleIdleDiscard = useCallback(() => {
-    cancel();
+  const handleIdleDiscard = useCallback(async () => {
     setIdleAlert(null);
+    // cancel() resolves once the draft row is deleted; refresh after so the
+    // discarded session's "Running…" row disappears from the timesheet too.
+    await cancel();
+    refresh();
     toast("Session discarded.", "info");
-  }, [cancel, toast]);
+  }, [cancel, refresh, toast]);
 
   const totalMinutesByProject = useMemo(() => {
     const map = new Map<string, number>();
@@ -218,6 +248,15 @@ const AppContent: React.FC = () => {
             <span className="sidebar__running-label">Timer running</span>
           </div>
         )}
+        <button
+          type="button"
+          className="sidebar__theme-toggle"
+          onClick={onToggleTheme}
+          title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+        >
+          <span className="sidebar__link-icon">{theme === "dark" ? <IconSun /> : <IconMoon />}</span>
+          <span className="sidebar__link-label">{theme === "dark" ? "Light theme" : "Dark theme"}</span>
+        </button>
       </aside>
 
       <div className="main">
@@ -247,13 +286,18 @@ const AppContent: React.FC = () => {
             projects={projects}
             tasks={tasks}
             totalMinutesByProject={totalMinutesByProject}
+            timerBusy={timer.isRunning || !!timer.pendingStopAt}
             onDelete={deleteWithUndo}
             onEdit={editEntry}
             onCreate={createEntry}
+            onContinue={continueEntry}
             onAddProject={addProject}
             onEditProject={editProject}
+            onArchiveProject={archiveProjectWithUndo}
+            onRestoreProject={restoreProject}
             onAddTask={addTask}
             onDeleteTask={deleteTaskWithUndo}
+            onRenameTask={renameTask}
             onLoadTasksForProject={loadTasksForProject}
           />
         </div>

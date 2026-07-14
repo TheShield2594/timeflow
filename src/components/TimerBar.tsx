@@ -38,8 +38,24 @@ export const TimerBar: React.FC<Props> = ({
   const [addingNewTask, setAddingNewTask] = useState(false);
   const [savingTask, setSavingTask] = useState(false);
 
-  const projectTasks = tasks.filter((t) => t.projectId === (isRunning ? currentProjectId : selectedProject));
+  // Inactive tasks stay in `tasks` for display-name resolution elsewhere,
+  // but new work can't be tagged with them.
+  const projectTasks = tasks.filter((t) => t.isActive && t.projectId === (isRunning ? currentProjectId : selectedProject));
   const activeProject = projects.find((p) => p.id === (isRunning ? currentProjectId : selectedProject));
+
+  // Selections can go stale while the bar sits idle: the chosen project can
+  // be archived (or the task deleted) from the Projects page, and Start would
+  // then tag new time against an inactive record. Reset them when that
+  // happens — the archived record stays in props for display-name resolution.
+  useEffect(() => {
+    if (isRunning) return;
+    if (selectedProject && !projects.some((p) => p.id === selectedProject && p.isActive)) {
+      setSelectedProject("");
+      setSelectedTask("");
+    } else if (selectedTask && !tasks.some((t) => t.id === selectedTask && t.isActive)) {
+      setSelectedTask("");
+    }
+  }, [isRunning, projects, tasks, selectedProject, selectedTask]);
 
   // When a session ends, clear the per-session fields so the bar doesn't
   // resurrect stale pre-start text. The project stays selected — starting
@@ -88,6 +104,12 @@ export const TimerBar: React.FC<Props> = ({
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "." || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
       e.preventDefault();
+      // A failed stop retries with the original stop timestamp, exactly like
+      // the Retry button — not with "now", which would silently grow the entry.
+      if (pendingStopAt) {
+        onRetryStop?.(pendingStopAt);
+        return;
+      }
       if (isRunning) {
         onStop();
         return;
@@ -101,7 +123,7 @@ export const TimerBar: React.FC<Props> = ({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [isRunning, selectedProject, selectedTask, desc, ratioInput, onStart, onStop]);
+  }, [isRunning, pendingStopAt, selectedProject, selectedTask, desc, ratioInput, onStart, onStop, onRetryStop]);
 
   return (
     <div className="timer-bar">
@@ -115,7 +137,6 @@ export const TimerBar: React.FC<Props> = ({
             if (isRunning) onUpdate({ description: e.target.value });
             else setDesc(e.target.value);
           }}
-          disabled={false}
         />
 
         {/* Ratio input */}
@@ -149,7 +170,8 @@ export const TimerBar: React.FC<Props> = ({
                 }}
               >
                 <option value="">Select project…</option>
-                {projects.map((p) => (
+                {/* Archived projects resolve names elsewhere but can't take new time. */}
+                {projects.filter((p) => p.isActive).map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>

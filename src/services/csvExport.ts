@@ -13,6 +13,32 @@ function escapeCSV(value: string | number | undefined | null): string {
   return str;
 }
 
+/**
+ * Billing-style duration rounding, applied to the CSV's duration columns only
+ * — stored entries are never altered. "up" rules are the timesheet-industry
+ * standard (bill at least one increment for any started increment).
+ */
+export type RoundingRule = "exact" | "up6" | "up15" | "up30" | "nearest15";
+
+export const ROUNDING_LABELS: Record<RoundingRule, string> = {
+  exact: "Exact minutes",
+  up6: "Round up to 6 min (0.1h)",
+  up15: "Round up to 15 min",
+  up30: "Round up to 30 min",
+  nearest15: "Nearest 15 min",
+};
+
+export function applyRounding(minutes: number, rule: RoundingRule): number {
+  if (minutes <= 0) return 0;
+  switch (rule) {
+    case "up6": return Math.ceil(minutes / 6) * 6;
+    case "up15": return Math.ceil(minutes / 15) * 15;
+    case "up30": return Math.ceil(minutes / 30) * 30;
+    case "nearest15": return Math.round(minutes / 15) * 15;
+    case "exact": return minutes;
+  }
+}
+
 function formatDateTime(iso: string | undefined): string {
   if (!iso) return "";
   return new Date(iso).toLocaleString("en", {
@@ -26,7 +52,8 @@ export function exportToCSV(
   entries: TimeEntry[],
   projects: Project[],
   tasks: Task[],
-  filename = "timeflow-export.csv"
+  filename = "timeflow-export.csv",
+  rounding: RoundingRule = "exact"
 ): void {
   const projectMap = new Map(projects.map((p) => [p.id, p]));
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
@@ -51,15 +78,20 @@ export function exportToCSV(
     .map((e) => {
       const project = projectMap.get(e.projectId);
       const task = e.taskId ? taskMap.get(e.taskId) : undefined;
-      const durationHours = e.durationMinutes
-        ? (e.durationMinutes / 60).toFixed(2)
+      const roundedMinutes = e.durationMinutes !== undefined
+        ? applyRounding(e.durationMinutes, rounding)
+        : undefined;
+      // Defined-check, not truthy: a 0-minute duration exports as "0.00",
+      // only a missing duration leaves the cell blank.
+      const durationHours = roundedMinutes !== undefined
+        ? (roundedMinutes / 60).toFixed(2)
         : "";
 
       return [
         escapeCSV(e.date),
         escapeCSV(formatDateTime(e.startTime)),
         escapeCSV(formatDateTime(e.endTime)),
-        escapeCSV(e.durationMinutes),
+        escapeCSV(roundedMinutes),
         escapeCSV(durationHours),
         escapeCSV(project?.name),
         escapeCSV(task?.name),

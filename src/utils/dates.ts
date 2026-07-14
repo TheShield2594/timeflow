@@ -14,6 +14,15 @@ export function localDateStr(d: Date = new Date()): string {
   return `${y}-${m}-${day}`;
 }
 
+/** dateStr + n days as YYYY-MM-DD, walked on the local calendar. Use this
+ *  instead of adding 24h of milliseconds, which lands an hour off on DST
+ *  transition days. */
+export function addDaysStr(dateStr: string, days: number): string {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return localDateStr(d);
+}
+
 export function localDateDaysAgo(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() - days);
@@ -29,6 +38,13 @@ export function friendlyDate(dateStr: string): string {
   return new Date(dateStr + "T00:00:00").toLocaleDateString("en", {
     weekday: "long", month: "long", day: "numeric",
   });
+}
+
+/** Monday of the week containing the given local YYYY-MM-DD date string. */
+export function weekStartStr(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return localDateStr(d);
 }
 
 /** "HH:MM" for <input type="time">, from an ISO timestamp, in local time. */

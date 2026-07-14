@@ -14,6 +14,8 @@ vi.mock("../services/dataverseService", () => ({
   createDraftTimerEntry: vi.fn().mockResolvedValue("draft-1"),
   createTimeEntry: vi.fn(),
   updateTimeEntry: vi.fn(),
+  deleteTimeEntry: vi.fn().mockResolvedValue(undefined),
+  isNotFoundError: vi.fn((err: unknown) => (err as { status?: number } | null)?.status === 404),
 }));
 
 const TIMER_STORAGE_KEY = "tt_active_timer:env-1:user-1";
@@ -112,12 +114,110 @@ describe("useTimer", () => {
     });
     expect(result.current.timer.isRunning).toBe(true);
 
-    act(() => {
-      result.current.cancel();
+    await act(async () => {
+      await result.current.cancel();
     });
 
     expect(result.current.timer.isRunning).toBe(false);
     expect(localStorage.getItem(TIMER_STORAGE_KEY)).toBeNull();
     expect(onStop).not.toHaveBeenCalled();
+  });
+
+  it("cancel deletes the draft row so no phantom timer is restored on reload", async () => {
+    const { result } = renderHook(() => useTimer(vi.fn()));
+
+    await act(async () => {
+      result.current.start("proj-1", null, "Working");
+    });
+    await waitFor(() => expect(result.current.timer.draftEntryId).toBe("draft-1"));
+
+    await act(async () => {
+      await result.current.cancel();
+    });
+
+    expect(svc.deleteTimeEntry).toHaveBeenCalledWith("draft-1");
+    expect(result.current.timer.isRunning).toBe(false);
+  });
+
+  it("falls back to creating the entry when the draft row was deleted (update 404s)", async () => {
+    const notFound = Object.assign(new Error("gone"), { status: 404 });
+    vi.mocked(svc.updateTimeEntry).mockRejectedValue(notFound);
+    const savedEntry = { id: "entry-2" } as TimeEntry;
+    vi.mocked(svc.createTimeEntry).mockResolvedValue(savedEntry);
+    const onStop = vi.fn();
+
+    const { result } = renderHook(() => useTimer(onStop));
+
+    await act(async () => {
+      result.current.start("proj-1", null, "Working");
+    });
+    await waitFor(() => expect(result.current.timer.draftEntryId).toBe("draft-1"));
+
+    await act(async () => {
+      await result.current.stop();
+    });
+
+    expect(svc.createTimeEntry).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: "proj-1", description: "Working" })
+    );
+    expect(onStop).toHaveBeenCalledWith(savedEntry);
+    expect(result.current.timer.isRunning).toBe(false);
+    expect(localStorage.getItem(TIMER_STORAGE_KEY)).toBeNull();
+  });
+
+  it("deletes an orphaned draft when its create resolves after the timer already stopped", async () => {
+    let resolveDraft!: (id: string) => void;
+    vi.mocked(svc.createDraftTimerEntry).mockImplementationOnce(
+      () => new Promise<string>((res) => { resolveDraft = res; })
+    );
+    vi.mocked(svc.createTimeEntry).mockResolvedValue({ id: "entry-3" } as TimeEntry);
+    const { result } = renderHook(() => useTimer(vi.fn()));
+
+    await act(async () => {
+      result.current.start("proj-1", null, "Working");
+    });
+    // Stop before the draft create resolves — the completed entry is created
+    // through the no-draft path.
+    await act(async () => {
+      await result.current.stop();
+    });
+    expect(svc.createTimeEntry).toHaveBeenCalled();
+
+    await act(async () => {
+      resolveDraft("draft-late");
+    });
+
+    await waitFor(() => expect(svc.deleteTimeEntry).toHaveBeenCalledWith("draft-late"));
+    expect(result.current.timer.draftEntryId).toBeUndefined();
+  });
+
+  it("adopts another tab's timer state from its storage event", () => {
+    const { result } = renderHook(() => useTimer(vi.fn()));
+    const otherTab = {
+      isRunning: true,
+      startTime: new Date().toISOString(),
+      projectId: "proj-9",
+      taskId: null,
+      description: "started elsewhere",
+    };
+
+    act(() => {
+      window.dispatchEvent(new StorageEvent("storage", {
+        key: TIMER_STORAGE_KEY,
+        newValue: JSON.stringify(otherTab),
+      }));
+    });
+
+    expect(result.current.timer.isRunning).toBe(true);
+    expect(result.current.timer.projectId).toBe("proj-9");
+
+    // The other tab stopping (key removed) resets this tab too.
+    act(() => {
+      window.dispatchEvent(new StorageEvent("storage", {
+        key: TIMER_STORAGE_KEY,
+        newValue: null,
+      }));
+    });
+    expect(result.current.timer.isRunning).toBe(false);
   });
 });
