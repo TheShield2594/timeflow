@@ -104,6 +104,29 @@ export function useTasks() {
     }
   }, [setTaskActive, toast]);
 
+  const renameTask = useCallback(async (task: Task, newName: string) => {
+    const name = newName.trim();
+    if (!name || name === task.name) return;
+    if (isTempId(task.id)) {
+      toast("Task is still saving — please wait a moment and try again", "error");
+      throw new Error("Task not yet saved");
+    }
+    const patch = (taskName: string) => setTasksByProject((prev) => {
+      const existing = (prev.get(task.projectId) ?? []).map((t) => (t.id === task.id ? { ...t, name: taskName } : t));
+      return new Map([...prev, [task.projectId, existing]]);
+    });
+    patch(name);
+    try {
+      // Keep the optimistic name on success rather than adopting the response
+      // wholesale — a dropped response body would otherwise blank other fields.
+      await svc.updateTask(task.id, { name });
+    } catch (err) {
+      patch(task.name);
+      toast(`Could not rename task: ${errMsg(err)}`, "error");
+      throw err;
+    }
+  }, [toast]);
+
   const restoreTask = useCallback(async (task: Task) => {
     setTaskActive(task.projectId, task.id, true);
     try {
@@ -115,5 +138,5 @@ export function useTasks() {
     }
   }, [setTaskActive, toast]);
 
-  return { tasks, addTask, deleteTask, restoreTask, loadTasksForProject };
+  return { tasks, addTask, deleteTask, restoreTask, renameTask, loadTasksForProject };
 }

@@ -40,6 +40,13 @@ export function friendlyDate(dateStr: string): string {
   });
 }
 
+/** Monday of the week containing the given local YYYY-MM-DD date string. */
+export function weekStartStr(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return localDateStr(d);
+}
+
 /** "HH:MM" for <input type="time">, from an ISO timestamp, in local time. */
 export function toTimeInput(iso: string): string {
   const d = new Date(iso);

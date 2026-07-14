@@ -53,5 +53,34 @@ export function useProjects() {
     }
   }, [toast]);
 
-  return { projects, loading, refresh, addProject, editProject };
+  const setProjectActive = useCallback((id: string, isActive: boolean) => {
+    setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, isActive } : p)));
+  }, []);
+
+  // Archiving deactivates the record (statecode) — it stays in the list,
+  // flagged inactive, so historical entries keep resolving its name/color;
+  // pickers filter it out. Restore reactivates the same record.
+  const archiveProject = useCallback(async (project: Project) => {
+    setProjectActive(project.id, false);
+    try {
+      await svc.deactivateProject(project.id);
+    } catch (err) {
+      setProjectActive(project.id, true);
+      toast(`Could not archive project: ${errMsg(err)}`, "error");
+      throw err;
+    }
+  }, [setProjectActive, toast]);
+
+  const restoreProject = useCallback(async (project: Project) => {
+    setProjectActive(project.id, true);
+    try {
+      await svc.reactivateProject(project.id);
+    } catch (err) {
+      setProjectActive(project.id, false);
+      toast(`Could not restore project: ${errMsg(err)}`, "error");
+      throw err;
+    }
+  }, [setProjectActive, toast]);
+
+  return { projects, loading, refresh, addProject, editProject, archiveProject, restoreProject };
 }

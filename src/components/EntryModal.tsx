@@ -206,8 +206,10 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
                 onChange={(e) => set({ projectId: e.target.value, taskId: "" })}
               >
                 <option value="">Select project…</option>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
+                {/* Active projects only — plus the entry's current project if
+                    archived, so editing an old entry doesn't clear it. */}
+                {projects.filter((p) => p.isActive || p.id === draft.projectId).map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}{p.isActive ? "" : " (archived)"}</option>
                 ))}
               </select>
             </div>

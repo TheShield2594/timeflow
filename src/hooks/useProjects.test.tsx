@@ -10,6 +10,8 @@ vi.mock("../services/dataverseService", () => ({
   getProjects: vi.fn(),
   createProject: vi.fn(),
   updateProject: vi.fn(),
+  deactivateProject: vi.fn().mockResolvedValue(undefined),
+  reactivateProject: vi.fn().mockResolvedValue(undefined),
 }));
 
 afterEach(() => {

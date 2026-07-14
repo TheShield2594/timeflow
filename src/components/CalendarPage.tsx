@@ -4,8 +4,9 @@ import { getCurrentUser } from "../services/userService";
 import { localDateStr, minutesOfDay, toTimeInput } from "../utils/dates";
 import { formatMinutes } from "../hooks";
 import { useDataRange } from "../contexts/DataRangeContext";
+import { useWeeklyTarget } from "../hooks/useWeeklyTarget";
 import { EntryModal, EntryDraft, EntrySaveData } from "./EntryModal";
-import { IconChevronLeft, IconChevronRight } from "./Icons";
+import { IconCheck, IconChevronLeft, IconChevronRight, IconPencil, IconX } from "./Icons";
 
 interface Props {
   entries: TimeEntry[];
@@ -118,6 +119,81 @@ interface EntryBlockProps {
   onClick: (e: React.MouseEvent, entry: TimeEntry) => void;
   onKeyDown: (e: React.KeyboardEvent, entry: TimeEntry) => void;
 }
+
+/** "23h 30m / 40h" progress vs the weekly target, with an inline editor.
+ *  Shown for whichever week the calendar is displaying. */
+const WeekTargetProgress: React.FC<{ weekMinutes: number }> = ({ weekMinutes }) => {
+  const { targetHours, setTargetHours } = useWeeklyTarget();
+  const [editing, setEditing] = useState(false);
+  const [input, setInput] = useState("");
+
+  const commit = () => {
+    const n = Number(input);
+    setTargetHours(Number.isFinite(n) ? n : 0);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <span className="week-target-editor">
+        <input
+          className="week-target-editor__input"
+          type="number"
+          min="0"
+          max="168"
+          step="0.5"
+          placeholder="h/week"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commit();
+            if (e.key === "Escape") setEditing(false);
+          }}
+          aria-label="Weekly target hours (0 to remove)"
+          autoFocus
+        />
+        <button className="week-target-editor__ok" onClick={commit} title="Save target" aria-label="Save weekly target"><IconCheck size={13} /></button>
+        <button className="week-target-editor__cancel" onClick={() => setEditing(false)} title="Cancel" aria-label="Cancel"><IconX size={13} /></button>
+      </span>
+    );
+  }
+
+  if (targetHours <= 0) {
+    return (
+      <button
+        className="week-target-set"
+        onClick={() => { setInput("40"); setEditing(true); }}
+        title="Set a weekly hours target to see progress here"
+      >
+        Set weekly target
+      </button>
+    );
+  }
+
+  const targetMinutes = targetHours * 60;
+  const met = weekMinutes >= targetMinutes;
+  return (
+    <span className="week-target" title={`${formatMinutes(weekMinutes)} of your ${targetHours}h weekly target`}>
+      <span className="week-target__label">
+        {formatMinutes(weekMinutes)} / {targetHours}h
+      </span>
+      <span className="week-target__track" role="progressbar" aria-valuemin={0} aria-valuemax={targetMinutes} aria-valuenow={Math.min(weekMinutes, targetMinutes)} aria-label="Weekly target progress">
+        <span
+          className={`week-target__fill ${met ? "week-target__fill--met" : ""}`}
+          style={{ width: `${Math.min(100, (weekMinutes / targetMinutes) * 100)}%` }}
+        />
+      </span>
+      <button
+        className="week-target__edit"
+        onClick={() => { setInput(String(targetHours)); setEditing(true); }}
+        title="Edit weekly target"
+        aria-label="Edit weekly target"
+      >
+        <IconPencil size={11} />
+      </button>
+    </span>
+  );
+};
 
 const CalendarEntryBlock = React.memo<EntryBlockProps>(({
   entry, startMin, endMin, running, col, cols, color, projectName, taskName, onClick, onKeyDown,
@@ -439,6 +515,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
           <div className="calendar__title-group">
             <h2 className="calendar__title">{monthLabel}</h2>
             <span className="calendar__week-total">{formatMinutes(weekTotal)} this week</span>
+            <WeekTargetProgress weekMinutes={weekTotal} />
           </div>
           <div className="calendar__nav">
             <button className="cal-nav-btn" onClick={prevWeek} aria-label="Previous week">

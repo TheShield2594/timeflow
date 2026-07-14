@@ -131,6 +131,34 @@ export const IconClock: React.FC<IconProps> = ({ size = 18, className }) => (
   </svg>
 );
 
+export const IconArchive: React.FC<IconProps> = ({ size = 14, className }) => (
+  <svg {...base(size, className)}>
+    <rect x="2" y="4" width="20" height="5" rx="1" />
+    <path d="M4 9v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9" />
+    <line x1="10" y1="13" x2="14" y2="13" />
+  </svg>
+);
+
+export const IconSun: React.FC<IconProps> = ({ size = 16, className }) => (
+  <svg {...base(size, className)}>
+    <circle cx="12" cy="12" r="4" />
+    <line x1="12" y1="2" x2="12" y2="4" />
+    <line x1="12" y1="20" x2="12" y2="22" />
+    <line x1="4.93" y1="4.93" x2="6.34" y2="6.34" />
+    <line x1="17.66" y1="17.66" x2="19.07" y2="19.07" />
+    <line x1="2" y1="12" x2="4" y2="12" />
+    <line x1="20" y1="12" x2="22" y2="12" />
+    <line x1="4.93" y1="19.07" x2="6.34" y2="17.66" />
+    <line x1="17.66" y1="6.34" x2="19.07" y2="4.93" />
+  </svg>
+);
+
+export const IconMoon: React.FC<IconProps> = ({ size = 16, className }) => (
+  <svg {...base(size, className)}>
+    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+  </svg>
+);
+
 export const IconUndo: React.FC<IconProps> = ({ size = 14, className }) => (
   <svg {...base(size, className)}>
     <polyline points="9 14 4 9 9 4" />

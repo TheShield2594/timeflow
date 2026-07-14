@@ -156,7 +156,8 @@ export const TimerBar: React.FC<Props> = ({
                 }}
               >
                 <option value="">Select project…</option>
-                {projects.map((p) => (
+                {/* Archived projects resolve names elsewhere but can't take new time. */}
+                {projects.filter((p) => p.isActive).map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>

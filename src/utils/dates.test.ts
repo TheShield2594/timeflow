@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { localDateStr, localDateDaysAgo, addDaysStr, friendlyDate, toTimeInput, minutesOfDay } from "./dates";
+import { localDateStr, localDateDaysAgo, addDaysStr, weekStartStr, friendlyDate, toTimeInput, minutesOfDay } from "./dates";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -47,6 +47,18 @@ describe("addDaysStr", () => {
     vi.stubEnv("TZ", "America/New_York");
     expect(addDaysStr("2026-03-07", 1)).toBe("2026-03-08");
     expect(addDaysStr("2026-03-08", 1)).toBe("2026-03-09");
+  });
+});
+
+describe("weekStartStr", () => {
+  it("returns the Monday of the containing week", () => {
+    expect(weekStartStr("2026-07-14")).toBe("2026-07-13"); // Tue → Mon
+    expect(weekStartStr("2026-07-13")).toBe("2026-07-13"); // Mon → itself
+    expect(weekStartStr("2026-07-19")).toBe("2026-07-13"); // Sun → previous Mon
+  });
+
+  it("crosses month and year boundaries", () => {
+    expect(weekStartStr("2026-01-01")).toBe("2025-12-29"); // Thu → Mon in prior year
   });
 });
 

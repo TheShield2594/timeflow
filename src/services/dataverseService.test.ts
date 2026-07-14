@@ -13,6 +13,7 @@ vi.mock("../generated", () => ({ MicrosoftDataverseService: {} }));
 const {
   mapEntry, entryToDataverse, mergeOver, hasForeignUserEntries,
   deactivateTask, reactivateTask, getAllTasks, getTasksForProject,
+  deactivateProject, reactivateProject, getProjects, updateTask,
 } = await import("./dataverseService");
 
 function makeEntry(overrides: Partial<TimeEntry> = {}): TimeEntry {
@@ -216,6 +217,49 @@ describe("task soft delete (dev mock path)", () => {
   it("deactivating a missing task is a no-op rather than an error", async () => {
     await expect(deactivateTask("nope")).resolves.toBeUndefined();
     expect(await getAllTasks()).toHaveLength(2);
+  });
+});
+
+describe("project archive (dev mock path)", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem("tt_projects", JSON.stringify([
+      { id: "p1", name: "Alpha", color: "#719500", isActive: true, createdAt: "2026-01-01" },
+      { id: "p2", name: "Beta", color: "#0080BD", isActive: true, createdAt: "2026-01-02" },
+    ]));
+  });
+
+  it("deactivateProject flags the project inactive instead of removing it", async () => {
+    await deactivateProject("p1");
+    const all = await getProjects();
+    expect(all).toHaveLength(2);
+    expect(all.find((p) => p.id === "p1")?.isActive).toBe(false);
+    expect(all.find((p) => p.id === "p2")?.isActive).toBe(true);
+  });
+
+  it("reactivateProject restores the same record (archive-undo flow)", async () => {
+    await deactivateProject("p1");
+    await reactivateProject("p1");
+    const all = await getProjects();
+    expect(all.find((p) => p.id === "p1")?.isActive).toBe(true);
+  });
+
+  it("getProjects keeps returning archived projects for name/color resolution", async () => {
+    await deactivateProject("p1");
+    expect((await getProjects()).map((p) => p.id).sort()).toEqual(["p1", "p2"]);
+  });
+});
+
+describe("updateTask (dev mock path)", () => {
+  it("renames a task in place, preserving its other fields", async () => {
+    localStorage.clear();
+    localStorage.setItem("tt_tasks", JSON.stringify([
+      { id: "t1", projectId: "p1", name: "Old name", isActive: true },
+    ]));
+    const updated = await updateTask("t1", { name: "New name" });
+    expect(updated).toMatchObject({ id: "t1", projectId: "p1", name: "New name", isActive: true });
+    const all = await getAllTasks();
+    expect(all[0].name).toBe("New name");
   });
 });
 

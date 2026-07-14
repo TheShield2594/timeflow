@@ -2,10 +2,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import type { TimeEntry, Project, Task } from "../types";
 import { formatMinutes } from "../hooks";
 import { useDataRange } from "../contexts/DataRangeContext";
+import { useWeeklyTarget } from "../hooks/useWeeklyTarget";
 import { getCurrentUser } from "../services/userService";
-import { friendlyDate, localDateStr, toTimeInput } from "../utils/dates";
+import { friendlyDate, localDateStr, toTimeInput, weekStartStr } from "../utils/dates";
 import { EntryModal, EntryDraft, EntrySaveData } from "./EntryModal";
-import { IconClock, IconPencil, IconPlus, IconSearch, IconX } from "./Icons";
+import { IconClock, IconPencil, IconPlay, IconPlus, IconSearch, IconX } from "./Icons";
 import {
   DateRangeFilter,
   DateRangeState,
@@ -16,9 +17,11 @@ interface Props {
   entries: TimeEntry[];
   projects: Project[];
   tasks: Task[];
+  timerBusy?: boolean;
   onDelete: (id: string) => void;
   onEdit: (id: string, data: Partial<TimeEntry>) => Promise<TimeEntry>;
   onCreate: (data: Omit<TimeEntry, "id">) => Promise<TimeEntry>;
+  onContinue?: (entry: TimeEntry) => void;
   onLoadTasksForProject?: (projectId: string) => void;
 }
 
@@ -64,9 +67,10 @@ function newEntryDraft(): EntryDraft {
 }
 
 export const TimesheetPage: React.FC<Props> = ({
-  entries, projects, tasks, onDelete, onEdit, onCreate, onLoadTasksForProject,
+  entries, projects, tasks, timerBusy, onDelete, onEdit, onCreate, onContinue, onLoadTasksForProject,
 }) => {
   const { ensureRangeLoaded } = useDataRange();
+  const { targetHours } = useWeeklyTarget();
   const [modal, setModal] = useState<ModalState | null>(null);
   const [search, setSearch] = useState("");
   const [projectFilter, setProjectFilter] = useState("");
@@ -111,6 +115,16 @@ export const TimesheetPage: React.FC<Props> = ({
     () => filteredEntries.reduce((s, e) => s + (e.durationMinutes || 0), 0),
     [filteredEntries]
   );
+
+  // Current calendar week (Mon–Sun) total across ALL entries — independent of
+  // the page's search/range filters — for the weekly-target chip.
+  const thisWeekMinutes = useMemo(() => {
+    const weekFrom = weekStartStr(localDateStr());
+    return entries.reduce(
+      (s, e) => (e.date >= weekFrom ? s + (e.durationMinutes || 0) : s),
+      0
+    );
+  }, [entries]);
 
   const openNew = () => setModal({ editingId: null, draft: newEntryDraft() });
 
@@ -185,11 +199,28 @@ export const TimesheetPage: React.FC<Props> = ({
           aria-label="Filter by project"
         >
           <option value="">All projects</option>
+          {/* Archived projects stay filterable — this dropdown scopes history. */}
           {projects.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
+            <option key={p.id} value={p.id}>{p.name}{p.isActive ? "" : " (archived)"}</option>
           ))}
         </select>
         <span className="timesheet__toolbar-total">{formatMinutes(totalMinutes)} total</span>
+        {targetHours > 0 && (
+          <span
+            className="week-target-chip"
+            title={`Logged this week (Mon–Sun) vs your ${targetHours}h target`}
+          >
+            <span className="week-target-chip__label">
+              Week: {formatMinutes(thisWeekMinutes)} / {targetHours}h
+            </span>
+            <span className="week-target-chip__track">
+              <span
+                className={`week-target-chip__fill ${thisWeekMinutes >= targetHours * 60 ? "week-target-chip__fill--met" : ""}`}
+                style={{ width: `${Math.min(100, (thisWeekMinutes / (targetHours * 60)) * 100)}%` }}
+              />
+            </span>
+          </span>
+        )}
       </div>
 
       {modal && (
@@ -289,6 +320,21 @@ export const TimesheetPage: React.FC<Props> = ({
                           timer's stop in a 404-retry loop.) */}
                       {entry.endTime && (
                         <>
+                          {onContinue && (
+                            <button
+                              className="entry-row__continue"
+                              onClick={() => onContinue(entry)}
+                              disabled={timerBusy || !project?.isActive}
+                              title={
+                                timerBusy ? "Timer already running"
+                                  : !project?.isActive ? "Project is archived"
+                                  : "Continue — start the timer with this entry's project, task and description"
+                              }
+                              aria-label={`Continue working on ${entry.description || project?.name || "this entry"}`}
+                            >
+                              <IconPlay size={12} /> Continue
+                            </button>
+                          )}
                           <button
                             className="entry-row__edit"
                             onClick={() => openEdit(entry)}

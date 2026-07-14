@@ -366,13 +366,14 @@ function uuid(): string {
 // ---------------------------------------------------------------------------
 // Projects
 // ---------------------------------------------------------------------------
+// Includes archived (inactive) projects so historical entries can always
+// resolve their project name and color; pickers filter on isActive.
 export async function getProjects(): Promise<Project[]> {
   if (!isPowerAppsHost()) {
     return load<Project>(STORAGE_KEYS.projects)
-      .filter((p) => p.isActive)
       .sort((a, b) => a.name.localeCompare(b.name));
   }
-  const rows = await listAllPages(SETS.projects, "statecode eq 0", "ever_name asc");
+  const rows = await listAllPages(SETS.projects, undefined, "ever_name asc");
   return rows.map(mapProject);
 }
 
@@ -480,19 +481,21 @@ async function deleteRecord<T extends { id: string }>(
   }
 }
 
-// Tasks are deactivated (statecode 1) rather than hard-deleted: a hard delete
-// nulls the ever_workitem lookup on every historical time entry (default
-// referential remove-link behavior), silently stripping task attribution from
-// past reports and exports. Deactivating removes the task from pickers while
-// preserving history — and lets the delete-undo flow restore the exact same
-// record instead of creating a duplicate with a new id.
-async function setTaskState(id: string, active: boolean): Promise<void> {
+// Tasks and projects are deactivated (statecode 1) rather than hard-deleted:
+// a hard delete nulls the lookup on every historical time entry (default
+// referential remove-link behavior), silently stripping attribution from past
+// reports and exports. Deactivating removes the record from pickers while
+// preserving history — and lets undo restore the exact same record instead of
+// creating a duplicate with a new id.
+async function setRecordState(
+  storageKey: string, setName: string, label: string, id: string, active: boolean
+): Promise<void> {
   if (!isPowerAppsHost()) {
-    const all = load<Task>(STORAGE_KEYS.tasks);
-    const idx = all.findIndex((t) => t.id === id);
+    const all = load<{ id: string; isActive: boolean }>(storageKey);
+    const idx = all.findIndex((r) => r.id === id);
     if (idx === -1) return;
     all[idx] = { ...all[idx], isActive: active };
-    persist(STORAGE_KEYS.tasks, all);
+    persist(storageKey, all);
     return;
   }
   try {
@@ -500,11 +503,11 @@ async function setTaskState(id: string, active: boolean): Promise<void> {
       PREFER_RETURN,
       ACCEPT,
       orgUrl(),
-      SETS.tasks,
+      setName,
       id,
       { statecode: active ? 0 : 1 },
     ));
-    unwrap(result, active ? "Reactivate task" : "Deactivate task");
+    unwrap(result, label);
   } catch (err) {
     // Deactivating a record that no longer exists: the goal state is met.
     if (!active && isNotFoundError(err)) return;
@@ -513,11 +516,40 @@ async function setTaskState(id: string, active: boolean): Promise<void> {
 }
 
 export async function deactivateTask(id: string): Promise<void> {
-  return setTaskState(id, false);
+  return setRecordState(STORAGE_KEYS.tasks, SETS.tasks, "Deactivate task", id, false);
 }
 
 export async function reactivateTask(id: string): Promise<void> {
-  return setTaskState(id, true);
+  return setRecordState(STORAGE_KEYS.tasks, SETS.tasks, "Reactivate task", id, true);
+}
+
+export async function deactivateProject(id: string): Promise<void> {
+  return setRecordState(STORAGE_KEYS.projects, SETS.projects, "Archive project", id, false);
+}
+
+export async function reactivateProject(id: string): Promise<void> {
+  return setRecordState(STORAGE_KEYS.projects, SETS.projects, "Restore project", id, true);
+}
+
+export async function updateTask(id: string, data: Partial<Task>): Promise<Task> {
+  if (!isPowerAppsHost()) {
+    const all = load<Task>(STORAGE_KEYS.tasks);
+    const idx = all.findIndex((t) => t.id === id);
+    if (idx === -1) throw new Error("Task not found");
+    all[idx] = { ...all[idx], ...data };
+    persist(STORAGE_KEYS.tasks, all);
+    return all[idx];
+  }
+  const result = await retryWithBackoff(() => MicrosoftDataverseService.UpdateRecordWithOrganization(
+    PREFER_RETURN,
+    ACCEPT,
+    orgUrl(),
+    SETS.tasks,
+    id,
+    taskToDataverse(data),
+  ));
+  const inputAsTask = { ...data, id } as Task;
+  return mergeOver(inputAsTask, mapTask(unwrapRow(unwrap(result, "Update task"))));
 }
 
 // ---------------------------------------------------------------------------

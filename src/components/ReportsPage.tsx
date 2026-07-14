@@ -2,8 +2,11 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import type { TimeEntry, Project, Task } from "../types";
 import { formatMinutes } from "../hooks";
 import { useDataRange } from "../contexts/DataRangeContext";
-import { exportToCSV, buildExportFilename } from "../services/csvExport";
-import { localDateStr } from "../utils/dates";
+import {
+  exportToCSV, buildExportFilename,
+  RoundingRule, ROUNDING_LABELS,
+} from "../services/csvExport";
+import { localDateStr, weekStartStr } from "../utils/dates";
 import { IconDownload } from "./Icons";
 import {
   DateRangeFilter,
@@ -28,22 +31,30 @@ function getDaysInRange(from: string, to: string): string[] {
   return days;
 }
 
-/** Monday of the week containing the given local date string. */
-function weekStart(dateStr: string): string {
-  const d = new Date(dateStr + "T00:00:00");
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
-  return localDateStr(d);
+const REPORTS_PRESETS = ["7d", "30d", "thisMonth", "all"] as const;
+
+// Past this many days, daily bars become unreadable — bucket by week instead;
+// past MONTHLY_BUCKET_THRESHOLD, bucket by month.
+const WEEKLY_BUCKET_THRESHOLD = 35;
+const MONTHLY_BUCKET_THRESHOLD = 180;
+
+type Bucket = "day" | "week" | "month";
+
+// The rounding choice is a device preference, not data — persist locally.
+const ROUNDING_STORAGE_KEY = "tt_export_rounding";
+
+function readStoredRounding(): RoundingRule {
+  try {
+    const v = localStorage.getItem(ROUNDING_STORAGE_KEY);
+    if (v && v in ROUNDING_LABELS) return v as RoundingRule;
+  } catch { /* default below */ }
+  return "exact";
 }
 
-const REPORTS_PRESETS = ["7d", "30d", "thisMonth"] as const;
-
-// Past this many days, daily bars become unreadable — bucket by week instead.
-const WEEKLY_BUCKET_THRESHOLD = 35;
-
 interface SvgBarChartProps {
-  chartData: { key: string; minutes: number; weekly: boolean }[];
+  chartData: { key: string; minutes: number; bucket: Bucket }[];
   maxBar: number;
-  shortDate: (d: string, weekly: boolean) => string;
+  shortDate: (d: string, bucket: Bucket) => string;
   formatMinutes: (m: number) => string;
 }
 
@@ -105,11 +116,11 @@ const SvgBarChart: React.FC<SvgBarChartProps> = ({ chartData, maxBar, shortDate,
         role="img"
         onMouseLeave={() => setTooltip(null)}
       >
-        {chartData.map(({ key, minutes, weekly }, i) => {
+        {chartData.map(({ key, minutes, bucket }, i) => {
           const barH = minutes > 0 ? Math.max((minutes / maxBar) * CHART_HEIGHT, 4) : 0;
           const x = i * slotWidth + (slotWidth - barWidth) / 2;
           const y = CHART_HEIGHT - barH;
-          const label = shortDate(key, weekly);
+          const label = shortDate(key, bucket);
 
           return (
             <g key={key}>
@@ -171,6 +182,7 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks }) => {
     customTo: "",
   });
   const [exporting, setExporting] = useState(false);
+  const [rounding, setRounding] = useState<RoundingRule>(readStoredRounding);
 
   const { from, to } = useMemo(() => resolveDateRange(rangeState), [rangeState]);
 
@@ -184,10 +196,35 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks }) => {
     [entries, from, to]
   );
 
+  // The "all" preset resolves to 1970→9999; the chart/matrix axes must never
+  // enumerate that. Clamp the *display* range to the dates that actually hold
+  // data (falling back to today) — `filtered` itself still uses from/to, and
+  // the clamped bounds cover every filtered entry by construction.
+  const { effFrom, effTo } = useMemo(() => {
+    const today = localDateStr();
+    let min = "";
+    let max = "";
+    for (const e of filtered) {
+      if (!e.date) continue;
+      if (!min || e.date < min) min = e.date;
+      if (!max || e.date > max) max = e.date;
+    }
+    return {
+      effFrom: from < (min || today) ? (min || today) : from,
+      effTo: to > (max > today ? max : today) ? (max > today ? max : today) : to,
+    };
+  }, [filtered, from, to]);
+
+  const handleRoundingChange = (rule: RoundingRule) => {
+    setRounding(rule);
+    try { localStorage.setItem(ROUNDING_STORAGE_KEY, rule); } catch { /* in-memory only */ }
+  };
+
   const handleExport = () => {
     setExporting(true);
     try {
-      exportToCSV(filtered, projects, tasks, buildExportFilename(from, to));
+      // effFrom/effTo keep the "all" preset's 1970→9999 sentinel out of the filename.
+      exportToCSV(filtered, projects, tasks, buildExportFilename(effFrom, effTo), rounding);
     } finally {
       setTimeout(() => setExporting(false), 800);
     }
@@ -211,29 +248,68 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks }) => {
       .sort((a, b) => b.minutes - a.minutes);
   }, [filtered, projects, totalMinutes]);
 
-  // Bar chart: daily bars for short ranges, weekly buckets for long ones.
-  const days = useMemo(() => getDaysInRange(from, to), [from, to]);
-  const useWeekly = days.length > WEEKLY_BUCKET_THRESHOLD;
+  // Bar chart + matrix: daily buckets for short ranges, weekly for long ones,
+  // monthly beyond that.
+  const days = useMemo(() => getDaysInRange(effFrom, effTo), [effFrom, effTo]);
+  const bucket: Bucket = days.length > MONTHLY_BUCKET_THRESHOLD ? "month"
+    : days.length > WEEKLY_BUCKET_THRESHOLD ? "week" : "day";
+  const bucketKeyFor = useCallback(
+    (d: string) => (bucket === "month" ? d.slice(0, 7) : bucket === "week" ? weekStartStr(d) : d),
+    [bucket]
+  );
+
+  // Ordered unique bucket keys spanning the range (including empty buckets).
+  const bucketKeys = useMemo(() => {
+    const keys: string[] = [];
+    let last = "";
+    for (const d of days) {
+      const k = bucketKeyFor(d);
+      if (k !== last) { keys.push(k); last = k; }
+    }
+    return keys;
+  }, [days, bucketKeyFor]);
 
   const chartData = useMemo(() => {
-    const byDate = new Map<string, number>();
+    const byBucket = new Map<string, number>();
     filtered.forEach((e) => {
-      byDate.set(e.date, (byDate.get(e.date) || 0) + (e.durationMinutes || 0));
+      const k = bucketKeyFor(e.date);
+      byBucket.set(k, (byBucket.get(k) || 0) + (e.durationMinutes || 0));
     });
-    if (!useWeekly) {
-      return days.map((d) => ({ key: d, minutes: byDate.get(d) || 0, weekly: false }));
-    }
-    const byWeek = new Map<string, number>();
-    days.forEach((d) => {
-      const wk = weekStart(d);
-      byWeek.set(wk, (byWeek.get(wk) || 0) + (byDate.get(d) || 0));
-    });
-    return [...byWeek.entries()]
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([wk, minutes]) => ({ key: wk, minutes, weekly: true }));
-  }, [filtered, days, useWeekly]);
+    return bucketKeys.map((k) => ({ key: k, minutes: byBucket.get(k) || 0, bucket }));
+  }, [filtered, bucketKeys, bucketKeyFor, bucket]);
 
   const maxBar = useMemo(() => Math.max(...chartData.map((d) => d.minutes), 1), [chartData]);
+
+  // Ratio-weighted total (Σ duration × ratio, missing ratio counts ×1) —
+  // only meaningful, and only shown, when at least one entry carries a ratio.
+  const hasRatios = useMemo(() => filtered.some((e) => e.ratio !== undefined), [filtered]);
+  const weightedMinutes = useMemo(
+    () => Math.round(filtered.reduce((s, e) => s + (e.durationMinutes || 0) * (e.ratio ?? 1), 0)),
+    [filtered]
+  );
+
+  // Project × period matrix — the classic timesheet grid.
+  const matrix = useMemo(() => {
+    const byProject = new Map<string, Map<string, number>>();
+    filtered.forEach((e) => {
+      const k = bucketKeyFor(e.date);
+      if (!byProject.has(e.projectId)) byProject.set(e.projectId, new Map());
+      const row = byProject.get(e.projectId)!;
+      row.set(k, (row.get(k) || 0) + (e.durationMinutes || 0));
+    });
+    const rows = [...byProject.entries()]
+      .map(([id, cells]) => ({
+        project: projects.find((p) => p.id === id),
+        cells,
+        total: [...cells.values()].reduce((s, m) => s + m, 0),
+      }))
+      .filter((r) => r.project)
+      .sort((a, b) => b.total - a.total);
+    const colTotals = bucketKeys.map((k) =>
+      rows.reduce((s, r) => s + (r.cells.get(k) || 0), 0)
+    );
+    return { rows, colTotals };
+  }, [filtered, projects, bucketKeys, bucketKeyFor]);
 
   // Days that actually have logged time — the average people expect.
   const activeDays = useMemo(() => {
@@ -259,11 +335,15 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks }) => {
       .slice(0, 8);
   }, [filtered, tasks, projects]);
 
-  const shortDate = useCallback((d: string, weekly: boolean) => {
-    const dt = new Date(d + "T00:00:00");
-    if (weekly) return dt.toLocaleDateString("en", { month: "short", day: "numeric" });
+  const shortDate = useCallback((d: string, b: Bucket) => {
+    // Month keys are "YYYY-MM"; day/week keys are full dates.
+    const dt = new Date((b === "month" ? `${d}-01` : d) + "T00:00:00");
+    if (b === "month") return dt.toLocaleDateString("en", { month: "short", year: "2-digit" });
+    if (b === "week") return dt.toLocaleDateString("en", { month: "short", day: "numeric" });
     return dt.toLocaleDateString("en", { weekday: "short", month: "numeric", day: "numeric" });
   }, []);
+
+  const bucketNoun = bucket === "month" ? "Month" : bucket === "week" ? "Week" : "Day";
 
   return (
     <div className="reports">
@@ -279,14 +359,27 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks }) => {
               : undefined
           }
           rightSlot={
-            <button
-              className={`export-btn btn-icon ${exporting ? "export-btn--loading" : ""}`}
-              onClick={handleExport}
-              disabled={filtered.length === 0 || exporting}
-              title="Export visible entries to CSV"
-            >
-              <IconDownload /> {exporting ? "Exporting…" : "Export CSV"}
-            </button>
+            <div className="reports__export-controls">
+              <select
+                className="rounding-select"
+                value={rounding}
+                onChange={(e) => handleRoundingChange(e.target.value as RoundingRule)}
+                aria-label="Duration rounding applied to the CSV export"
+                title="Billing-style rounding applied to the export's duration columns (stored entries are unchanged)"
+              >
+                {(Object.keys(ROUNDING_LABELS) as RoundingRule[]).map((rule) => (
+                  <option key={rule} value={rule}>{ROUNDING_LABELS[rule]}</option>
+                ))}
+              </select>
+              <button
+                className={`export-btn btn-icon ${exporting ? "export-btn--loading" : ""}`}
+                onClick={handleExport}
+                disabled={filtered.length === 0 || exporting}
+                title="Export visible entries to CSV"
+              >
+                <IconDownload /> {exporting ? "Exporting…" : "Export CSV"}
+              </button>
+            </div>
           }
         />
       </div>
@@ -309,6 +402,12 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks }) => {
           <div className="kpi-card__label">Projects active</div>
           <div className="kpi-card__value">{projectBreakdown.length}</div>
         </div>
+        {hasRatios && (
+          <div className="kpi-card" title="Σ duration × ratio — entries without a ratio count ×1">
+            <div className="kpi-card__label">Weighted total</div>
+            <div className="kpi-card__value">{formatMinutes(weightedMinutes)}</div>
+          </div>
+        )}
       </div>
 
       {filtered.length === 0 && (
@@ -320,9 +419,62 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks }) => {
       <div className="reports__grid">
         {/* Activity bar chart */}
         <div className="report-card report-card--wide">
-          <h3 className="report-card__title">{useWeekly ? "Weekly Activity" : "Daily Activity"}</h3>
+          <h3 className="report-card__title">
+            {bucket === "month" ? "Monthly Activity" : bucket === "week" ? "Weekly Activity" : "Daily Activity"}
+          </h3>
           <SvgBarChart chartData={chartData} maxBar={maxBar} shortDate={shortDate} formatMinutes={formatMinutes} />
         </div>
+
+        {/* Project × period matrix — the classic timesheet grid */}
+        {matrix.rows.length > 0 && (
+          <div className="report-card report-card--wide">
+            <h3 className="report-card__title">Project × {bucketNoun}</h3>
+            <div className="matrix-wrap">
+              <table className="matrix">
+                <thead>
+                  <tr>
+                    <th className="matrix__proj-col">Project</th>
+                    {bucketKeys.map((k) => (
+                      <th key={k}>{shortDate(k, bucket)}</th>
+                    ))}
+                    <th className="matrix__total-col">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {matrix.rows.map(({ project, cells, total }) => (
+                    <tr key={project!.id}>
+                      <td className="matrix__proj-col">
+                        <span className="project-breakdown__dot" style={{ background: project!.color }} />
+                        {project!.name}
+                      </td>
+                      {bucketKeys.map((k) => {
+                        const mins = cells.get(k) || 0;
+                        return (
+                          <td key={k} className={mins ? "" : "matrix__zero"} title={mins ? formatMinutes(mins) : undefined}>
+                            {mins ? (mins / 60).toFixed(1) : "–"}
+                          </td>
+                        );
+                      })}
+                      <td className="matrix__total-col" title={formatMinutes(total)}>{(total / 60).toFixed(1)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td className="matrix__proj-col">Total</td>
+                    {matrix.colTotals.map((mins, i) => (
+                      <td key={bucketKeys[i]} className={mins ? "" : "matrix__zero"} title={mins ? formatMinutes(mins) : undefined}>
+                        {mins ? (mins / 60).toFixed(1) : "–"}
+                      </td>
+                    ))}
+                    <td className="matrix__total-col" title={formatMinutes(totalMinutes)}>{(totalMinutes / 60).toFixed(1)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <p className="matrix__hint">Hours per project per {bucketNoun.toLowerCase()}. Hover a cell for the exact time.</p>
+          </div>
+        )}
 
         {/* Project breakdown */}
         <div className="report-card">
