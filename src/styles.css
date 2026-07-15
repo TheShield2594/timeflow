@@ -19,8 +19,9 @@
      • Raw pumpkin text → --ev-pumpkin-text; raw grass text → new
        --ev-grass-text. Danger/success tints promoted to tokens so dark
        theme can rebalance them (the old rgba literals assumed white).
-     • .badge--project / .cal-entry__name now mix --pc toward black in light
-       mode (lemon/lime/robin as raw text on white was ~2:1).
+     • .badge--project / .cal-entry__name use var(--text) instead of a --pc
+       color-mix — --pc is arbitrary user-picked hex, so only a fixed,
+       theme-aware token can guarantee contrast for every possible value.
    ─ Focus: global ring kept; native inputs/selects opt out since they carry
      their own :focus border+glow (ring was double-stacking). Old comment's
      specificity claim corrected. Ring color is a token (--focus-ring) so
@@ -460,14 +461,15 @@ input, select { font-family: inherit; }
 
 .badge { padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .badge--task { background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border); }
-/* Project accent color (--pc), set inline per entry. The text colour is
-   mixed toward black because --pc is arbitrary per-project hex: light
-   swatches (lemon, lime, robin) as raw 11px text on white cards sit near
-   2:1. Dark swatches survive the mix unchanged in practice. The dark theme
-   flips the mix toward white — see the override at the bottom. */
+/* Project accent color (--pc), set inline per entry, tints the background
+   and border only. --pc is an arbitrary user-picked hex (the project color
+   picker takes free-form hex input), so a color-mix of --pc can't guarantee
+   AA contrast for every possible value — text uses the standard --text
+   token instead, same as .badge--task, so legibility never depends on
+   which color a project happens to use. */
 .badge--project {
   background: color-mix(in srgb, var(--pc) 13%, transparent);
-  color: color-mix(in srgb, var(--pc) 70%, black);
+  color: var(--text);
   border: 1px solid color-mix(in srgb, var(--pc) 27%, transparent);
 }
 
@@ -767,9 +769,10 @@ input, select { font-family: inherit; }
    see the override at the bottom.) */
 .cal-entry:hover { box-shadow: inset 0 0 0 999px rgba(0,0,0,0.08), var(--shadow); }
 .cal-entry--clickable { cursor: pointer; }
-/* Same rationale as .badge--project: --pc can be a light swatch on a light
-   tint, so nudge the name toward black in light mode. */
-.cal-entry__name { font-size: 11.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; color: color-mix(in srgb, var(--pc) 72%, black); }
+/* Same rationale as .badge--project: --pc is an arbitrary user-picked hex,
+   so the name uses the standard --text token rather than a --pc mix —
+   matches .cal-entry__task/__time below, which never tinted off --pc. */
+.cal-entry__name { font-size: 11.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; color: var(--text); }
 .cal-entry__task { font-size: 10.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cal-entry__time { font-size: 10px; color: var(--text-muted); font-family: var(--mono); margin-top: 2px; }
 
@@ -1765,10 +1768,11 @@ input, select { font-family: inherit; }
 :root[data-theme="dark"] .cal-entry {
   background: color-mix(in srgb, var(--pc) 22%, var(--surface)) !important;
 }
-/* …and lighten text/handles toward white so any swatch stays legible. */
-:root[data-theme="dark"] .cal-entry__name,
-:root[data-theme="dark"] .cal-entry__handle,
-:root[data-theme="dark"] .badge--project {
+/* …and lighten the drag handle grip (decorative, uses currentColor) toward
+   white so it stays visible against any swatch. .cal-entry__name and
+   .badge--project no longer need an override here — they use --text,
+   which already adapts per theme. */
+:root[data-theme="dark"] .cal-entry__handle {
   color: color-mix(in srgb, var(--pc) 65%, white 35%);
 }
 /* Hover LIGHTENS in dark mode — the light theme's inset-black darkener
