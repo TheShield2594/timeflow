@@ -24,6 +24,8 @@ interface Props {
   onCreate: (data: Omit<TimeEntry, "id">) => Promise<TimeEntry>;
   onContinue?: (entry: TimeEntry) => void;
   onLoadTasksForProject?: (projectId: string) => void;
+  /** Navigate to the Projects page — the first-run CTA when no projects exist yet. */
+  onGoToProjects?: () => void;
 }
 
 const TIMESHEET_PRESETS = ["7d", "30d", "90d", "thisMonth"] as const;
@@ -68,7 +70,7 @@ function newEntryDraft(): EntryDraft {
 }
 
 export const TimesheetPage: React.FC<Props> = ({
-  entries, projects, tasks, timerBusy, rangeLoading, onDelete, onEdit, onCreate, onContinue, onLoadTasksForProject,
+  entries, projects, tasks, timerBusy, rangeLoading, onDelete, onEdit, onCreate, onContinue, onLoadTasksForProject, onGoToProjects,
 }) => {
   const { ensureRangeLoaded } = useDataRange();
   const { targetHours } = useWeeklyTarget();
@@ -241,17 +243,27 @@ export const TimesheetPage: React.FC<Props> = ({
       {filteredEntries.length === 0 ? (
         <div className="timesheet__empty">
           <IconClock size={44} className="timesheet__empty-icon" />
+          {/* With zero projects, both the timer and the entry modal are dead
+              ends (nothing to select) — steer first-run users to Projects. */}
           <p>
             {entries.length === 0
-              ? "No time entries yet. Start the timer or add one manually."
+              ? projects.length === 0
+                ? "Welcome! Create your first project, then track time against it."
+                : "No time entries yet. Start the timer or add one manually."
               : hasActiveFilter
                 ? "Nothing matches these filters."
                 : "No entries in this range. Pick a wider window above."}
           </p>
           {entries.length === 0 && (
-            <button className="btn-primary btn-icon" onClick={openNew}>
-              <IconPlus /> Add your first entry
-            </button>
+            projects.length === 0 && onGoToProjects ? (
+              <button className="btn-primary btn-icon" onClick={onGoToProjects}>
+                <IconPlus /> Create a project
+              </button>
+            ) : (
+              <button className="btn-primary btn-icon" onClick={openNew}>
+                <IconPlus /> Add your first entry
+              </button>
+            )
           )}
         </div>
       ) : (

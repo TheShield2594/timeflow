@@ -575,6 +575,21 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     }
   }, [minutesFromClientY, onEdit]);
 
+  // Escape drops an in-progress drag-create or drag-resize instead of
+  // letting the eventual pointerup commit a span the user regrets. The
+  // stray pointerup that follows is harmless: both handlers no-op once
+  // their drag state is cleared.
+  useEffect(() => {
+    if (!dragCreate && !resizePreview) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setDragCreate(null);
+      handleResizeCancel();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [dragCreate, resizePreview, handleResizeCancel]);
+
   // Move the roving-tabindex focus to a clamped (row, col) slot cell and
   // imperatively focus its DOM node (arrow keys don't trigger React re-focus).
   const moveFocus = (row: number, col: number) => {

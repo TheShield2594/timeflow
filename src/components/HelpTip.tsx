@@ -30,7 +30,14 @@ export const HelpTip: React.FC<Props> = ({ text, label }) => {
 
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    // Capture phase + stopPropagation so Escape closes just this popover.
+    // Without it, a host dialog's own window-level Escape handler (e.g.
+    // EntryModal) fires too and tears down the whole form underneath us.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      setOpen(false);
+    };
     // mousedown, not click — so this fires before the click that opened it
     // (from a different trigger) could otherwise immediately reopen it.
     const onOutside = (e: MouseEvent) => {
@@ -45,11 +52,11 @@ export const HelpTip: React.FC<Props> = ({ text, label }) => {
       if (btnRef.current?.contains(target) || popoverRef.current?.contains(target)) return;
       setOpen(false);
     };
-    window.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
     window.addEventListener("mousedown", onOutside);
     window.addEventListener("focusin", onFocusIn);
     return () => {
-      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("mousedown", onOutside);
       window.removeEventListener("focusin", onFocusIn);
     };

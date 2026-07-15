@@ -57,12 +57,13 @@ interface Props {
   onDeleteTask: (task: Task) => void;
   onRenameTask: (task: Task, newName: string) => Promise<void>;
   onLoadTasksForProject: (projectId: string) => void;
+  onGoToProjects?: () => void;
 }
 
 export const PageRouter: React.FC<Props> = ({
   page, loading, rangeLoading, entries, projects, tasks, totalMinutesByProject, timerBusy,
   onDelete, onEdit, onCreate, onContinue, onAddProject, onEditProject,
-  onArchiveProject, onRestoreProject, onAddTask, onDeleteTask, onRenameTask, onLoadTasksForProject,
+  onArchiveProject, onRestoreProject, onAddTask, onDeleteTask, onRenameTask, onLoadTasksForProject, onGoToProjects,
 }) => {
   if (loading) {
     return page === "reports" ? <ReportsSkeleton /> : <PageSkeleton />;
@@ -81,6 +82,7 @@ export const PageRouter: React.FC<Props> = ({
         onCreate={onCreate}
         onContinue={onContinue}
         onLoadTasksForProject={onLoadTasksForProject}
+        onGoToProjects={onGoToProjects}
       />
     );
   }
