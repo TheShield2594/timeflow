@@ -18,6 +18,7 @@ interface Props {
   projects: Project[];
   tasks: Task[];
   timerBusy?: boolean;
+  rangeLoading?: boolean;
   onDelete: (id: string) => void;
   onEdit: (id: string, data: Partial<TimeEntry>) => Promise<TimeEntry>;
   onCreate: (data: Omit<TimeEntry, "id">) => Promise<TimeEntry>;
@@ -67,7 +68,7 @@ function newEntryDraft(): EntryDraft {
 }
 
 export const TimesheetPage: React.FC<Props> = ({
-  entries, projects, tasks, timerBusy, onDelete, onEdit, onCreate, onContinue, onLoadTasksForProject,
+  entries, projects, tasks, timerBusy, rangeLoading, onDelete, onEdit, onCreate, onContinue, onLoadTasksForProject,
 }) => {
   const { ensureRangeLoaded } = useDataRange();
   const { targetHours } = useWeeklyTarget();
@@ -163,6 +164,7 @@ export const TimesheetPage: React.FC<Props> = ({
           presets={[...TIMESHEET_PRESETS]}
           value={rangeState}
           onChange={setRangeState}
+          loading={rangeLoading}
           info={
             rangeState.preset === "custom" && rangeState.customFrom && rangeState.customTo
               ? `${filteredEntries.length} entries · ${formatMinutes(totalMinutes)} total`

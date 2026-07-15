@@ -1,17 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TimeEntry, Project, Task } from "../types";
 import { getCurrentUser } from "../services/userService";
-import { localDateStr, minutesOfDay, toTimeInput } from "../utils/dates";
+import { addDaysStr, localDateStr, minutesOfDay, toTimeInput } from "../utils/dates";
 import { formatMinutes } from "../hooks";
 import { useDataRange } from "../contexts/DataRangeContext";
 import { useWeeklyTarget } from "../hooks/useWeeklyTarget";
 import { EntryModal, EntryDraft, EntrySaveData } from "./EntryModal";
 import { IconCheck, IconChevronLeft, IconChevronRight, IconPencil, IconX } from "./Icons";
+import { RangeSpinner } from "./RangeSpinner";
 
 interface Props {
   entries: TimeEntry[];
   projects: Project[];
   tasks: Task[];
+  rangeLoading?: boolean;
   onCreateEntry: (data: Omit<TimeEntry, "id">) => Promise<TimeEntry>;
   onEdit: (id: string, data: Partial<TimeEntry>) => Promise<TimeEntry>;
   onDelete: (id: string) => void;
@@ -31,6 +33,9 @@ const TOTAL_SLOTS = 24 * SLOTS_PER_HOUR;
 const PX_PER_MIN = SLOT_HEIGHT / 30;
 const SCROLL_TO_HOUR = 7;
 const MIN_ENTRY_PX = 22;
+// Drag-resize snaps to quarter-hour steps and can't shrink an entry below this.
+const RESIZE_SNAP_MIN = 15;
+const MIN_RESIZE_DURATION_MIN = 15;
 
 function getWeekDays(anchor: Date): Date[] {
   const days: Date[] = [];
@@ -48,6 +53,14 @@ function formatHour(h: number): string {
   const suffix = h >= 12 ? "PM" : "AM";
   const display = h > 12 ? h - 12 : h === 0 ? 12 : h;
   return `${display} ${suffix}`;
+}
+
+// Combine a date string with a minutes-of-day offset into an ISO timestamp,
+// the same way EntryModal builds startTime/endTime from date + "HH:MM".
+function isoAtMinutes(dateStr: string, minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return new Date(`${dateStr}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`).toISOString();
 }
 
 // Describe a 30-min slot index (0-47) as a time, for gridcell aria-labels.
@@ -111,6 +124,7 @@ interface EntryBlockProps {
   startMin: number;
   endMin: number;
   running: boolean;
+  resizable: boolean;
   col: number;
   cols: number;
   color: string;
@@ -118,6 +132,10 @@ interface EntryBlockProps {
   taskName?: string;
   onClick: (e: React.MouseEvent, entry: TimeEntry) => void;
   onKeyDown: (e: React.KeyboardEvent, entry: TimeEntry) => void;
+  onResizeStart: (e: React.PointerEvent, entry: TimeEntry, edge: "start" | "end") => void;
+  onResizeMove: (e: React.PointerEvent) => void;
+  onResizeEnd: (e: React.PointerEvent) => void;
+  onResizeCancel: () => void;
 }
 
 /** "23h 30m / 40h" progress vs the weekly target, with an inline editor.
@@ -196,7 +214,8 @@ const WeekTargetProgress: React.FC<{ weekMinutes: number }> = ({ weekMinutes }) 
 };
 
 const CalendarEntryBlock = React.memo<EntryBlockProps>(({
-  entry, startMin, endMin, running, col, cols, color, projectName, taskName, onClick, onKeyDown,
+  entry, startMin, endMin, running, resizable, col, cols, color, projectName, taskName,
+  onClick, onKeyDown, onResizeStart, onResizeMove, onResizeEnd, onResizeCancel,
 }) => {
   const top = startMin * PX_PER_MIN;
   const height = Math.max((endMin - startMin) * PX_PER_MIN - 2, MIN_ENTRY_PX);
@@ -218,8 +237,19 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
       role="button"
       tabIndex={0}
       aria-label={`${running ? "Running session" : "Edit entry"}: ${entry.description || projectName || "Untitled"}`}
-      title={running ? "Timer running" : "Click to edit"}
+      title={running ? "Timer running" : "Click to edit, or drag the top/bottom edge to resize"}
     >
+      {resizable && (
+        <div
+          className="cal-entry__handle cal-entry__handle--top"
+          aria-hidden="true"
+          onPointerDown={(e) => onResizeStart(e, entry, "start")}
+          onPointerMove={onResizeMove}
+          onPointerUp={onResizeEnd}
+          onPointerCancel={onResizeCancel}
+          onClick={(e) => e.stopPropagation()}
+        />
+      )}
       <div className="cal-entry__name" style={{ color }}>
         {entry.description || projectName || "Untitled"}
       </div>
@@ -235,12 +265,23 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
             : new Date(entry.endTime!).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })}
         </div>
       )}
+      {resizable && (
+        <div
+          className="cal-entry__handle cal-entry__handle--bottom"
+          aria-hidden="true"
+          onPointerDown={(e) => onResizeStart(e, entry, "end")}
+          onPointerMove={onResizeMove}
+          onPointerUp={onResizeEnd}
+          onPointerCancel={onResizeCancel}
+          onClick={(e) => e.stopPropagation()}
+        />
+      )}
     </div>
   );
 });
 CalendarEntryBlock.displayName = "CalendarEntryBlock";
 
-export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCreateEntry, onEdit, onDelete, onLoadTasksForProject }) => {
+export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeLoading, onCreateEntry, onEdit, onDelete, onLoadTasksForProject }) => {
   const { ensureRangeLoaded } = useDataRange();
   const [anchor, setAnchor] = useState(() => new Date());
   const weekDays = useMemo(() => getWeekDays(anchor), [anchor]);
@@ -254,6 +295,10 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
     return () => mq.removeEventListener("change", handler);
   }, []);
   const bodyRef = useRef<HTMLDivElement>(null);
+  // The CSS Grid container itself (48 rows × 36px) — its bounding rect gives
+  // us a scroll-aware, column-agnostic reference point for turning a pointer
+  // Y coordinate into a slot row or minutes-of-day during drag/resize.
+  const gridRef = useRef<HTMLDivElement>(null);
 
   // Re-render once a minute so the now-line, the running entry's height and
   // the "today" highlight stay current during long-lived sessions.
@@ -383,18 +428,25 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
   const nowTop = (now.getHours() * 60 + now.getMinutes()) * PX_PER_MIN;
 
   // Open the create modal for a day, starting at the given minutes-of-day.
-  const openCreate = (dayStr: string, totalMins: number) => {
-    const hour = Math.floor(totalMins / 60);
-    const minute = totalMins % 60;
-    const endTotalMins = Math.min(totalMins + 60, 24 * 60 - 30);
-    const endHr = Math.floor(endTotalMins / 60);
+  // A click (or keyboard Enter) on a single slot has no explicit end, so it
+  // defaults to a 1-hour block; a drag passes its own dragged-out end.
+  const openCreate = (dayStr: string, startTotalMins: number, endTotalMinsArg?: number) => {
+    const hour = Math.floor(startTotalMins / 60);
+    const minute = startTotalMins % 60;
+    const endTotalMins = endTotalMinsArg !== undefined
+      ? Math.min(endTotalMinsArg, 24 * 60)
+      : Math.min(startTotalMins + 60, 24 * 60 - 30);
+    // 24*60 means "midnight, end of day" — EntryModal already treats an
+    // endTime of "00:00" as next-day midnight (see its overnight handling).
+    const atMidnight = endTotalMins >= 24 * 60;
+    const endHr = Math.floor(endTotalMins / 60) % 24;
     const endMin = endTotalMins % 60;
     setModal({
       editingId: null,
       draft: {
         date: dayStr,
         startTime: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
-        endTime: `${String(endHr).padStart(2, "0")}:${String(endMin).padStart(2, "0")}`,
+        endTime: atMidnight ? "00:00" : `${String(endHr).padStart(2, "0")}:${String(endMin).padStart(2, "0")}`,
         description: "",
         projectId: "",
         taskId: "",
@@ -404,6 +456,125 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
     });
   };
 
+  // ── Drag-to-create ──────────────────────────────────────────────────
+  // Pointer-captured drag across slot cells in a single day column: press
+  // on an empty slot, drag to extend the range, release to open the create
+  // modal pre-filled with the dragged span. A drag that never moves behaves
+  // exactly like the old plain click (openCreate's default +1h).
+  const [dragCreate, setDragCreate] = useState<{ dayStr: string; dayIdx: number; fromRow: number; toRow: number } | null>(null);
+
+  const rowFromClientY = useCallback((clientY: number) => {
+    const rect = gridRef.current?.getBoundingClientRect();
+    if (!rect) return 0;
+    const row = Math.floor((clientY - rect.top) / SLOT_HEIGHT);
+    return Math.max(0, Math.min(row, TOTAL_SLOTS - 1));
+  }, []);
+
+  const minutesFromClientY = useCallback((clientY: number) => {
+    const rect = gridRef.current?.getBoundingClientRect();
+    if (!rect) return 0;
+    const raw = (clientY - rect.top) / PX_PER_MIN;
+    const snapped = Math.round(raw / RESIZE_SNAP_MIN) * RESIZE_SNAP_MIN;
+    return Math.max(0, Math.min(snapped, 24 * 60));
+  }, []);
+
+  const handleSlotPointerDown = (e: React.PointerEvent<HTMLDivElement>, dayStr: string, row: number, col: number) => {
+    if (e.button !== 0) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setFocusedCell({ row, col });
+    setDragCreate({ dayStr, dayIdx: col, fromRow: row, toRow: row });
+  };
+
+  const handleSlotPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragCreate) return;
+    setDragCreate((prev) => (prev ? { ...prev, toRow: rowFromClientY(e.clientY) } : prev));
+  };
+
+  const handleSlotPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragCreate) return;
+    const toRow = rowFromClientY(e.clientY);
+    const fromRow = Math.min(dragCreate.fromRow, toRow);
+    const lastRow = Math.max(dragCreate.fromRow, toRow);
+    const dayStr = dragCreate.dayStr;
+    setDragCreate(null);
+    if (fromRow === lastRow) {
+      openCreate(dayStr, fromRow * 30);
+    } else {
+      openCreate(dayStr, fromRow * 30, (lastRow + 1) * 30);
+    }
+  };
+
+  // A cancelled pointer (e.g. an OS gesture interrupts the drag) should just
+  // drop the in-progress drag, not silently open the create modal.
+  const handleSlotPointerCancel = () => setDragCreate(null);
+
+  // ── Drag-to-resize ──────────────────────────────────────────────────
+  // Same pointer-capture approach, applied to a handle at an entry block's
+  // top/bottom edge instead of a slot cell. Live-previews just the one
+  // entry being resized rather than re-running the day's column layout.
+  const [resizePreview, setResizePreview] = useState<{ entryId: string; edge: "start" | "end"; minutes: number } | null>(null);
+  const resizingRef = useRef<{ entry: TimeEntry; edge: "start" | "end" } | null>(null);
+
+  const handleResizeStart = (e: React.PointerEvent, entry: TimeEntry, edge: "start" | "end") => {
+    if (e.button !== 0 || !entry.endTime) return;
+    // Entries clamped to 24:00 because they cross midnight aren't resizable
+    // here — their real end lives on the next calendar day.
+    if (localDateStr(new Date(entry.endTime)) > entry.date) return;
+    e.stopPropagation();
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    resizingRef.current = { entry, edge };
+    const minutes = edge === "start" ? minutesOfDay(entry.startTime) : minutesOfDay(entry.endTime);
+    setResizePreview({ entryId: entry.id, edge, minutes });
+  };
+
+  const handleResizeMove = (e: React.PointerEvent) => {
+    const state = resizingRef.current;
+    if (!state) return;
+    const { entry, edge } = state;
+    const startMinutes = minutesOfDay(entry.startTime);
+    const endMinutes = minutesOfDay(entry.endTime!);
+    const raw = minutesFromClientY(e.clientY);
+    const minutes = edge === "start"
+      ? Math.max(0, Math.min(raw, endMinutes - MIN_RESIZE_DURATION_MIN))
+      : Math.max(startMinutes + MIN_RESIZE_DURATION_MIN, Math.min(raw, 24 * 60));
+    setResizePreview({ entryId: entry.id, edge, minutes });
+  };
+
+  const handleResizeCancel = () => {
+    resizingRef.current = null;
+    setResizePreview(null);
+  };
+
+  const handleResizeEnd = async (e: React.PointerEvent) => {
+    const state = resizingRef.current;
+    resizingRef.current = null;
+    setResizePreview(null);
+    if (!state) return;
+    const { entry, edge } = state;
+    const startMinutes = minutesOfDay(entry.startTime);
+    const endMinutes = minutesOfDay(entry.endTime!);
+    const raw = minutesFromClientY(e.clientY);
+    if (edge === "start") {
+      const newStart = Math.max(0, Math.min(raw, endMinutes - MIN_RESIZE_DURATION_MIN));
+      if (newStart === startMinutes) return;
+      await onEdit(entry.id, {
+        startTime: isoAtMinutes(entry.date, newStart),
+        durationMinutes: endMinutes - newStart,
+      });
+    } else {
+      const newEnd = Math.max(startMinutes + MIN_RESIZE_DURATION_MIN, Math.min(raw, 24 * 60));
+      if (newEnd === endMinutes) return;
+      const endIso = newEnd >= 24 * 60
+        ? new Date(`${addDaysStr(entry.date, 1)}T00:00:00`).toISOString()
+        : isoAtMinutes(entry.date, newEnd);
+      await onEdit(entry.id, {
+        endTime: endIso,
+        durationMinutes: newEnd - startMinutes,
+      });
+    }
+  };
+
   // Move the roving-tabindex focus to a clamped (row, col) slot cell and
   // imperatively focus its DOM node (arrow keys don't trigger React re-focus).
   const moveFocus = (row: number, col: number) => {
@@ -411,12 +582,6 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
     const clampedCol = Math.max(0, Math.min(col, weekDays.length - 1));
     setFocusedCell({ row: clampedRow, col: clampedCol });
     cellRefs.current.get(`${clampedRow}-${clampedCol}`)?.focus();
-  };
-
-  // Click an empty slot cell → create at that exact slot.
-  const handleCellClick = (dayStr: string, row: number, col: number) => {
-    setFocusedCell({ row, col });
-    openCreate(dayStr, row * 30);
   };
 
   // Arrow keys move the grid cursor; Enter/Space create at the focused slot.
@@ -516,6 +681,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
             <h2 className="calendar__title">{monthLabel}</h2>
             <span className="calendar__week-total">{formatMinutes(weekTotal)} this week</span>
             <WeekTargetProgress weekMinutes={weekTotal} />
+            {rangeLoading && <RangeSpinner label="Loading this week's entries…" />}
           </div>
           <div className="calendar__nav">
             <button className="cal-nav-btn" onClick={prevWeek} aria-label="Previous week">
@@ -594,7 +760,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
       {/* ── Grid ── */}
       <div className="calendar__grid-wrap">
       <div className="calendar__body" ref={bodyRef}>
-        <div className="calendar__grid" role="grid" aria-label="Week calendar" aria-rowcount={TOTAL_SLOTS} aria-colcount={weekDays.length}>
+        <div className="calendar__grid" ref={gridRef} role="grid" aria-label="Week calendar" aria-rowcount={TOTAL_SLOTS} aria-colcount={weekDays.length}>
           {/* Time gutter */}
           <div className="calendar__time-col" aria-hidden="true">
             {timeSlots.map(({ hour, half }, i) => (
@@ -635,13 +801,18 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
                 {dayEntries.map(({ entry, startMin, endMin, running, col, cols }) => {
                   const project = projects.find((p) => p.id === entry.projectId);
                   const task = tasks.find((t) => t.id === entry.taskId);
+                  const resizable = !running && !!entry.endTime && localDateStr(new Date(entry.endTime)) <= entry.date;
+                  const isResizing = resizePreview?.entryId === entry.id;
+                  const effStartMin = isResizing && resizePreview!.edge === "start" ? resizePreview!.minutes : startMin;
+                  const effEndMin = isResizing && resizePreview!.edge === "end" ? resizePreview!.minutes : endMin;
                   return (
                     <CalendarEntryBlock
                       key={entry.id}
                       entry={entry}
-                      startMin={startMin}
-                      endMin={endMin}
+                      startMin={effStartMin}
+                      endMin={effEndMin}
                       running={running}
+                      resizable={resizable}
                       col={col}
                       cols={cols}
                       color={project?.color || "#6366f1"}
@@ -649,9 +820,26 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
                       taskName={task?.name}
                       onClick={handleEntryClick}
                       onKeyDown={handleEntryKeyDown}
+                      onResizeStart={handleResizeStart}
+                      onResizeMove={handleResizeMove}
+                      onResizeEnd={handleResizeEnd}
+                      onResizeCancel={handleResizeCancel}
                     />
                   );
                 })}
+
+                {/* Live preview while dragging out a new entry's time range */}
+                {dragCreate && dragCreate.dayIdx === dayIdx && (() => {
+                  const lo = Math.min(dragCreate.fromRow, dragCreate.toRow);
+                  const hi = Math.max(dragCreate.fromRow, dragCreate.toRow);
+                  return (
+                    <div
+                      className="cal-drag-preview"
+                      aria-hidden="true"
+                      style={{ top: `${lo * SLOT_HEIGHT}px`, height: `${(hi - lo + 1) * SLOT_HEIGHT}px` }}
+                    />
+                  );
+                })()}
               </div>
             );
           })}
@@ -676,8 +864,11 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, onCrea
                     data-today={isToday ? "true" : undefined}
                     style={{ gridRow: row + 1, gridColumn: col + 2 }}
                     tabIndex={isFocused ? 0 : -1}
-                    aria-label={`${formatSlotTime(row)} on ${day.toLocaleDateString("en", { weekday: "long", month: "long", day: "numeric" })}`}
-                    onClick={() => handleCellClick(ds, row, col)}
+                    aria-label={`${formatSlotTime(row)} on ${day.toLocaleDateString("en", { weekday: "long", month: "long", day: "numeric" })} — click, or drag to set a time range`}
+                    onPointerDown={(e) => handleSlotPointerDown(e, ds, row, col)}
+                    onPointerMove={handleSlotPointerMove}
+                    onPointerUp={handleSlotPointerUp}
+                    onPointerCancel={handleSlotPointerCancel}
                     onKeyDown={(e) => handleCellKeyDown(e, row, col, ds)}
                     onFocus={() => setFocusedCell({ row, col })}
                   />

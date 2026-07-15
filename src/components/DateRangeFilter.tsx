@@ -1,5 +1,6 @@
 import React from "react";
 import { localDateStr } from "../utils/dates";
+import { RangeSpinner } from "./RangeSpinner";
 
 export type DateRangePreset = "7d" | "30d" | "90d" | "thisMonth" | "all" | "custom";
 
@@ -53,6 +54,8 @@ interface Props {
   onChange: (next: DateRangeState) => void;
   rightSlot?: React.ReactNode;
   info?: React.ReactNode;
+  /** Wider range is being fetched in the background — show an inline indicator. */
+  loading?: boolean;
 }
 
 const DEFAULT_PRESETS: DateRangePreset[] = ["7d", "30d", "thisMonth"];
@@ -63,6 +66,7 @@ export const DateRangeFilter: React.FC<Props> = ({
   onChange,
   rightSlot,
   info,
+  loading,
 }) => {
   const showCustom = value.preset === "custom";
 
@@ -89,6 +93,7 @@ export const DateRangeFilter: React.FC<Props> = ({
           >
             Custom
           </button>
+          {loading && <RangeSpinner label="Loading the wider date range…" />}
         </div>
         {rightSlot}
       </div>

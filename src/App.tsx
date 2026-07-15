@@ -104,7 +104,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
 
   const { projects, addProject, editProject, archiveProject, restoreProject } = useProjects();
   const { tasks, addTask, deleteTask, restoreTask, renameTask, loadTasksForProject } = useTasks();
-  const { entries, loading, deleteEntry, editEntry, createEntry, refresh } = useTimeEntries(from, to);
+  const { entries, loading, isFetching, deleteEntry, editEntry, createEntry, refresh } = useTimeEntries(from, to);
 
   const handleNewEntry = useCallback(
     (_entry: TimeEntry) => { refresh(); },
@@ -282,6 +282,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
           <PageRouter
             page={page}
             loading={loading}
+            rangeLoading={isFetching && !loading}
             entries={entries}
             projects={projects}
             tasks={tasks}

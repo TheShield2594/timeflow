@@ -39,6 +39,7 @@ export const ReportsSkeleton: React.FC = () => (
 interface Props {
   page: Page;
   loading: boolean;
+  rangeLoading: boolean;
   entries: TimeEntry[];
   projects: Project[];
   tasks: Task[];
@@ -59,7 +60,7 @@ interface Props {
 }
 
 export const PageRouter: React.FC<Props> = ({
-  page, loading, entries, projects, tasks, totalMinutesByProject, timerBusy,
+  page, loading, rangeLoading, entries, projects, tasks, totalMinutesByProject, timerBusy,
   onDelete, onEdit, onCreate, onContinue, onAddProject, onEditProject,
   onArchiveProject, onRestoreProject, onAddTask, onDeleteTask, onRenameTask, onLoadTasksForProject,
 }) => {
@@ -74,6 +75,7 @@ export const PageRouter: React.FC<Props> = ({
         projects={projects}
         tasks={tasks}
         timerBusy={timerBusy}
+        rangeLoading={rangeLoading}
         onDelete={onDelete}
         onEdit={onEdit}
         onCreate={onCreate}
@@ -89,6 +91,7 @@ export const PageRouter: React.FC<Props> = ({
         entries={entries}
         projects={projects}
         tasks={tasks}
+        rangeLoading={rangeLoading}
         onCreateEntry={onCreate}
         onEdit={onEdit}
         onDelete={onDelete}
@@ -103,6 +106,7 @@ export const PageRouter: React.FC<Props> = ({
         entries={entries}
         projects={projects}
         tasks={tasks}
+        rangeLoading={rangeLoading}
       />
     );
   }

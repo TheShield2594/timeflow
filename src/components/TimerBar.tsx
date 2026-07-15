@@ -1,9 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { Project, Task } from "../types";
 import { formatElapsed, parseRatioInput } from "../hooks";
+import { HelpTip } from "./HelpTip";
 import { IconCheck, IconPlay, IconStop, IconX } from "./Icons";
 
 const NEW_TASK_OPTION = "__new_task__";
+
+// The hover `title` alone is invisible on touch and to keyboard-only/screen-
+// reader users, so the shortcut also gets a persistent on-screen hint.
+const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPod|iPad/.test(navigator.platform);
+const SHORTCUT_HINT = IS_MAC ? "⌘." : "Ctrl+.";
 
 interface Props {
   projects: Project[];
@@ -140,18 +146,22 @@ export const TimerBar: React.FC<Props> = ({
         />
 
         {/* Ratio input */}
-        <input
-          className="timer-bar__ratio"
-          type="number"
-          step="1"
-          min="0"
-          placeholder="Ratio"
-          value={isRunning ? (ratio !== undefined ? String(ratio) : "") : ratioInput}
-          onChange={(e) => {
-            if (isRunning) onUpdate({ ratio: parseRatio(e.target.value) });
-            else setRatioInput(e.target.value);
-          }}
-        />
+        <div className="timer-bar__ratio-group">
+          <input
+            className="timer-bar__ratio"
+            type="number"
+            step="1"
+            min="0"
+            placeholder="Ratio"
+            aria-label="Billing ratio — identifies which account this entry's time is billed to"
+            value={isRunning ? (ratio !== undefined ? String(ratio) : "") : ratioInput}
+            onChange={(e) => {
+              if (isRunning) onUpdate({ ratio: parseRatio(e.target.value) });
+              else setRatioInput(e.target.value);
+            }}
+          />
+          <HelpTip label="What is Ratio?" text="Billing ratio — tells billing which account/rate this entry's time is billed to. Leave blank if not applicable." />
+        </div>
 
         {/* Project selector */}
         <div className="timer-bar__selectors">
@@ -262,6 +272,7 @@ export const TimerBar: React.FC<Props> = ({
               aria-label={isRunning ? "Stop timer" : "Start timer"}
             >
               {isRunning ? <><IconStop /> Stop</> : <><IconPlay /> Start</>}
+              <kbd className="timer-bar__shortcut-hint" aria-hidden="true">{SHORTCUT_HINT}</kbd>
             </button>
           )}
         </div>
