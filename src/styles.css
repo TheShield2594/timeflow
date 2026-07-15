@@ -405,15 +405,18 @@ input, select { font-family: inherit; }
 /* Inline indicator for a background fetch (e.g. widening the loaded date
    range) — content already on screen stays put, this just signals "more
    is coming" next to the control that triggered it. */
+/* No CSS border ring here: the icon draws its own circle, and a second
+   border-circle around it can't stay concentric at fractional device-pixel
+   ratios (a 1.5px border rounds asymmetrically). One SVG ring only. */
 .help-tip__btn {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 16px; height: 16px; flex-shrink: 0;
-  border-radius: 50%; border: 1.5px solid var(--border);
+  width: 18px; height: 18px; flex-shrink: 0;
+  border-radius: 50%;
   color: var(--text-faint);
-  transition: color 0.15s, border-color 0.15s;
+  transition: color 0.15s;
 }
 .help-tip__btn:hover, .help-tip__btn[aria-expanded="true"] {
-  color: var(--ev-green); border-color: var(--ev-green);
+  color: var(--ev-green);
 }
 .help-tip__popover {
   position: fixed;

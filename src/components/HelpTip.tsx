@@ -85,7 +85,7 @@ export const HelpTip: React.FC<Props> = ({ text, label }) => {
         aria-describedby={open ? popoverId : undefined}
         onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
       >
-        <IconHelp size={13} />
+        <IconHelp size={16} />
       </button>
       {open && createPortal(
         <div
