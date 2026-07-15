@@ -242,6 +242,7 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
       {resizable && (
         <div
           className="cal-entry__handle cal-entry__handle--top"
+          style={{ color }}
           aria-hidden="true"
           onPointerDown={(e) => onResizeStart(e, entry, "start")}
           onPointerMove={onResizeMove}
@@ -268,6 +269,7 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
       {resizable && (
         <div
           className="cal-entry__handle cal-entry__handle--bottom"
+          style={{ color }}
           aria-hidden="true"
           onPointerDown={(e) => onResizeStart(e, entry, "end")}
           onPointerMove={onResizeMove}
@@ -574,6 +576,25 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
       });
     }
   }, [minutesFromClientY, onEdit]);
+
+  // Escape drops an in-progress drag-create or drag-resize instead of
+  // letting the eventual pointerup commit a span the user regrets. The
+  // stray pointerup that follows is harmless: both handlers no-op once
+  // their drag state is cleared.
+  useEffect(() => {
+    if (!dragCreate && !resizePreview) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      // Consume the keystroke: this Escape means "cancel the drag", and it
+      // must not double as input to any other window-level handler.
+      e.preventDefault();
+      e.stopPropagation();
+      setDragCreate(null);
+      handleResizeCancel();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [dragCreate, resizePreview, handleResizeCancel]);
 
   // Move the roving-tabindex focus to a clamped (row, col) slot cell and
   // imperatively focus its DOM node (arrow keys don't trigger React re-focus).

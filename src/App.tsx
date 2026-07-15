@@ -236,6 +236,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
               className={`sidebar__link ${page === key ? "sidebar__link--active" : ""}`}
               onClick={() => setPage(key)}
               title={label}
+              aria-current={page === key ? "page" : undefined}
             >
               <span className="sidebar__link-icon">{icon}</span>
               <span className="sidebar__link-label">{label}</span>
@@ -300,6 +301,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
             onDeleteTask={deleteTaskWithUndo}
             onRenameTask={renameTask}
             onLoadTasksForProject={loadTasksForProject}
+            onGoToProjects={() => setPage("projects")}
           />
         </div>
       </div>

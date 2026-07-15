@@ -405,15 +405,18 @@ input, select { font-family: inherit; }
 /* Inline indicator for a background fetch (e.g. widening the loaded date
    range) — content already on screen stays put, this just signals "more
    is coming" next to the control that triggered it. */
+/* No CSS border ring here: the icon draws its own circle, and a second
+   border-circle around it can't stay concentric at fractional device-pixel
+   ratios (a 1.5px border rounds asymmetrically). One SVG ring only. */
 .help-tip__btn {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 16px; height: 16px; flex-shrink: 0;
-  border-radius: 50%; border: 1.5px solid var(--border);
+  width: 18px; height: 18px; flex-shrink: 0;
+  border-radius: 50%;
   color: var(--text-faint);
-  transition: color 0.15s, border-color 0.15s;
+  transition: color 0.15s;
 }
 .help-tip__btn:hover, .help-tip__btn[aria-expanded="true"] {
-  color: var(--ev-green); border-color: var(--ev-green);
+  color: var(--ev-green);
 }
 .help-tip__popover {
   position: fixed;
@@ -428,6 +431,15 @@ input, select { font-family: inherit; }
   line-height: 1.5;
   color: var(--text-muted);
   animation: rise-in 0.15s var(--ease);
+}
+/* Small diamond caret tying the bubble to its "?" trigger. */
+.help-tip__caret {
+  position: absolute; top: -5.5px;
+  width: 9px; height: 9px; margin-left: -4.5px;
+  transform: rotate(45deg);
+  background: var(--surface);
+  border-left: 1.5px solid var(--border);
+  border-top: 1.5px solid var(--border);
 }
 
 .visually-hidden {
@@ -655,10 +667,14 @@ input, select { font-family: inherit; }
   position: absolute; left: 0; right: 0; height: 7px;
   cursor: ns-resize; opacity: 0; touch-action: none;
 }
+/* Short centered grip pill (not a full-width line, which read as a stray
+   border). Colored via currentColor — the block sets it to the project accent. */
 .cal-entry__handle::after {
-  content: ''; position: absolute; left: 6px; right: 6px; top: 3px; height: 2px;
-  border-radius: 1px; background: currentColor;
+  content: ''; position: absolute; left: 50%; top: 2px;
+  width: 26px; height: 3px; margin-left: -13px;
+  border-radius: 2px; background: currentColor;
 }
+.cal-entry__handle--bottom::after { top: auto; bottom: 2px; }
 .cal-entry__handle--top { top: 0; }
 .cal-entry__handle--bottom { bottom: 0; }
 .cal-entry:hover .cal-entry__handle,

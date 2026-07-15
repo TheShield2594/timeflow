@@ -32,6 +32,36 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+describe("EntryModal help tip", () => {
+  it("Escape closes only the open help popover, keeping the modal (and its draft) alive", () => {
+    const onClose = vi.fn();
+    render(
+      <EntryModal
+        title="Log Time"
+        initial={{ ...baseDraft, endTime: "23:00" }}
+        projects={projects}
+        tasks={[]}
+        onSave={vi.fn()}
+        onClose={onClose}
+      />
+    );
+
+    fireEvent.click(screen.getByLabelText("What is Ratio?"));
+    expect(screen.getByRole("tooltip")).toBeTruthy();
+
+    // Keydown targets a descendant (as in a real browser, where the focused
+    // element receives it) — HelpTip's capture-phase handler must swallow it
+    // before EntryModal's own window-level Escape handler closes the modal.
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+
+    // With the popover gone, Escape reaches the modal again.
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("EntryModal overnight split — UTC+ timezone", () => {
   // Sydney is UTC+10 in July (no DST), the exact case the bug report
   // describes: local midnight converts to the *previous* UTC day.
