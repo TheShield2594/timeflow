@@ -1,11 +1,12 @@
 import React from "react";
+import { OverviewPage } from "./OverviewPage";
 import { TimesheetPage } from "./TimesheetPage";
 import { CalendarPage } from "./CalendarPage";
 import { ReportsPage } from "./ReportsPage";
 import { ProjectsPage } from "./ProjectsPage";
 import type { TimeEntry, Project, Task } from "../types";
 
-export type Page = "timesheet" | "calendar" | "reports" | "projects";
+export type Page = "overview" | "timesheet" | "calendar" | "reports" | "projects";
 
 /** Skeleton shown only on the very first data load — shaped like the timesheet. */
 export const PageSkeleton: React.FC = () => (
@@ -66,7 +67,20 @@ export const PageRouter: React.FC<Props> = ({
   onArchiveProject, onRestoreProject, onAddTask, onDeleteTask, onRenameTask, onLoadTasksForProject, onGoToProjects,
 }) => {
   if (loading) {
-    return page === "reports" ? <ReportsSkeleton /> : <PageSkeleton />;
+    return page === "reports" || page === "overview" ? <ReportsSkeleton /> : <PageSkeleton />;
+  }
+
+  if (page === "overview") {
+    return (
+      <OverviewPage
+        entries={entries}
+        projects={projects}
+        tasks={tasks}
+        timerBusy={timerBusy}
+        onContinue={onContinue}
+        onGoToProjects={onGoToProjects}
+      />
+    );
   }
 
   if (page === "timesheet") {

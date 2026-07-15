@@ -6,7 +6,8 @@ import { useWeeklyTarget } from "../hooks/useWeeklyTarget";
 import { getCurrentUser } from "../services/userService";
 import { friendlyDate, localDateStr, toTimeInput, weekStartStr } from "../utils/dates";
 import { EntryModal, EntryDraft, EntrySaveData } from "./EntryModal";
-import { IconClock, IconPencil, IconPlay, IconPlus, IconSearch, IconX } from "./Icons";
+import { EntryRow } from "./EntryRow";
+import { IconClock, IconPlus, IconSearch, IconX } from "./Icons";
 import {
   DateRangeFilter,
   DateRangeState,
@@ -43,10 +44,6 @@ function groupByDate(entries: TimeEntry[]): Map<string, TimeEntry[]> {
     map.get(e.date)!.push(e);
   });
   return map;
-}
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" });
 }
 
 /** Default draft for a new manual entry: the last full hour. Between 00:00
@@ -285,89 +282,16 @@ export const TimesheetPage: React.FC<Props> = ({
                   const task = tasks.find((t) => t.id === entry.taskId);
 
                   return (
-                    <div key={entry.id} className="entry-row">
-                      <div
-                        className="entry-row__accent"
-                        style={{ background: project?.color || "#6366f1" }}
-                      />
-                      <div className="entry-row__body">
-                        <div className="entry-row__top">
-                          <span className="entry-row__desc">
-                            {entry.description || <em className="entry-row__no-desc">No description</em>}
-                          </span>
-                          <div className="entry-row__badges">
-                            {project && (
-                              <span
-                                className="badge badge--project"
-                                style={{ "--pc": project.color } as React.CSSProperties}
-                              >
-                                {project.name}
-                              </span>
-                            )}
-                            {task && (
-                              <span className="badge badge--task">{task.name}</span>
-                            )}
-                            {entry.jiraTicket && (
-                              <span className="badge badge--task">{entry.jiraTicket}</span>
-                            )}
-                            {entry.ratio !== undefined && (
-                              <span className="badge badge--task">Ratio: {entry.ratio}</span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="entry-row__bottom">
-                          <span className="entry-row__times">
-                            {formatTime(entry.startTime)}
-                            {entry.endTime && <> – {formatTime(entry.endTime)}</>}
-                          </span>
-                          <span className="entry-row__duration">
-                            {entry.endTime
-                              ? formatMinutes(entry.durationMinutes ?? 0)
-                              : <span className="entry-row__running">Running…</span>
-                            }
-                          </span>
-                        </div>
-                      </div>
-                      {/* Running sessions are owned by the timer bar — only
-                          completed entries can be edited or deleted here.
-                          (Deleting the running draft row would strand the
-                          timer's stop in a 404-retry loop.) */}
-                      {entry.endTime && (
-                        <>
-                          {onContinue && (
-                            <button
-                              className="entry-row__continue"
-                              onClick={() => onContinue(entry)}
-                              disabled={timerBusy || !project?.isActive}
-                              title={
-                                timerBusy ? "Timer already running"
-                                  : !project?.isActive ? "Project is archived"
-                                  : "Continue — start the timer with this entry's project, task and description"
-                              }
-                              aria-label={`Continue working on ${entry.description || project?.name || "this entry"}`}
-                            >
-                              <IconPlay size={12} /> Continue
-                            </button>
-                          )}
-                          <button
-                            className="entry-row__edit"
-                            onClick={() => openEdit(entry)}
-                            title="Edit entry"
-                            aria-label="Edit entry"
-                          >
-                            <IconPencil />
-                          </button>
-                          <button
-                            className="entry-row__delete"
-                            onClick={() => onDelete(entry.id)}
-                            title="Delete entry"
-                            aria-label="Delete entry"
-                          >
-                            <IconX />
-                          </button>
-                        </>
-                      )}
-                    </div>
+                    <EntryRow
+                      key={entry.id}
+                      entry={entry}
+                      project={project}
+                      task={task}
+                      timerBusy={timerBusy}
+                      onContinue={onContinue}
+                      onEdit={openEdit}
+                      onDelete={onDelete}
+                    />
                   );
                 })}
               </div>

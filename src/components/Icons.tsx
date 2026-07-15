@@ -166,6 +166,19 @@ export const IconUndo: React.FC<IconProps> = ({ size = 14, className }) => (
   </svg>
 );
 
+export const IconHome: React.FC<IconProps> = ({ size = 18, className }) => (
+  <svg {...base(size, className)}>
+    <path d="M3 11.5 12 4l9 7.5" />
+    <path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9" />
+  </svg>
+);
+
+export const IconFlame: React.FC<IconProps> = ({ size = 18, className }) => (
+  <svg {...base(size, className)} fill="currentColor" stroke="none">
+    <path d="M12 2.5c1.2 2.7-2.4 4-2.4 7.4a2.4 2.4 0 0 0 4.8 0c0-1-.6-1.7-.6-1.7 1.7.9 2.7 2.8 2.7 4.6a4.5 4.5 0 0 1-9 0c0-4.6 3.8-6 4.5-10.3Z" />
+  </svg>
+);
+
 export const IconHelp: React.FC<IconProps> = ({ size = 14, className }) => (
   <svg {...base(size, className)}>
     <circle cx="12" cy="12" r="9" />

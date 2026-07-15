@@ -561,6 +561,7 @@ input, select { font-family: inherit; }
 .custom-range__info { margin-left: auto; font-size: 12px; color: var(--text-muted); font-family: var(--mono); }
 
 .reports__kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+.overview .reports__kpis { grid-template-columns: repeat(3, 1fr); }
 .kpi-card {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 16px 20px;
@@ -569,12 +570,57 @@ input, select { font-family: inherit; }
 .kpi-card__label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.7px; margin-bottom: 6px; }
 /* 24px/700 qualifies as large text — raw brand green passes at 3:1 */
 .kpi-card__value { font-size: 24px; font-weight: 700; font-family: var(--mono); letter-spacing: -0.5px; color: var(--ev-green); }
+.kpi-card__target { font-size: 15px; font-weight: 600; color: var(--text-muted); }
+.kpi-card__flame { color: var(--ev-pumpkin); vertical-align: -2px; margin-right: 3px; }
 
 .reports__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .report-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow-sm); }
 .report-card--wide { grid-column: 1 / -1; }
 .report-card__title { font-size: 11px; font-weight: 700; color: var(--ev-green-dark); text-transform: uppercase; letter-spacing: 0.9px; margin-bottom: 16px; }
 .report-card__empty { color: var(--text-faint); font-size: 13px; padding: 20px 0; text-align: center; }
+
+.overview__title { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
+
+/* =====================================================================
+   ACTIVITY HEATMAP (Overview page)
+   A GitHub/contribution-style grid — one cell per day, shaded by minutes
+   logged, most recent week on the right. Decorative supplement to the
+   KPI strip above it (see the .sr-only summary in the component).
+   ===================================================================== */
+.activity-heatmap-wrap { overflow-x: auto; }
+.activity-heatmap { display: flex; gap: 6px; width: max-content; }
+.activity-heatmap__rowlabels { display: flex; flex-direction: column; gap: 3px; padding-top: 18px; }
+.activity-heatmap__rowlabel { height: 11px; font-size: 9px; line-height: 11px; color: var(--text-faint); }
+.activity-heatmap__rowlabel--spacer { height: 14px; }
+.activity-heatmap__main { display: flex; flex-direction: column; gap: 4px; }
+.activity-heatmap__months {
+  display: grid;
+  grid-template-columns: repeat(var(--ah-cols), 14px);
+  height: 14px;
+}
+.activity-heatmap__month { font-size: 10px; color: var(--text-faint); font-weight: 600; }
+.activity-heatmap__grid {
+  display: grid;
+  grid-template-columns: repeat(var(--ah-cols), 11px);
+  grid-template-rows: repeat(7, 11px);
+  gap: 3px;
+}
+.activity-heatmap__cell { width: 11px; height: 11px; border-radius: 2.5px; }
+.activity-heatmap__cell--0 { background: var(--border); opacity: 0.5; }
+.activity-heatmap__cell--1 { background: var(--ev-green-soft); }
+.activity-heatmap__cell--2 { background: var(--ev-green-mid); }
+.activity-heatmap__cell--3 { background: color-mix(in srgb, var(--ev-green) 55%, var(--surface)); }
+.activity-heatmap__cell--4 { background: var(--ev-green); }
+.activity-heatmap__legend {
+  display: flex; align-items: center; gap: 4px; margin-top: 10px;
+  font-size: 11px; color: var(--text-faint);
+}
+.activity-heatmap__legend .activity-heatmap__cell { width: 10px; height: 10px; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
 
 .bar-chart { display: flex; align-items: flex-end; gap: 6px; height: 120px; }
 .bar-chart__col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; }
@@ -1139,7 +1185,7 @@ input, select { font-family: inherit; }
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-.timesheet, .reports, .projects-page, .calendar {
+.overview, .timesheet, .reports, .projects-page, .calendar {
   animation: rise-in 0.35s var(--ease);
 }
 .timesheet__day {

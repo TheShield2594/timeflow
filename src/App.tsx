@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback, useEffect, Component } from "rea
 import { TimerBar } from "./components/TimerBar";
 import { IdleModal } from "./components/IdleModal";
 import { PageRouter, Page } from "./components/PageRouter";
-import { IconTimesheet, IconCalendar, IconChart, IconFolder, IconMoon, IconSun } from "./components/Icons";
+import { IconHome, IconTimesheet, IconCalendar, IconChart, IconFolder, IconMoon, IconSun } from "./components/Icons";
 import { useProjects, useTasks, useTimeEntries, useTimer } from "./hooks";
 import { useActivityTracker, useTimerSafetyMonitor, MAX_DURATION_MS } from "./hooks/useTimerSafety";
 import { useAppBootstrap } from "./hooks/useAppBootstrap";
@@ -61,6 +61,7 @@ interface IdleAlert {
 }
 
 const NAV_ITEMS: { key: Page; label: string; icon: React.ReactNode }[] = [
+  { key: "overview", label: "Overview", icon: <IconHome /> },
   { key: "timesheet", label: "Timesheet", icon: <IconTimesheet /> },
   { key: "calendar", label: "Calendar", icon: <IconCalendar /> },
   { key: "reports", label: "Reports", icon: <IconChart /> },
@@ -92,7 +93,7 @@ const App: React.FC = () => {
 };
 
 const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ theme, onToggleTheme }) => {
-  const [page, setPage] = useState<Page>("timesheet");
+  const [page, setPage] = useState<Page>("overview");
   const [idleAlert, setIdleAlert] = useState<IdleAlert | null>(null);
   const toast = useToast();
   const { from, to } = useDataRange();
