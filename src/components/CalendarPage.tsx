@@ -585,6 +585,10 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     if (!dragCreate && !resizePreview) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      // Consume the keystroke: this Escape means "cancel the drag", and it
+      // must not double as input to any other window-level handler.
+      e.preventDefault();
+      e.stopPropagation();
       setDragCreate(null);
       handleResizeCancel();
     };

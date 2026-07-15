@@ -256,11 +256,11 @@ export const TimesheetPage: React.FC<Props> = ({
           </p>
           {entries.length === 0 && (
             projects.length === 0 && onGoToProjects ? (
-              <button className="btn-primary btn-icon" onClick={onGoToProjects}>
+              <button type="button" className="btn-primary btn-icon" onClick={onGoToProjects}>
                 <IconPlus /> Create a project
               </button>
             ) : (
-              <button className="btn-primary btn-icon" onClick={openNew}>
+              <button type="button" className="btn-primary btn-icon" onClick={openNew}>
                 <IconPlus /> Add your first entry
               </button>
             )
