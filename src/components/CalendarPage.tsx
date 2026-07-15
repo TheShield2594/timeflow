@@ -242,6 +242,7 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
       {resizable && (
         <div
           className="cal-entry__handle cal-entry__handle--top"
+          style={{ color }}
           aria-hidden="true"
           onPointerDown={(e) => onResizeStart(e, entry, "start")}
           onPointerMove={onResizeMove}
@@ -268,6 +269,7 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
       {resizable && (
         <div
           className="cal-entry__handle cal-entry__handle--bottom"
+          style={{ color }}
           aria-hidden="true"
           onPointerDown={(e) => onResizeStart(e, entry, "end")}
           onPointerMove={onResizeMove}

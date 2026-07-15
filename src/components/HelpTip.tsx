@@ -16,7 +16,7 @@ const POPOVER_WIDTH = 240;
  *  reachable on touch and doesn't get clipped by an ancestor's overflow. */
 export const HelpTip: React.FC<Props> = ({ text, label }) => {
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const [pos, setPos] = useState({ top: 0, left: 0, caretLeft: POPOVER_WIDTH / 2 });
   const btnRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const popoverId = useId();
@@ -24,8 +24,20 @@ export const HelpTip: React.FC<Props> = ({ text, label }) => {
   useLayoutEffect(() => {
     if (!open || !btnRef.current) return;
     const rect = btnRef.current.getBoundingClientRect();
-    const left = Math.min(rect.left, window.innerWidth - POPOVER_WIDTH - 12);
-    setPos({ top: rect.bottom + 6, left: Math.max(8, left) });
+    // Center the bubble on the trigger, clamped to the viewport — and to the
+    // host dialog when the tip lives inside one, so it never spills over the
+    // modal's edge onto the dimmed backdrop.
+    const host = btnRef.current.closest('[role="dialog"]')?.getBoundingClientRect();
+    const minLeft = host ? Math.max(8, host.left + 8) : 8;
+    const maxLeft = Math.min(host ? host.right : window.innerWidth, window.innerWidth) - POPOVER_WIDTH - 12;
+    const centered = rect.left + rect.width / 2 - POPOVER_WIDTH / 2;
+    const left = Math.max(minLeft, Math.min(centered, maxLeft));
+    setPos({
+      top: rect.bottom + 8,
+      left,
+      // Caret follows the trigger, kept clear of the bubble's rounded corners.
+      caretLeft: Math.max(12, Math.min(rect.left + rect.width / 2 - left, POPOVER_WIDTH - 12)),
+    });
   }, [open]);
 
   useEffect(() => {
@@ -83,6 +95,7 @@ export const HelpTip: React.FC<Props> = ({ text, label }) => {
           role="tooltip"
           style={{ top: pos.top, left: pos.left, width: POPOVER_WIDTH }}
         >
+          <span className="help-tip__caret" style={{ left: pos.caretLeft }} aria-hidden="true" />
           {text}
         </div>,
         document.body
