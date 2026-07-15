@@ -382,6 +382,13 @@ input, select { font-family: inherit; }
 
 .badge { padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .badge--task { background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border); }
+/* Project accent color (--pc), set inline per entry — see the dark-theme
+   override below for why this isn't just `color: var(--pc)` everywhere. */
+.badge--project {
+  background: color-mix(in srgb, var(--pc) 13%, transparent);
+  color: var(--pc);
+  border: 1px solid color-mix(in srgb, var(--pc) 27%, transparent);
+}
 
 /* =====================================================================
    REPORTS
@@ -661,7 +668,7 @@ input, select { font-family: inherit; }
    without ever leaving the rounded clip. */
 .cal-entry:hover { box-shadow: inset 0 0 0 999px rgba(0,0,0,0.08), var(--shadow); }
 .cal-entry--clickable { cursor: pointer; }
-.cal-entry__name { font-size: 11.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
+.cal-entry__name { font-size: 11.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; color: var(--pc); }
 .cal-entry__task { font-size: 10.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cal-entry__time { font-size: 10px; color: var(--text-muted); font-family: var(--mono); margin-top: 2px; }
 
@@ -672,6 +679,7 @@ input, select { font-family: inherit; }
 .cal-entry__handle {
   position: absolute; left: 0; right: 0; height: 7px;
   cursor: ns-resize; opacity: 0; touch-action: none;
+  color: var(--pc);
 }
 /* Short centered grip pill (not a full-width line, which read as a stray
    border). Colored via currentColor — the block sets it to the project accent. */
@@ -1619,3 +1627,15 @@ input, select { font-family: inherit; }
 }
 /* Deepen modal overlays so dialogs still separate from the page */
 :root[data-theme="dark"] .cal-modal-overlay { background: rgba(0,0,0,0.6); }
+/* Project accent colors (--pc) are arbitrary per-project hex, including dark
+   swatches like navy/forest chosen because they read fine as text on light
+   theme's white cards. On dark theme's near-black cards that same dark hex is
+   nearly indistinguishable from the background — the calendar entry's name
+   and its resize-handle grips would look like a plain dark box. Lighten
+   toward white so any project color stays legible, without needing to know
+   which specific swatch it is. */
+:root[data-theme="dark"] .cal-entry__name,
+:root[data-theme="dark"] .cal-entry__handle,
+:root[data-theme="dark"] .badge--project {
+  color: color-mix(in srgb, var(--pc) 65%, white 35%);
+}

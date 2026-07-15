@@ -298,8 +298,8 @@ export const TimesheetPage: React.FC<Props> = ({
                           <div className="entry-row__badges">
                             {project && (
                               <span
-                                className="badge"
-                                style={{ background: project.color + "22", color: project.color, border: `1px solid ${project.color}44` }}
+                                className="badge badge--project"
+                                style={{ "--pc": project.color } as React.CSSProperties}
                               >
                                 {project.name}
                               </span>

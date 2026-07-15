@@ -231,7 +231,13 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
         width: `calc(${widthPct}% - 4px)`,
         background: color + "22",
         borderLeft: `3px solid ${color}`,
-      }}
+        // Project accent colors include dark swatches (navy, forest) picked to
+        // read fine on light theme's white cards; on dark theme's near-black
+        // cards that same dark hex is barely distinguishable from the
+        // background. --pc feeds .cal-entry__name/__handle, which lighten it
+        // via color-mix in dark theme (see styles.css) instead of using it raw.
+        "--pc": color,
+      } as React.CSSProperties}
       onClick={(e) => onClick(e, entry)}
       onKeyDown={(e) => onKeyDown(e, entry)}
       role="button"
@@ -242,7 +248,6 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
       {resizable && (
         <div
           className="cal-entry__handle cal-entry__handle--top"
-          style={{ color }}
           aria-hidden="true"
           onPointerDown={(e) => onResizeStart(e, entry, "start")}
           onPointerMove={onResizeMove}
@@ -251,7 +256,7 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
           onClick={(e) => e.stopPropagation()}
         />
       )}
-      <div className="cal-entry__name" style={{ color }}>
+      <div className="cal-entry__name">
         {entry.description || projectName || "Untitled"}
       </div>
       {taskName && height >= 42 && (
@@ -269,7 +274,6 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
       {resizable && (
         <div
           className="cal-entry__handle cal-entry__handle--bottom"
-          style={{ color }}
           aria-hidden="true"
           onPointerDown={(e) => onResizeStart(e, entry, "end")}
           onPointerMove={onResizeMove}
