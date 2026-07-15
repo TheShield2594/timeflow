@@ -108,7 +108,9 @@ export const TimerBar: React.FC<Props> = ({
   // if no project is picked, focus the project selector instead of failing silently.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "." || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+      // Shift isn't checked: on some international layouts "." is only
+      // reachable via Shift, so rejecting it there made the shortcut dead.
+      if (e.key !== "." || !(e.ctrlKey || e.metaKey) || e.altKey) return;
       e.preventDefault();
       // A failed stop retries with the original stop timestamp, exactly like
       // the Retry button — not with "now", which would silently grow the entry.

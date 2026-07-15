@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { IconHelp } from "./Icons";
 
@@ -19,6 +19,7 @@ export const HelpTip: React.FC<Props> = ({ text, label }) => {
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const btnRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const popoverId = useId();
 
   useLayoutEffect(() => {
     if (!open || !btnRef.current) return;
@@ -37,11 +38,20 @@ export const HelpTip: React.FC<Props> = ({ text, label }) => {
       if (btnRef.current?.contains(target) || popoverRef.current?.contains(target)) return;
       setOpen(false);
     };
+    // Tabbing away from the trigger doesn't fire a mousedown, so without this
+    // the popover stays open — orphaned — once keyboard focus has moved on.
+    const onFocusIn = (e: FocusEvent) => {
+      const target = e.target as Node;
+      if (btnRef.current?.contains(target) || popoverRef.current?.contains(target)) return;
+      setOpen(false);
+    };
     window.addEventListener("keydown", onKey);
     window.addEventListener("mousedown", onOutside);
+    window.addEventListener("focusin", onFocusIn);
     return () => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("mousedown", onOutside);
+      window.removeEventListener("focusin", onFocusIn);
     };
   }, [open]);
 
@@ -53,6 +63,7 @@ export const HelpTip: React.FC<Props> = ({ text, label }) => {
         className="help-tip__btn"
         aria-label={label}
         aria-expanded={open}
+        aria-describedby={open ? popoverId : undefined}
         onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
       >
         <IconHelp size={13} />
@@ -60,6 +71,7 @@ export const HelpTip: React.FC<Props> = ({ text, label }) => {
       {open && createPortal(
         <div
           ref={popoverRef}
+          id={popoverId}
           className="help-tip__popover"
           role="tooltip"
           style={{ top: pos.top, left: pos.left, width: POPOVER_WIDTH }}

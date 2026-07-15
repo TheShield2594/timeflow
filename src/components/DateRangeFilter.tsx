@@ -93,8 +93,8 @@ export const DateRangeFilter: React.FC<Props> = ({
           >
             Custom
           </button>
-          {loading && <RangeSpinner label="Loading the wider date range…" />}
         </div>
+        {loading && <RangeSpinner label="Loading the wider date range…" />}
         {rightSlot}
       </div>
 

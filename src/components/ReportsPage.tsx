@@ -390,8 +390,8 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, rangeLo
             type="button"
             className={`export-btn btn-icon ${exporting ? "export-btn--loading" : ""}`}
             onClick={handleExport}
-            disabled={filtered.length === 0 || exporting}
-            title="Export visible entries to CSV"
+            disabled={filtered.length === 0 || exporting || rangeLoading}
+            title={rangeLoading ? "Waiting for the full date range to load…" : "Export visible entries to CSV"}
           >
             <IconDownload /> {exporting ? "Exporting…" : "Export CSV"}
           </button>

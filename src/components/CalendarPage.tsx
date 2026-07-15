@@ -435,7 +435,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     const minute = startTotalMins % 60;
     const endTotalMins = endTotalMinsArg !== undefined
       ? Math.min(endTotalMinsArg, 24 * 60)
-      : Math.min(startTotalMins + 60, 24 * 60 - 30);
+      : Math.min(startTotalMins + 60, 24 * 60);
     // 24*60 means "midnight, end of day" — EntryModal already treats an
     // endTime of "00:00" as next-day midnight (see its overnight handling).
     const atMidnight = endTotalMins >= 24 * 60;
@@ -515,7 +515,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
   const [resizePreview, setResizePreview] = useState<{ entryId: string; edge: "start" | "end"; minutes: number } | null>(null);
   const resizingRef = useRef<{ entry: TimeEntry; edge: "start" | "end" } | null>(null);
 
-  const handleResizeStart = (e: React.PointerEvent, entry: TimeEntry, edge: "start" | "end") => {
+  const handleResizeStart = useCallback((e: React.PointerEvent, entry: TimeEntry, edge: "start" | "end") => {
     if (e.button !== 0 || !entry.endTime) return;
     // Entries clamped to 24:00 because they cross midnight aren't resizable
     // here — their real end lives on the next calendar day.
@@ -526,9 +526,9 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     resizingRef.current = { entry, edge };
     const minutes = edge === "start" ? minutesOfDay(entry.startTime) : minutesOfDay(entry.endTime);
     setResizePreview({ entryId: entry.id, edge, minutes });
-  };
+  }, []);
 
-  const handleResizeMove = (e: React.PointerEvent) => {
+  const handleResizeMove = useCallback((e: React.PointerEvent) => {
     const state = resizingRef.current;
     if (!state) return;
     const { entry, edge } = state;
@@ -539,14 +539,14 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
       ? Math.max(0, Math.min(raw, endMinutes - MIN_RESIZE_DURATION_MIN))
       : Math.max(startMinutes + MIN_RESIZE_DURATION_MIN, Math.min(raw, 24 * 60));
     setResizePreview({ entryId: entry.id, edge, minutes });
-  };
+  }, [minutesFromClientY]);
 
-  const handleResizeCancel = () => {
+  const handleResizeCancel = useCallback(() => {
     resizingRef.current = null;
     setResizePreview(null);
-  };
+  }, []);
 
-  const handleResizeEnd = async (e: React.PointerEvent) => {
+  const handleResizeEnd = useCallback(async (e: React.PointerEvent) => {
     const state = resizingRef.current;
     resizingRef.current = null;
     setResizePreview(null);
@@ -573,7 +573,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
         durationMinutes: newEnd - startMinutes,
       });
     }
-  };
+  }, [minutesFromClientY, onEdit]);
 
   // Move the roving-tabindex focus to a clamped (row, col) slot cell and
   // imperatively focus its DOM node (arrow keys don't trigger React re-focus).
