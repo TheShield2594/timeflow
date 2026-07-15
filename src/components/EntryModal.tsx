@@ -3,6 +3,7 @@ import type { Project, Task } from "../types";
 import { formatMinutes, parseRatioInput } from "../hooks";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import { addDaysStr } from "../utils/dates";
+import { HelpTip } from "./HelpTip";
 import { IconX } from "./Icons";
 
 export interface EntryDraft {
@@ -298,7 +299,10 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
               />
             </div>
             <div className="field">
-              <label className="cal-modal__label" htmlFor="entry-ratio">Ratio</label>
+              <span className="cal-modal__label-row">
+                <label className="cal-modal__label" htmlFor="entry-ratio">Ratio</label>
+                <HelpTip label="What is Ratio?" text="Billing ratio — tells billing which account/rate this entry's time is billed to. Leave blank if not applicable." />
+              </span>
               <input
                 id="entry-ratio"
                 className="form-input"

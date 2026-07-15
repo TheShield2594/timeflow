@@ -18,6 +18,10 @@ function isolationWarningKey(environmentId: string, userId: string): string {
 export function useTimeEntries(from?: string, to?: string) {
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  // Distinct from `loading` (first paint only): true for every fetch,
+  // including re-fetches triggered by ensureRangeLoaded widening from/to,
+  // so pages can show an inline indicator without unmounting their content.
+  const [isFetching, setIsFetching] = useState(false);
   const toast = useToast();
 
   const entriesRef = useRef<TimeEntry[]>([]);
@@ -27,6 +31,7 @@ export function useTimeEntries(from?: string, to?: string) {
 
   const refresh = useCallback(async () => {
     const seq = ++seqRef.current;
+    setIsFetching(true);
     try {
       const data = await svc.getTimeEntries({ from, to });
       if (seq !== seqRef.current) return;
@@ -51,7 +56,10 @@ export function useTimeEntries(from?: string, to?: string) {
       if (seq !== seqRef.current) return;
       toast(`Could not load entries: ${errMsg(err)}`, "error");
     } finally {
-      if (seq === seqRef.current) setLoading(false);
+      if (seq === seqRef.current) {
+        setLoading(false);
+        setIsFetching(false);
+      }
     }
   }, [from, to, toast]);
 
@@ -104,5 +112,5 @@ export function useTimeEntries(from?: string, to?: string) {
     }
   }, [toast]);
 
-  return { entries, loading, refresh, deleteEntry, createEntry, editEntry };
+  return { entries, loading, isFetching, refresh, deleteEntry, createEntry, editEntry };
 }

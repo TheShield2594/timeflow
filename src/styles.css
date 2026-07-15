@@ -47,6 +47,7 @@
   /* Light, airy surfaces — Everence uses prominent white space */
   --bg:             #fafaf7;
   --surface:        #ffffff;
+  --surface-fade:   rgba(255,255,255,0); /* --surface with alpha 0, for edge-fade gradients */
   --surface-2:      #f4f5ef;
   --surface-3:      #eaedd3;
   --border:         #d4d9c0;
@@ -235,6 +236,8 @@ input, select { font-family: inherit; }
 .timer-bar__desc:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--ev-green-soft); }
 .timer-bar__desc::placeholder { color: var(--text-faint); }
 
+.timer-bar__ratio-group { display: flex; align-items: center; gap: 6px; flex: none; }
+
 .timer-bar__ratio {
   width: 90px;
   flex: none;
@@ -315,6 +318,15 @@ input, select { font-family: inherit; }
 }
 .timer-bar__btn--stop:hover { background: rgba(204,79,0,0.15); }
 
+.timer-bar__shortcut-hint {
+  font-family: var(--mono);
+  font-size: 10.5px; font-weight: 600;
+  padding: 1px 5px; border-radius: 4px;
+  background: rgba(255,255,255,0.18);
+  opacity: 0.85;
+}
+.timer-bar__btn--stop .timer-bar__shortcut-hint { background: rgba(204,79,0,0.12); }
+
 .timer-bar__pulse-bar { height: 3px; background: var(--border-subtle); overflow: hidden; }
 .timer-bar__pulse-inner {
   height: 100%;
@@ -389,6 +401,46 @@ input, select { font-family: inherit; }
 .reports__tab { padding: 5px 12px; border-radius: 4px; font-size: 12.5px; font-weight: 600; color: var(--text-muted); transition: all 0.2s var(--ease); }
 .reports__tab:hover { color: var(--text); }
 .reports__tab--active { background: var(--ev-green); color: #fff; }
+
+/* Inline indicator for a background fetch (e.g. widening the loaded date
+   range) — content already on screen stays put, this just signals "more
+   is coming" next to the control that triggered it. */
+.help-tip__btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; flex-shrink: 0;
+  border-radius: 50%; border: 1.5px solid var(--border);
+  color: var(--text-faint);
+  transition: color 0.15s, border-color 0.15s;
+}
+.help-tip__btn:hover, .help-tip__btn[aria-expanded="true"] {
+  color: var(--ev-green); border-color: var(--ev-green);
+}
+.help-tip__popover {
+  position: fixed;
+  z-index: 300;
+  max-width: calc(100vw - 24px);
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  animation: rise-in 0.15s var(--ease);
+}
+
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+.range-spinner { display: inline-flex; align-items: center; margin-left: 6px; }
+.range-spinner__dot {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--border); border-top-color: var(--ev-green);
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .reports__custom-range {
   display: flex; align-items: center; gap: 10px;
@@ -499,6 +551,8 @@ input, select { font-family: inherit; }
 
 .form-input { background: var(--surface-2); border: 1.5px solid var(--border); border-radius: var(--radius-sm); padding: 9px 13px; color: var(--text); font-size: 13.5px; outline: none; width: 100%; transition: border-color 0.15s, box-shadow 0.15s; }
 .form-input:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--ev-green-soft); }
+.form-input-group { display: flex; align-items: center; gap: 8px; }
+.form-input-group .form-input { flex: 1; width: auto; }
 .form-input::placeholder { color: var(--text-faint); }
 
 .color-picker { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -592,6 +646,32 @@ input, select { font-family: inherit; }
 .cal-entry__name { font-size: 11.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
 .cal-entry__task { font-size: 10.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cal-entry__time { font-size: 10px; color: var(--text-muted); font-family: var(--mono); margin-top: 2px; }
+
+/* Drag-resize handles — thin strips along the top/bottom edge, only shown
+   (via opacity) on hover/focus so the block doesn't look "grabbable"
+   everywhere at rest. touch-action: none stops the drag from also
+   scrolling .calendar__body on touch devices. */
+.cal-entry__handle {
+  position: absolute; left: 0; right: 0; height: 7px;
+  cursor: ns-resize; opacity: 0; touch-action: none;
+}
+.cal-entry__handle::after {
+  content: ''; position: absolute; left: 6px; right: 6px; top: 3px; height: 2px;
+  border-radius: 1px; background: currentColor;
+}
+.cal-entry__handle--top { top: 0; }
+.cal-entry__handle--bottom { bottom: 0; }
+.cal-entry:hover .cal-entry__handle,
+.cal-entry:focus-within .cal-entry__handle { opacity: 0.55; }
+.cal-entry__handle:hover { opacity: 0.9 !important; }
+
+/* Live preview shown while dragging out a new entry's time span. */
+.cal-drag-preview {
+  position: absolute; left: 2px; right: 2px;
+  border-radius: 5px; border: 1.5px dashed var(--ev-green);
+  background: var(--ev-green-soft);
+  pointer-events: none; z-index: 3;
+}
 
 /* =====================================================================
    ENTRY EDIT FORM (inline in Timesheet)
@@ -696,6 +776,12 @@ input, select { font-family: inherit; }
 /* =====================================================================
    CALENDAR — CLICKABLE COLUMN & OUTLOOK EVENTS
    ===================================================================== */
+/* touch-action stays default (auto) here, not `none` — the slot grid covers
+   the whole scrollable area, and locking it down would break vertical
+   touch-scroll on tablet-width viewports that still show the desktop grid
+   (only < 768px falls back to the tap-only mobile list). A touch drag that
+   turns into a scroll just fires pointercancel, which safely drops the
+   in-progress drag-create instead of opening the modal. */
 .calendar__slot-cell { cursor: crosshair; background: transparent; }
 .calendar__slot-cell:hover { background: rgba(113,149,0,0.025); }
 .calendar__slot-cell[data-today="true"]:hover { background: rgba(113,149,0,0.04); }
@@ -777,6 +863,7 @@ input, select { font-family: inherit; }
   text-transform: uppercase;
   letter-spacing: 0.6px;
 }
+.cal-modal__label-row { display: inline-flex; align-items: center; gap: 5px; }
 
 .cal-modal__footer {
   display: flex;
@@ -1398,6 +1485,15 @@ input, select { font-family: inherit; }
 /* =====================================================================
    REPORTS — export rounding + project × period matrix
    ===================================================================== */
+.reports__export-bar {
+  display: flex; align-items: center; gap: 10px; justify-content: flex-end;
+  padding: 10px 0; margin-bottom: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+.reports__export-label {
+  font-size: 11px; font-weight: 700; color: var(--text-faint);
+  text-transform: uppercase; letter-spacing: 0.7px; margin-right: auto;
+}
 .reports__export-controls { display: flex; align-items: center; gap: 8px; }
 .rounding-select {
   background: var(--surface);
@@ -1411,7 +1507,22 @@ input, select { font-family: inherit; }
 }
 .rounding-select:focus { border-color: var(--ev-green); }
 
-.matrix-wrap { overflow-x: auto; }
+/* Edge-fade + shadow cue for offscreen columns — the two `local`-attached
+   gradients scroll with the table and cover the `scroll`-attached shadows
+   beneath, so a shadow only shows on the side that still has hidden
+   columns. Pure CSS, no JS scroll listener needed. */
+.matrix-wrap {
+  overflow-x: auto;
+  background:
+    linear-gradient(to right, var(--surface) 30%, var(--surface-fade)) left,
+    linear-gradient(to left, var(--surface) 30%, var(--surface-fade)) right,
+    radial-gradient(farthest-side at 0 50%, rgba(0,0,0,0.18), rgba(0,0,0,0)) left,
+    radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,0.18), rgba(0,0,0,0)) right;
+  background-repeat: no-repeat;
+  background-color: var(--surface);
+  background-size: 32px 100%, 32px 100%, 12px 100%, 12px 100%;
+  background-attachment: local, local, scroll, scroll;
+}
 .matrix { border-collapse: collapse; width: 100%; font-size: 12px; }
 .matrix th, .matrix td {
   padding: 6px 9px;
@@ -1446,6 +1557,7 @@ input, select { font-family: inherit; }
 :root[data-theme="dark"] {
   --bg:             #121712;
   --surface:        #1a211b;
+  --surface-fade:   rgba(26,33,27,0); /* --surface with alpha 0, for edge-fade gradients */
   --surface-2:      #212a22;
   --surface-3:      #2b362c;
   --border:         #3b483c;

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { Project, Task } from "../types";
 import { formatMinutes, parseRatioInput } from "../hooks";
+import { HelpTip } from "./HelpTip";
 import { IconArchive, IconCheck, IconPlus, IconUndo, IconX } from "./Icons";
 
 function isValidHex(hex: string): boolean {
@@ -160,15 +161,19 @@ export const ProjectsPage: React.FC<Props> = ({
             onChange={(e) => setDraft((d) => d && ({ ...d, description: e.target.value }))}
             maxLength={500}
           />
-          <input
-            className="form-input"
-            type="number"
-            step="1"
-            min="0"
-            placeholder="Ratio (optional, e.g. 2)"
-            value={draft.ratio}
-            onChange={(e) => setDraft((d) => d && ({ ...d, ratio: e.target.value }))}
-          />
+          <div className="form-input-group">
+            <input
+              className="form-input"
+              type="number"
+              step="1"
+              min="0"
+              placeholder="Ratio (optional, e.g. 2)"
+              aria-label="Default billing ratio — identifies which account this project's time is billed to"
+              value={draft.ratio}
+              onChange={(e) => setDraft((d) => d && ({ ...d, ratio: e.target.value }))}
+            />
+            <HelpTip label="What is Ratio?" text="Default billing ratio for this project — tells billing which account/rate new entries are billed to, unless overridden per entry. Leave blank if not applicable." />
+          </div>
           <input
             className="form-input"
             placeholder="Jira ticket (optional, e.g. PROJ-123)"

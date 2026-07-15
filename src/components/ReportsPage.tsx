@@ -18,6 +18,7 @@ interface Props {
   entries: TimeEntry[];
   projects: Project[];
   tasks: Task[];
+  rangeLoading?: boolean;
 }
 
 function getDaysInRange(from: string, to: string): string[] {
@@ -174,7 +175,7 @@ const SvgBarChart: React.FC<SvgBarChartProps> = ({ chartData, maxBar, shortDate,
   );
 };
 
-export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks }) => {
+export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, rangeLoading }) => {
   const { ensureRangeLoaded } = useDataRange();
   const [rangeState, setRangeState] = useState<DateRangeState>({
     preset: "7d",
@@ -358,36 +359,43 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks }) => {
           presets={[...REPORTS_PRESETS]}
           value={rangeState}
           onChange={setRangeState}
+          loading={rangeLoading}
           info={
             rangeState.preset === "custom" && rangeState.customFrom && rangeState.customTo
               ? `${filtered.length} entries · ${formatMinutes(totalMinutes)} total`
               : undefined
           }
-          rightSlot={
-            <div className="reports__export-controls">
-              <select
-                className="rounding-select"
-                value={rounding}
-                onChange={(e) => handleRoundingChange(e.target.value as RoundingRule)}
-                aria-label="Duration rounding applied to the CSV export"
-                title="Billing-style rounding applied to the export's duration columns (stored entries are unchanged)"
-              >
-                {(Object.keys(ROUNDING_LABELS) as RoundingRule[]).map((rule) => (
-                  <option key={rule} value={rule}>{ROUNDING_LABELS[rule]}</option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className={`export-btn btn-icon ${exporting ? "export-btn--loading" : ""}`}
-                onClick={handleExport}
-                disabled={filtered.length === 0 || exporting}
-                title="Export visible entries to CSV"
-              >
-                <IconDownload /> {exporting ? "Exporting…" : "Export CSV"}
-              </button>
-            </div>
-          }
         />
+      </div>
+
+      {/* Export controls live in their own row, apart from the view/filter
+          controls above — rounding is billing-relevant and shapes what
+          leaves the app, unlike the range tabs which only affect what's
+          displayed on screen. */}
+      <div className="reports__export-bar">
+        <span className="reports__export-label">Export</span>
+        <div className="reports__export-controls">
+          <select
+            className="rounding-select"
+            value={rounding}
+            onChange={(e) => handleRoundingChange(e.target.value as RoundingRule)}
+            aria-label="Duration rounding applied to the CSV export"
+            title="Billing-style rounding applied to the export's duration columns (stored entries are unchanged)"
+          >
+            {(Object.keys(ROUNDING_LABELS) as RoundingRule[]).map((rule) => (
+              <option key={rule} value={rule}>{ROUNDING_LABELS[rule]}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className={`export-btn btn-icon ${exporting ? "export-btn--loading" : ""}`}
+            onClick={handleExport}
+            disabled={filtered.length === 0 || exporting || rangeLoading}
+            title={rangeLoading ? "Waiting for the full date range to load…" : "Export visible entries to CSV"}
+          >
+            <IconDownload /> {exporting ? "Exporting…" : "Export CSV"}
+          </button>
+        </div>
       </div>
 
       {/* KPI strip */}

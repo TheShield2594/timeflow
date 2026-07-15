@@ -165,3 +165,11 @@ export const IconUndo: React.FC<IconProps> = ({ size = 14, className }) => (
     <path d="M4 9h10a6 6 0 0 1 0 12h-3" />
   </svg>
 );
+
+export const IconHelp: React.FC<IconProps> = ({ size = 14, className }) => (
+  <svg {...base(size, className)}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M9.2 9a2.8 2.8 0 0 1 5.4 1c0 1.8-2.6 2-2.6 3.8" />
+    <line x1="12" y1="17" x2="12.01" y2="17" strokeWidth="2.5" />
+  </svg>
+);
