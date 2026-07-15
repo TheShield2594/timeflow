@@ -86,6 +86,14 @@ describe("OverviewPage", () => {
     expect(kpiValue("This week")).toBe("1h 30m");
   });
 
+  it("excludes entries from a future week out of the This Week KPI", () => {
+    // 14 days ahead always lands in a different week than today, regardless
+    // of what weekday "today" happens to be.
+    const entries = [makeEntry(0, 90), makeEntry(-14, 500)];
+    renderOverview(entries);
+    expect(kpiValue("This week")).toBe("1h 30m");
+  });
+
   it("counts the current day streak, stopping at the first gap", () => {
     // today, yesterday, two days ago logged; three days ago is a gap.
     const entries = [makeEntry(0, 90), makeEntry(1, 60), makeEntry(2, 45)];

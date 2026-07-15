@@ -63,8 +63,7 @@ export const SvgBarChart: React.FC<SvgBarChartProps> = ({ chartData, maxBar, sho
         width={totalWidth}
         height={totalHeight}
         style={{ display: "block", margin: "0 auto", overflow: "visible" }}
-        aria-label="Activity bar chart"
-        role="img"
+        aria-hidden="true"
         onMouseLeave={() => setTooltip(null)}
       >
         {chartData.map(({ key, minutes, bucket }, i) => {
@@ -86,12 +85,19 @@ export const SvgBarChart: React.FC<SvgBarChartProps> = ({ chartData, maxBar, sho
 
                 onMouseEnter={() => {
                   const svgEl = svgRef.current;
-                  if (!svgEl) return;
+                  const containerEl = containerRef.current;
+                  if (!svgEl || !containerEl) return;
                   const rect = svgEl.getBoundingClientRect();
                   const svgScaleX = rect.width / totalWidth;
                   const svgScaleY = rect.height / totalHeight;
+                  // The tooltip is positioned relative to the container, but
+                  // x/y are computed in the SVG's own coordinate space — when
+                  // the SVG is narrower than the container (few bars, so
+                  // margin: 0 auto centers it), that leaves a left offset
+                  // this needs to add back in.
+                  const offsetX = rect.left - containerEl.getBoundingClientRect().left;
                   setTooltip({
-                    x: (x + barWidth / 2) * svgScaleX,
+                    x: offsetX + (x + barWidth / 2) * svgScaleX,
                     y: y * svgScaleY,
                     label: minutes > 0 ? formatMinutes(minutes) : "No time logged",
                   });
@@ -121,6 +127,16 @@ export const SvgBarChart: React.FC<SvgBarChartProps> = ({ chartData, maxBar, sho
           {tooltip.label}
         </div>
       )}
+      {/* The bars above are aria-hidden and only reveal values on hover —
+          this list carries the same per-bucket values so screen reader
+          users get them without hovering anything. */}
+      <ul className="sr-only">
+        {chartData.map(({ key, minutes, bucket }) => (
+          <li key={key}>
+            {shortDate(key, bucket)}: {minutes > 0 ? formatMinutes(minutes) : "no time logged"}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 };

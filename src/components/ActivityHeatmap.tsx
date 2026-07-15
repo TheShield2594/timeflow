@@ -39,10 +39,14 @@ export const ActivityHeatmap: React.FC<Props> = ({ entries, weeks = 12 }) => {
       minutesByDate.set(e.date, (minutesByDate.get(e.date) || 0) + (e.durationMinutes || 0));
     });
 
-    const max = Math.max(...minutesByDate.values(), 1);
+    // actualMax is 0 for an empty window (reported to the user as-is);
+    // scaleMax keeps the ratio below from dividing by zero without letting
+    // that fallback leak into the reported max.
+    const actualMax = Math.max(...minutesByDate.values(), 0);
+    const scaleMax = Math.max(actualMax, 1);
     const level = (minutes: number): Cell["level"] => {
       if (minutes <= 0) return 0;
-      const ratio = minutes / max;
+      const ratio = minutes / scaleMax;
       if (ratio > 0.75) return 4;
       if (ratio > 0.5) return 3;
       if (ratio > 0.25) return 2;
@@ -73,7 +77,7 @@ export const ActivityHeatmap: React.FC<Props> = ({ entries, weeks = 12 }) => {
       dayIndex += 1;
     }
 
-    return { cells: list, monthMarkers: markers, maxMinutes: max };
+    return { cells: list, monthMarkers: markers, maxMinutes: actualMax };
   }, [entries, weeks]);
 
   return (
@@ -115,7 +119,9 @@ export const ActivityHeatmap: React.FC<Props> = ({ entries, weeks = 12 }) => {
       {/* The grid above is aria-hidden decoration; this is the accessible
           summary of the same data (totals are also in the KPI strip). */}
       <p className="sr-only">
-        Activity over the last {weeks} weeks — busiest day totaled {formatMinutes(maxMinutes)}.
+        {maxMinutes > 0
+          ? `Activity over the last ${weeks} weeks — busiest day totaled ${formatMinutes(maxMinutes)}.`
+          : `No activity logged in the last ${weeks} weeks.`}
       </p>
     </div>
   );

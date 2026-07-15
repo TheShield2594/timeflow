@@ -43,9 +43,13 @@ export const OverviewPage: React.FC<Props> = ({ entries, projects, tasks, timerB
   const todayMinutes = minutesByDate.get(today) || 0;
 
   const weekStart = useMemo(() => weekStartStr(today), [today]);
+  const weekEnd = useMemo(() => addDaysStr(weekStart, 6), [weekStart]);
   const weekMinutes = useMemo(
-    () => entries.reduce((s, e) => (e.date >= weekStart ? s + (e.durationMinutes || 0) : s), 0),
-    [entries, weekStart]
+    () => entries.reduce(
+      (s, e) => (e.date >= weekStart && e.date <= weekEnd ? s + (e.durationMinutes || 0) : s),
+      0
+    ),
+    [entries, weekStart, weekEnd]
   );
 
   // Consecutive days with logged time, walking back from today — today
