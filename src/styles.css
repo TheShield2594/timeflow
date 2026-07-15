@@ -1,3 +1,47 @@
+/* =====================================================================
+   REVISION NOTES (July 2026 pass)
+   ─ Dark mode "dark box" fixes:
+     • Shadows re-tuned for dark surfaces (near-black shadows on near-black
+       cards read as boxes, not depth). Elevation now leans on the existing
+       bg→surface lightness step; shadows are soft and low-alpha.
+     • .cal-entry gets a theme-aware background derived from --pc so dark
+       project swatches (navy/forest) no longer render as black blocks.
+     • .cal-entry:hover now LIGHTENS in dark mode (the old inset-black
+       darkener made entries vanish into the grid).
+     • backdrop-filter: blur() removed from both overlays — long-standing
+       Chromium compositing bugs paint gray/black rectangles, worst with
+       animating children + fractional display scaling. Dim raised instead.
+     • Matrix scroll-shadow radials swapped to a light glow in dark mode
+       (black-on-black shadows were invisible AND boxy at the seam).
+   ─ Contrast (extends issue #26):
+     • Small green text moved off raw --ev-green (3.3:1) onto --ev-green-dark.
+       Large/bold uses (KPI values, 24px/700) stay raw green — passes at 3:1.
+     • Raw pumpkin text → --ev-pumpkin-text; raw grass text → new
+       --ev-grass-text. Danger/success tints promoted to tokens so dark
+       theme can rebalance them (the old rgba literals assumed white).
+     • .badge--project / .cal-entry__name use var(--text) instead of a --pc
+       color-mix — --pc is arbitrary user-picked hex, so only a fixed,
+       theme-aware token can guarantee contrast for every possible value.
+   ─ Focus: global ring kept; native inputs/selects opt out since they carry
+     their own :focus border+glow (ring was double-stacking). Old comment's
+     specificity claim corrected. Ring color is a token (--focus-ring) so
+     dark mode can use robin for visibility. Three quick-add inputs
+     (new-task, inline-task, week-target editor) had a static green border
+     and no :focus state of their own — opting them out of the global ring
+     left them with zero focus indicator, so each now gets the same
+     focus glow as the other form inputs.
+   ─ Layout:
+     • .calendar no longer uses calc(100vh - magic numbers) — it broke when
+       the timer bar wrapped under 900px. .main__content is now a flex
+       column and the calendar flexes into the remainder. 100dvh adopted.
+     • .calendar__day-headers border order fixed (the `border:` shorthand
+       was silently overriding the 2px border-bottom declared before it).
+   ─ Misc: color-scheme set per theme (native pickers/scrollbars were
+     rendering light in dark mode), Firefox scrollbar styling added,
+     swatch focus ring uses --surface (dark override deleted), empty
+     .calendar__gutter rule removed. .cal-modal shadow tokenized (--shadow)
+     so it re-tunes in dark mode like every other card/panel shadow.
+   ===================================================================== */
 
 /* =====================================================================
    TYPEFACE — Outfit (self-hosted variable font, latin subset)
@@ -21,13 +65,15 @@
    Neutral:   Charcoal #4B5457 | Off-white #e9f3f3 | Cream #eaedd3 | Warm white #fafaf7
    ===================================================================== */
 :root {
+  color-scheme: light; /* native widgets (date pickers, selects, scrollbars) follow the theme */
+
   --ev-green:       #719500;
   --ev-green-dark:  #5a7800;  /* 4.5:1 on white — AA for small text  */
   --ev-green-soft:  rgba(113,149,0,0.10);
   --ev-green-mid:   rgba(113,149,0,0.18);
   --ev-lime:        #B5BF00;  /* 2.0:1 on white — decorative use only */
   --ev-forest:      #225433;
-  --ev-grass:       #358450;
+  --ev-grass:       #358450;  /* ~3.9:1 on white — decorative/large only */
   --ev-robin:       #4DC5E2;  /* 2.0:1 on white — decorative use only */
   --ev-blue:        #0080BD;
   --ev-navy:        #003346;
@@ -37,12 +83,14 @@
   --ev-charcoal:    #4B5457;
 
   /* WCAG AA text-safe variants (≥ 4.5:1 on #fff and #fafaf7).
-     Use these instead of the raw brand colours whenever text is rendered
-     directly on a white/cream surface (issue #26). */
+     Use these instead of the raw brand colours whenever SMALL text is
+     rendered directly on a white/cream surface (issue #26). Large text
+     (≥24px regular / ≥18.66px bold) may keep the raw brand colour. */
   --ev-lime-text:    #5c6200;  /* 7.5:1 on white */
   --ev-robin-text:   #005c6e;  /* 5.5:1 on white */
   --ev-lemon-text:   #7a5500;  /* 5.3:1 on white */
   --ev-pumpkin-text: #a33e00;  /* 5.8:1 on white */
+  --ev-grass-text:   #276b41;  /* darkened grass for small-text AA on white */
 
   /* Light, airy surfaces — Everence uses prominent white space */
   --bg:             #fafaf7;
@@ -63,6 +111,20 @@
 
   --danger:         #CC4F00;
   --success:        #358450;
+
+  /* Tinted danger/success surfaces as tokens (were rgba literals scattered
+     through the file). The literals assumed a white substrate and went
+     muddy/near-invisible on dark cards; tokenizing lets the dark block
+     rebalance them the same way it already does for --ev-green-soft. */
+  --danger-soft:    rgba(204,79,0,0.07);
+  --danger-mid:     rgba(204,79,0,0.14);
+  --danger-border:  rgba(204,79,0,0.25);
+  --success-soft:   rgba(53,132,80,0.07);
+  --success-mid:    rgba(53,132,80,0.14);
+  --success-border: rgba(53,132,80,0.30);
+
+  /* Keyboard focus ring colour — robin in dark mode for visibility */
+  --focus-ring:     var(--ev-blue);
 
   /* Sidebar uses dark forest green */
   --sidebar-bg:          #1a2d1e;
@@ -95,23 +157,23 @@ body {
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
+  min-height: 100dvh; /* mobile browser chrome; vh line above is the fallback */
 }
 button { font-family: inherit; cursor: pointer; border: none; background: none; }
 input, select { font-family: inherit; }
 
-/* Global keyboard focus ring (issue #27). Applied only when navigating via
-   keyboard so mouse users never see the ring. Elements with a custom :focus
-   border style (inputs, selects) still show their custom highlight because it
-   is applied via :focus, which has higher specificity than :focus-visible here. */
+/* Global keyboard focus ring (issue #27). Shown only for keyboard
+   navigation so mouse users never see it. Native text inputs and selects
+   opt out below because they carry their own :focus border + glow —
+   without the opt-out both would stack (:focus and :focus-visible have
+   EQUAL specificity at 0,1,0; it was the extra class on rules like
+   .timer-bar__desc:focus that made the custom border win, and nothing
+   was actually suppressing the ring). */
 :focus-visible {
-  outline: 2px solid var(--ev-blue);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
-
-/* Suppress the ring inside containers that provide their own focus-within
-   highlight (e.g. .search-box uses focus-within border) so the child input
-   does not double-ring. */
-.search-box__input:focus-visible { outline: none; }
+:where(input, select, textarea):focus-visible { outline: none; }
 
 /* Buttons that carry an inline SVG icon next to their label */
 .btn-icon { display: inline-flex; align-items: center; gap: 6px; }
@@ -122,10 +184,14 @@ input, select { font-family: inherit; }
 .cal-nav-btn:active, .export-btn:active:not(:disabled), .reports__tab:active,
 .task-chip--add:active { transform: translateY(1px) scale(0.98); }
 
+/* Firefox scrollbar styling (the ::-webkit-scrollbar rules at the bottom
+   are WebKit-only). scrollbar-width isn't inherited, hence the universal. */
+* { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+
 /* =====================================================================
    LAYOUT
    ===================================================================== */
-.app { display: flex; height: 100vh; overflow: hidden; }
+.app { display: flex; height: 100vh; height: 100dvh; overflow: hidden; }
 
 /* =====================================================================
    SIDEBAR
@@ -202,7 +268,18 @@ input, select { font-family: inherit; }
    MAIN
    ===================================================================== */
 .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.main__content { flex: 1; overflow-y: auto; padding: 28px 36px; }
+/* Flex column so full-height pages (calendar) can flex into the remaining
+   space instead of computing it with calc() magic numbers. Block pages
+   (timesheet, reports, projects) stack identically in a column flex; the
+   only behavioural difference is that vertical margins no longer collapse,
+   which nothing here relied on. */
+.main__content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px 36px;
+  display: flex;
+  flex-direction: column;
+}
 .loading {
   display: flex; align-items: center; justify-content: center;
   height: 200px; color: var(--text-muted); font-size: 14px;
@@ -276,8 +353,10 @@ input, select { font-family: inherit; }
   padding: 6px 10px;
   color: var(--text); font-size: 13px; outline: none;
   width: 160px;
+  transition: box-shadow 0.15s;
 }
-.timer-bar__new-task-ok { color: var(--ev-grass); font-size: 16px; padding: 4px 6px; font-weight: 700; background: transparent; border: none; cursor: pointer; }
+.timer-bar__new-task-input:focus { box-shadow: 0 0 0 3px var(--ev-green-soft); }
+.timer-bar__new-task-ok { color: var(--ev-grass-text); font-size: 16px; padding: 4px 6px; font-weight: 700; background: transparent; border: none; cursor: pointer; }
 .timer-bar__new-task-ok:disabled { color: var(--text-muted); cursor: not-allowed; }
 .timer-bar__new-task-cancel { color: var(--text-muted); font-size: 20px; padding: 2px 6px; background: transparent; border: none; cursor: pointer; }
 
@@ -297,7 +376,7 @@ input, select { font-family: inherit; }
 .timer-bar__elapsed {
   font-family: var(--mono);
   font-size: 20px; font-weight: 500;
-  color: var(--ev-green);
+  color: var(--ev-green-dark); /* 20px/500 sits under the large-text bold threshold */
   letter-spacing: 1px;
   min-width: 84px; text-align: right;
 }
@@ -312,11 +391,11 @@ input, select { font-family: inherit; }
 .timer-bar__btn--start:hover { background: var(--ev-green-dark); }
 .timer-bar__btn--start:disabled { opacity: 0.35; cursor: not-allowed; }
 .timer-bar__btn--stop {
-  background: rgba(204,79,0,0.08);
-  color: var(--ev-pumpkin);
-  border: 1.5px solid rgba(204,79,0,0.25);
+  background: var(--danger-soft);
+  color: var(--ev-pumpkin-text);
+  border: 1.5px solid var(--danger-border);
 }
-.timer-bar__btn--stop:hover { background: rgba(204,79,0,0.15); }
+.timer-bar__btn--stop:hover { background: var(--danger-mid); }
 
 .timer-bar__shortcut-hint {
   font-family: var(--mono);
@@ -325,7 +404,7 @@ input, select { font-family: inherit; }
   background: rgba(255,255,255,0.18);
   opacity: 0.85;
 }
-.timer-bar__btn--stop .timer-bar__shortcut-hint { background: rgba(204,79,0,0.12); }
+.timer-bar__btn--stop .timer-bar__shortcut-hint { background: var(--danger-soft); }
 
 .timer-bar__pulse-bar { height: 3px; background: var(--border-subtle); overflow: hidden; }
 .timer-bar__pulse-inner {
@@ -353,7 +432,7 @@ input, select { font-family: inherit; }
 }
 .timesheet__day-label {
   font-size: 11px; font-weight: 700;
-  color: var(--ev-green); text-transform: uppercase; letter-spacing: 1px;
+  color: var(--ev-green-dark); text-transform: uppercase; letter-spacing: 1px;
 }
 .timesheet__day-total { font-size: 12px; font-weight: 700; color: var(--text-muted); font-family: var(--mono); }
 .timesheet__entries { display: flex; flex-direction: column; gap: 6px; }
@@ -376,17 +455,21 @@ input, select { font-family: inherit; }
 .entry-row__badges { display: flex; gap: 5px; flex-shrink: 0; }
 .entry-row__bottom { display: flex; justify-content: space-between; align-items: center; }
 .entry-row__times { font-size: 12px; color: var(--text-muted); font-family: var(--mono); }
-.entry-row__duration { font-size: 12px; font-weight: 700; color: var(--ev-green); font-family: var(--mono); }
+.entry-row__duration { font-size: 12px; font-weight: 700; color: var(--ev-green-dark); font-family: var(--mono); }
 .entry-row__delete { padding: 0 14px; color: var(--text-faint); font-size: 20px; transition: color 0.15s; flex-shrink: 0; line-height: 1; }
-.entry-row__delete:hover { color: var(--ev-pumpkin); }
+.entry-row__delete:hover { color: var(--ev-pumpkin-text); }
 
 .badge { padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .badge--task { background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border); }
-/* Project accent color (--pc), set inline per entry — see the dark-theme
-   override below for why this isn't just `color: var(--pc)` everywhere. */
+/* Project accent color (--pc), set inline per entry, tints the background
+   and border only. --pc is an arbitrary user-picked hex (the project color
+   picker takes free-form hex input), so a color-mix of --pc can't guarantee
+   AA contrast for every possible value — text uses the standard --text
+   token instead, same as .badge--task, so legibility never depends on
+   which color a project happens to use. */
 .badge--project {
   background: color-mix(in srgb, var(--pc) 13%, transparent);
-  color: var(--pc);
+  color: var(--text);
   border: 1px solid color-mix(in srgb, var(--pc) 27%, transparent);
 }
 
@@ -423,7 +506,7 @@ input, select { font-family: inherit; }
   transition: color 0.15s;
 }
 .help-tip__btn:hover, .help-tip__btn[aria-expanded="true"] {
-  color: var(--ev-green);
+  color: var(--ev-green-dark);
 }
 .help-tip__popover {
   position: fixed;
@@ -484,12 +567,13 @@ input, select { font-family: inherit; }
   box-shadow: var(--shadow-sm); border-top: 3px solid var(--ev-green);
 }
 .kpi-card__label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.7px; margin-bottom: 6px; }
+/* 24px/700 qualifies as large text — raw brand green passes at 3:1 */
 .kpi-card__value { font-size: 24px; font-weight: 700; font-family: var(--mono); letter-spacing: -0.5px; color: var(--ev-green); }
 
 .reports__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .report-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow-sm); }
 .report-card--wide { grid-column: 1 / -1; }
-.report-card__title { font-size: 11px; font-weight: 700; color: var(--ev-green); text-transform: uppercase; letter-spacing: 0.9px; margin-bottom: 16px; }
+.report-card__title { font-size: 11px; font-weight: 700; color: var(--ev-green-dark); text-transform: uppercase; letter-spacing: 0.9px; margin-bottom: 16px; }
 .report-card__empty { color: var(--text-faint); font-size: 13px; padding: 20px 0; text-align: center; }
 
 .bar-chart { display: flex; align-items: flex-end; gap: 6px; height: 120px; }
@@ -538,17 +622,17 @@ input, select { font-family: inherit; }
 .task-breakdown__info { flex: 1; min-width: 0; }
 .task-breakdown__name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .task-breakdown__project { font-size: 11px; color: var(--text-muted); }
-.task-breakdown__time { font-size: 12px; font-family: var(--mono); color: var(--ev-green); font-weight: 700; }
+.task-breakdown__time { font-size: 12px; font-family: var(--mono); color: var(--ev-green-dark); font-weight: 700; }
 
 .export-btn {
   padding: 7px 15px; border-radius: var(--radius-sm);
   font-size: 12.5px; font-weight: 700;
-  color: var(--ev-grass);
-  border: 1.5px solid rgba(53,132,80,0.3);
-  background: rgba(53,132,80,0.07);
+  color: var(--ev-grass-text);
+  border: 1.5px solid var(--success-border);
+  background: var(--success-soft);
   transition: all 0.2s var(--ease); white-space: nowrap;
 }
-.export-btn:hover:not(:disabled) { background: rgba(53,132,80,0.14); border-color: rgba(53,132,80,0.45); }
+.export-btn:hover:not(:disabled) { background: var(--success-mid); border-color: var(--success); }
 .export-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .export-btn--loading { opacity: 0.7; }
 
@@ -578,7 +662,9 @@ input, select { font-family: inherit; }
 .color-picker__label { font-size: 12px; color: var(--text-muted); font-weight: 600; }
 .color-picker__swatch { width: 22px; height: 22px; border-radius: 50%; transition: transform 0.15s, box-shadow 0.15s; border: 2px solid transparent; }
 .color-picker__swatch:hover { transform: scale(1.15); }
-.color-picker__swatch--active { box-shadow: 0 0 0 2px #fff, 0 0 0 4px currentColor; transform: scale(1.1); }
+/* Ring gap uses --surface, not #fff, so it contrasts against the card in
+   both themes (the previous dark-theme override is no longer needed). */
+.color-picker__swatch--active { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px currentColor; transform: scale(1.1); }
 .color-picker__hex-row { display: flex; align-items: center; gap: 6px; margin-top: 4px; width: 100%; }
 .color-picker__hex-preview { width: 22px; height: 22px; border-radius: 4px; border: 1.5px solid var(--border); flex-shrink: 0; transition: background 0.15s; }
 .color-picker__hex-input { font-family: var(--mono); font-size: 12px; width: 90px; padding: 4px 8px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); outline: none; transition: border-color 0.15s; }
@@ -598,27 +684,33 @@ input, select { font-family: inherit; }
 .project-card__desc { font-size: 12px; color: var(--text-muted); }
 .project-card__ratio { font-size: 12px; color: var(--text-muted); }
 .project-card__jira { font-size: 12px; color: var(--text-muted); }
-.project-card__total { font-size: 13px; font-family: var(--mono); font-weight: 700; color: var(--ev-green); }
+.project-card__total { font-size: 13px; font-family: var(--mono); font-weight: 700; color: var(--ev-green-dark); }
 .project-card__top-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .project-card__edit { font-size: 11.5px; color: var(--text-muted); background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 2px 8px; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
-.project-card__edit:hover { color: var(--ev-green); border-color: var(--ev-green); }
+.project-card__edit:hover { color: var(--ev-green-dark); border-color: var(--ev-green); }
 .project-card__tasks { display: flex; flex-wrap: wrap; gap: 6px; }
 
 .task-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 20px; font-size: 11.5px; color: var(--text-muted); font-weight: 500; }
-.task-chip--add { color: var(--ev-green); border-color: rgba(113,149,0,0.3); background: var(--ev-green-soft); cursor: pointer; transition: background 0.15s; }
+.task-chip--add { color: var(--ev-green-dark); border-color: rgba(113,149,0,0.3); background: var(--ev-green-soft); cursor: pointer; transition: background 0.15s; }
 .task-chip--add:hover { background: var(--ev-green-mid); }
 .task-chip__delete { display: inline-flex; align-items: center; justify-content: center; padding: 4px; color: var(--text-faint); border-radius: 50%; cursor: pointer; transition: color 0.15s, background 0.15s; }
 .task-chip__delete:hover { color: #fff; background: var(--danger); }
 
 .inline-task-form { display: flex; align-items: center; gap: 4px; }
-.inline-task-form__input { background: var(--surface-2); border: 1.5px solid var(--ev-green); border-radius: var(--radius-sm); padding: 3px 8px; color: var(--text); font-size: 12px; outline: none; width: 130px; }
-.inline-task-form__ok { color: var(--ev-grass); font-size: 14px; padding: 2px 4px; font-weight: 700; }
+.inline-task-form__input { background: var(--surface-2); border: 1.5px solid var(--ev-green); border-radius: var(--radius-sm); padding: 3px 8px; color: var(--text); font-size: 12px; outline: none; width: 130px; transition: box-shadow 0.15s; }
+.inline-task-form__input:focus { box-shadow: 0 0 0 3px var(--ev-green-soft); }
+.inline-task-form__ok { color: var(--ev-grass-text); font-size: 14px; padding: 2px 4px; font-weight: 700; }
 .inline-task-form__cancel { color: var(--text-muted); font-size: 18px; padding: 2px 4px; }
 
 /* =====================================================================
    CALENDAR
    ===================================================================== */
-.calendar { display: flex; flex-direction: column; height: calc(100vh - var(--timer-h) - 56px); overflow: hidden; }
+/* No more calc(100vh - --timer-h - 56px): the magic numbers broke under
+   900px where the timer bar wraps to height:auto (> 72px) and the calendar
+   overflowed the viewport. .main__content is a flex column now, so the
+   calendar just claims the remaining space. min-height: 0 lets the inner
+   .calendar__body scroll instead of blowing the column out. */
+.calendar { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
 .calendar__header { flex-shrink: 0; padding-bottom: 0; }
 .calendar__title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .calendar__title { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
@@ -626,18 +718,26 @@ input, select { font-family: inherit; }
 
 .cal-nav-btn { padding: 6px 13px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; color: var(--text-muted); border: 1.5px solid var(--border); background: var(--surface); transition: all 0.2s var(--ease); line-height: 1; }
 .cal-nav-btn:hover { color: var(--text); border-color: var(--ev-green); }
-.cal-nav-btn--today { color: var(--ev-green); border-color: rgba(113,149,0,0.35); background: var(--ev-green-soft); }
+.cal-nav-btn--today { color: var(--ev-green-dark); border-color: rgba(113,149,0,0.35); background: var(--ev-green-soft); }
 .cal-nav-btn--today:hover { background: var(--ev-green-mid); }
 
 .calendar__empty-hint { font-size: 13px; color: var(--text-faint); text-align: center; padding: 8px 0 4px; }
 
-.calendar__day-headers { display: grid; grid-template-columns: 52px repeat(7, 1fr); border-bottom: 2px solid var(--border); background: var(--surface); border-radius: var(--radius) var(--radius) 0 0; border: 1px solid var(--border); }
-.calendar__gutter { }
+/* Border order matters: the `border:` shorthand resets all four sides, so
+   it must come FIRST and the 2px bottom after it (previously the shorthand
+   was declared second and silently downgraded the bottom rule to 1px). */
+.calendar__day-headers {
+  display: grid; grid-template-columns: 52px repeat(7, 1fr);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-bottom: 2px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
 .calendar__day-header { display: flex; flex-direction: column; align-items: center; padding: 10px 4px; gap: 4px; }
 .calendar__day-name { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-muted); }
 .calendar__day-num { font-size: 18px; font-weight: 500; color: var(--text-muted); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
 .calendar__day-num--today { background: var(--ev-green); color: #fff; font-weight: 700; }
-.calendar__day-header--today .calendar__day-name { color: var(--ev-green); }
+.calendar__day-header--today .calendar__day-name { color: var(--ev-green-dark); }
 
 .calendar__grid-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .calendar__body { flex: 1; overflow-y: auto; overflow-x: hidden; }
@@ -665,10 +765,14 @@ input, select { font-family: inherit; }
    instead of respecting border-radius/overflow clipping, which showed up as
    square dark artifacts at the rounded top/bottom edges (worse at fractional
    display scaling). An inset box-shadow darkens the background the same way
-   without ever leaving the rounded clip. */
+   without ever leaving the rounded clip. (Dark theme lightens instead —
+   see the override at the bottom.) */
 .cal-entry:hover { box-shadow: inset 0 0 0 999px rgba(0,0,0,0.08), var(--shadow); }
 .cal-entry--clickable { cursor: pointer; }
-.cal-entry__name { font-size: 11.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; color: var(--pc); }
+/* Same rationale as .badge--project: --pc is an arbitrary user-picked hex,
+   so the name uses the standard --text token rather than a --pc mix —
+   matches .cal-entry__task/__time below, which never tinted off --pc. */
+.cal-entry__name { font-size: 11.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; color: var(--text); }
 .cal-entry__task { font-size: 10.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cal-entry__time { font-size: 10px; color: var(--text-muted); font-family: var(--mono); margin-top: 2px; }
 
@@ -714,13 +818,13 @@ input, select { font-family: inherit; }
   flex-shrink: 0;
   line-height: 1;
 }
-.entry-row__edit:hover { color: var(--ev-green); }
+.entry-row__edit:hover { color: var(--ev-green-dark); }
 
 .entry-row__running {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: var(--ev-pumpkin);
+  color: var(--ev-pumpkin-text);
   font-size: 11.5px;
   font-weight: 700;
 }
@@ -793,15 +897,15 @@ input, select { font-family: inherit; }
 .entry-edit-form__delete {
   margin-left: auto;
   font-size: 12px;
-  color: var(--ev-pumpkin);
+  color: var(--ev-pumpkin-text);
   font-weight: 600;
   padding: 5px 10px;
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(204,79,0,0.25);
-  background: rgba(204,79,0,0.06);
+  border: 1px solid var(--danger-border);
+  background: var(--danger-soft);
   transition: background 0.15s;
 }
-.entry-edit-form__delete:hover { background: rgba(204,79,0,0.14); }
+.entry-edit-form__delete:hover { background: var(--danger-mid); }
 
 /* =====================================================================
    CALENDAR — CLICKABLE COLUMN & OUTLOOK EVENTS
@@ -819,11 +923,15 @@ input, select { font-family: inherit; }
 /* =====================================================================
    CALENDAR — LOG TIME MODAL
    ===================================================================== */
+/* No backdrop-filter: blur() here (or on .modal-backdrop). Chromium has
+   long-standing compositing bugs where the blurred region rasterizes as a
+   gray/black rectangle — aggravated by an animating child (modal-in does
+   transform+scale) and fractional display scaling. The dim is slightly
+   deeper to compensate for the lost separation. */
 .cal-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.35);
-  backdrop-filter: blur(2px);
+  background: rgba(0,0,0,0.42);
   z-index: 100;
   display: flex;
   align-items: center;
@@ -833,7 +941,7 @@ input, select { font-family: inherit; }
 .cal-modal {
   background: var(--surface);
   border-radius: var(--radius);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.08);
+  box-shadow: var(--shadow);
   width: 420px;
   max-width: calc(100vw - 40px);
   overflow: hidden;
@@ -864,7 +972,7 @@ input, select { font-family: inherit; }
   transition: color 0.15s;
   padding: 0 2px;
 }
-.cal-modal__close:hover { color: var(--ev-pumpkin); }
+.cal-modal__close:hover { color: var(--ev-pumpkin-text); }
 
 .cal-modal__body {
   padding: 18px 20px;
@@ -907,14 +1015,14 @@ input, select { font-family: inherit; }
   margin-left: auto;
   font-size: 12px;
   font-weight: 600;
-  color: var(--ev-pumpkin);
+  color: var(--ev-pumpkin-text);
   padding: 6px 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(204,79,0,0.25);
-  background: rgba(204,79,0,0.06);
+  border: 1px solid var(--danger-border);
+  background: var(--danger-soft);
   transition: background 0.15s;
 }
-.cal-modal__delete:hover { background: rgba(204,79,0,0.14); }
+.cal-modal__delete:hover { background: var(--danger-mid); }
 
 /* =====================================================================
    TOASTS
@@ -948,8 +1056,8 @@ input, select { font-family: inherit; }
   transition: opacity 0.18s ease, transform 0.18s ease;
 }
 .toast--shown { opacity: 1; transform: translateY(0); }
-.toast--error   { border-left-color: var(--ev-pumpkin); }
-.toast--success { border-left-color: var(--ev-grass); }
+.toast--error   { border-left-color: var(--danger); }
+.toast--success { border-left-color: var(--success); }
 .toast--info    { border-left-color: var(--ev-blue); }
 .toast__message { flex: 1; line-height: 1.45; }
 .toast__close {
@@ -970,13 +1078,12 @@ input, select { font-family: inherit; }
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(26, 45, 30, 0.55);
+  background: rgba(26, 45, 30, 0.58);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1200;
   padding: 20px;
-  backdrop-filter: blur(2px);
 }
 .idle-modal {
   background: var(--surface);
@@ -1010,15 +1117,15 @@ input, select { font-family: inherit; }
   margin-left: auto;
   font-size: 12px;
   font-weight: 500;
-  color: var(--ev-pumpkin);
+  color: var(--ev-pumpkin-text);
   padding: 6px 10px;
   border-radius: var(--radius-sm);
   transition: background 0.15s;
 }
-.idle-modal__discard:hover { background: rgba(204,79,0,0.10); }
+.idle-modal__discard:hover { background: var(--danger-soft); }
 
 /* =====================================================================
-   SCROLLBAR
+   SCROLLBAR (WebKit; Firefox handled in the reset)
    ===================================================================== */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -1136,7 +1243,7 @@ input, select { font-family: inherit; }
   margin-left: auto;
   font-size: 12px;
   font-weight: 700;
-  color: var(--ev-green);
+  color: var(--ev-green-dark);
   font-family: var(--mono);
   white-space: nowrap;
 }
@@ -1149,10 +1256,10 @@ input, select { font-family: inherit; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .form-error {
   font-size: 12px;
-  color: var(--ev-pumpkin);
+  color: var(--ev-pumpkin-text);
   font-weight: 600;
-  background: rgba(204,79,0,0.07);
-  border: 1px solid rgba(204,79,0,0.22);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-border);
   border-radius: var(--radius-sm);
   padding: 7px 10px;
 }
@@ -1169,7 +1276,7 @@ input, select { font-family: inherit; }
   flex: 0 0 auto;
   font-size: 12px;
   font-weight: 700;
-  color: var(--ev-green);
+  color: var(--ev-green-dark);
   padding: 4px 10px;
   border-radius: var(--radius-sm);
   border: 1px solid rgba(113,149,0,0.35);
@@ -1187,7 +1294,7 @@ input, select { font-family: inherit; }
 .calendar__week-total {
   font-size: 12px;
   font-weight: 700;
-  color: var(--ev-green);
+  color: var(--ev-green-dark);
   font-family: var(--mono);
   background: var(--ev-green-soft);
   border: 1px solid rgba(113,149,0,0.25);
@@ -1201,7 +1308,7 @@ input, select { font-family: inherit; }
   color: var(--text-faint);
   min-height: 14px;
 }
-.calendar__day-header--today .calendar__day-total { color: var(--ev-green); }
+.calendar__day-header--today .calendar__day-total { color: var(--ev-green-dark); }
 .cal-nav-btn { display: inline-flex; align-items: center; justify-content: center; }
 .cal-entry--running {
   border-style: dashed;
@@ -1254,8 +1361,8 @@ input, select { font-family: inherit; }
    OVERNIGHT SPLIT PROMPT (EntryModal)
    ===================================================================== */
 .overnight-prompt {
-  background: rgba(204,79,0,0.06);
-  border: 1px solid rgba(204,79,0,0.25);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-border);
   border-radius: var(--radius-sm);
   padding: 10px 12px;
   margin-bottom: 2px;
@@ -1280,9 +1387,9 @@ input, select { font-family: inherit; }
 .btn-sm.btn-primary {
   background: var(--ev-green);
   color: #fff;
-  border: 1.5px solid var(--ev-green-dark);
+  border: 1.5px solid #5a7800; /* literal: brand hover green, not the theme-remapped --ev-green-dark */
 }
-.btn-sm.btn-primary:hover { background: var(--ev-green-dark); }
+.btn-sm.btn-primary:hover { background: #5a7800; }
 .btn-sm.btn-ghost {
   background: var(--surface-2);
   color: var(--text-muted);
@@ -1350,6 +1457,7 @@ input, select { font-family: inherit; }
   align-items: center;
   justify-content: center;
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--bg);
   padding: 24px;
 }
@@ -1431,7 +1539,7 @@ input, select { font-family: inherit; }
 .week-target__fill { display: block; height: 100%; background: var(--ev-green); border-radius: 3px; transition: width 0.3s var(--ease); }
 .week-target__fill--met { background: var(--success); }
 .week-target__edit { display: inline-flex; align-items: center; padding: 3px; color: var(--text-faint); border-radius: 4px; }
-.week-target__edit:hover { color: var(--ev-green); }
+.week-target__edit:hover { color: var(--ev-green-dark); }
 
 .week-target-set {
   font-size: 11.5px;
@@ -1441,7 +1549,7 @@ input, select { font-family: inherit; }
   padding: 3px 10px;
   transition: color 0.15s, border-color 0.15s;
 }
-.week-target-set:hover { color: var(--ev-green); border-color: var(--ev-green); }
+.week-target-set:hover { color: var(--ev-green-dark); border-color: var(--ev-green); }
 
 .week-target-editor { display: inline-flex; align-items: center; gap: 4px; }
 .week-target-editor__input {
@@ -1453,8 +1561,10 @@ input, select { font-family: inherit; }
   color: var(--text);
   font-size: 12px;
   outline: none;
+  transition: box-shadow 0.15s;
 }
-.week-target-editor__ok { display: inline-flex; padding: 3px; color: var(--ev-grass); }
+.week-target-editor__input:focus { box-shadow: 0 0 0 3px var(--ev-green-soft); }
+.week-target-editor__ok { display: inline-flex; padding: 3px; color: var(--ev-grass-text); }
 .week-target-editor__cancel { display: inline-flex; padding: 3px; color: var(--text-muted); }
 
 .week-target-chip { display: inline-flex; align-items: center; gap: 7px; margin-left: 10px; }
@@ -1540,7 +1650,8 @@ input, select { font-family: inherit; }
 /* Edge-fade + shadow cue for offscreen columns — the two `local`-attached
    gradients scroll with the table and cover the `scroll`-attached shadows
    beneath, so a shadow only shows on the side that still has hidden
-   columns. Pure CSS, no JS scroll listener needed. */
+   columns. Pure CSS, no JS scroll listener needed. (Dark theme swaps the
+   black radials for a light glow — black-on-near-black was invisible.) */
 .matrix-wrap {
   overflow-x: auto;
   background:
@@ -1585,6 +1696,8 @@ input, select { font-family: inherit; }
    variants change. The sidebar is already dark and stays as-is.
    ===================================================================== */
 :root[data-theme="dark"] {
+  color-scheme: dark; /* native date pickers, selects, scrollbars go dark */
+
   --bg:             #121712;
   --surface:        #1a211b;
   --surface-fade:   rgba(26,33,27,0); /* --surface with alpha 0, for edge-fade gradients */
@@ -1607,35 +1720,80 @@ input, select { font-family: inherit; }
   --ev-robin-text:   #7fd8ec;
   --ev-lemon-text:   #f7c95c;
   --ev-pumpkin-text: #f49264;
+  --ev-grass-text:   #79c99a;
 
   --danger:  #e87a45;
   --success: #5cae7f;
 
-  --shadow:    0 1px 4px rgba(0,0,0,0.45), 0 4px 16px rgba(0,0,0,0.35);
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
+  /* Danger/success tints re-based on the lightened dark-theme hues —
+     the light-theme literals were tuned for a white substrate. */
+  --danger-soft:    rgba(232,122,69,0.12);
+  --danger-mid:     rgba(232,122,69,0.20);
+  --danger-border:  rgba(232,122,69,0.35);
+  --success-soft:   rgba(92,174,127,0.12);
+  --success-mid:    rgba(92,174,127,0.20);
+  --success-border: rgba(92,174,127,0.35);
+
+  /* Blue reads muddy on dark green-black; robin pops */
+  --focus-ring:     var(--ev-robin);
+
+  /* THE "DARK BOX" FIX: near-black drop shadows on near-black cards don't
+     read as depth — they read as dark rectangles hugging every card and
+     calendar entry (worst under .cal-entry, whose shadow paints straight
+     onto the slot grid). Elevation in dark mode comes from the existing
+     bg (#121712) → surface (#1a211b) lightness step plus borders; shadows
+     are kept only as a faint soft cue. */
+  --shadow:    0 1px 3px rgba(0,0,0,0.20), 0 4px 12px rgba(0,0,0,0.14);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.16);
 }
 /* Buttons keep white-on-green; --ev-green-dark above is tuned for dark-surface
    TEXT, which would wash out button hover — pin it back to the brand hover. */
-:root[data-theme="dark"] .btn-primary:hover { background: #5a7800; }
+:root[data-theme="dark"] .btn-primary:hover,
+:root[data-theme="dark"] .timer-bar__btn--start:hover,
+:root[data-theme="dark"] .btn-sm.btn-primary:hover { background: #5a7800; }
 /* The light shimmer is blinding on dark cards */
 :root[data-theme="dark"] .skeleton::after {
   background: linear-gradient(90deg, transparent, rgba(255,255,255,0.09), transparent);
 }
-/* Swatch ring contrasts against the card, not white */
-:root[data-theme="dark"] .color-picker__swatch--active {
-  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px currentColor;
-}
 /* Deepen modal overlays so dialogs still separate from the page */
 :root[data-theme="dark"] .cal-modal-overlay { background: rgba(0,0,0,0.6); }
+:root[data-theme="dark"] .modal-backdrop { background: rgba(0,0,0,0.62); }
 /* Project accent colors (--pc) are arbitrary per-project hex, including dark
-   swatches like navy/forest chosen because they read fine as text on light
-   theme's white cards. On dark theme's near-black cards that same dark hex is
-   nearly indistinguishable from the background — the calendar entry's name
-   and its resize-handle grips would look like a plain dark box. Lighten
-   toward white so any project color stays legible, without needing to know
-   which specific swatch it is. */
-:root[data-theme="dark"] .cal-entry__name,
-:root[data-theme="dark"] .cal-entry__handle,
-:root[data-theme="dark"] .badge--project {
+   swatches like navy/forest chosen because they read fine on light theme's
+   white cards. On dark theme's near-black cards those same swatches render
+   the calendar entry as a black box — text fix alone wasn't enough because
+   the BLOCK's tint is also derived from --pc. Rebuild the tint against the
+   dark surface (the !important is deliberate: it outranks the inline
+   style="" tint the JS sets per entry; drop it if that tint moves into CSS). */
+:root[data-theme="dark"] .cal-entry {
+  background: color-mix(in srgb, var(--pc) 22%, var(--surface)) !important;
+}
+/* …and lighten the drag handle grip (decorative, uses currentColor) toward
+   white so it stays visible against any swatch. .cal-entry__name and
+   .badge--project no longer need an override here — they use --text,
+   which already adapts per theme. */
+:root[data-theme="dark"] .cal-entry__handle {
   color: color-mix(in srgb, var(--pc) 65%, white 35%);
+}
+/* Hover LIGHTENS in dark mode — the light theme's inset-black darkener
+   sank entries further into the grid (same technique, flipped color; the
+   filter-avoidance rationale from the light rule still applies). */
+:root[data-theme="dark"] .cal-entry:hover {
+  box-shadow: inset 0 0 0 999px rgba(255,255,255,0.07), var(--shadow);
+}
+/* Slot hover tint was invisible at light-theme alphas */
+:root[data-theme="dark"] .calendar__slot-cell:hover { background: rgba(143,179,42,0.05); }
+:root[data-theme="dark"] .calendar__slot-cell[data-today="true"]:hover { background: rgba(143,179,42,0.08); }
+/* Matrix scroll-shadow: black radials are invisible on near-black — use a
+   faint light glow instead (whole shorthand restated; it can't be patched). */
+:root[data-theme="dark"] .matrix-wrap {
+  background:
+    linear-gradient(to right, var(--surface) 30%, var(--surface-fade)) left,
+    linear-gradient(to left, var(--surface) 30%, var(--surface-fade)) right,
+    radial-gradient(farthest-side at 0 50%, rgba(255,255,255,0.10), rgba(255,255,255,0)) left,
+    radial-gradient(farthest-side at 100% 50%, rgba(255,255,255,0.10), rgba(255,255,255,0)) right;
+  background-repeat: no-repeat;
+  background-color: var(--surface);
+  background-size: 32px 100%, 32px 100%, 12px 100%, 12px 100%;
+  background-attachment: local, local, scroll, scroll;
 }
