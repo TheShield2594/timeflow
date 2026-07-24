@@ -114,13 +114,27 @@ describe("useTimer", () => {
     });
     expect(result.current.timer.isRunning).toBe(true);
 
+    let discarded: boolean | undefined;
     await act(async () => {
-      await result.current.cancel();
+      discarded = await result.current.cancel();
     });
 
+    expect(discarded).toBe(true);
     expect(result.current.timer.isRunning).toBe(false);
     expect(localStorage.getItem(TIMER_STORAGE_KEY)).toBeNull();
     expect(onStop).not.toHaveBeenCalled();
+  });
+
+  it("cancel reports false when there is no session to discard", async () => {
+    const { result } = renderHook(() => useTimer(vi.fn()));
+
+    let discarded: boolean | undefined;
+    await act(async () => {
+      discarded = await result.current.cancel();
+    });
+
+    expect(discarded).toBe(false);
+    expect(svc.deleteTimeEntry).not.toHaveBeenCalled();
   });
 
   it("cancel deletes the draft row so no phantom timer is restored on reload", async () => {
