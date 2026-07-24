@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { formatElapsed } from "../hooks";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 
@@ -25,7 +25,15 @@ export const IdleModal: React.FC<Props> = ({ lastActiveAt, startTime, onTrim, on
     return () => window.removeEventListener("keydown", onKey);
   }, [onKeep]);
 
-  const idleSeconds = Math.floor((Date.now() - lastActiveAt) / 1000);
+  // Re-tick every second so the "idle for X" headline counts up while the modal
+  // stays open, instead of freezing at whatever it read on first render.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const idleSeconds = Math.floor((now - lastActiveAt) / 1000);
   const sessionSeconds = Math.floor((lastActiveAt - new Date(startTime).getTime()) / 1000);
 
   return (

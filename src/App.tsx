@@ -175,6 +175,10 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
 
   const handleMaxDuration = useCallback(async () => {
     if (!timer.startTime) return;
+    // The idle prompt may already be open from the +30min check. Clear it so it
+    // can't linger over an entry the safety net has already stopped and saved —
+    // its Trim/Discard buttons would otherwise no-op against a reset timer.
+    setIdleAlert(null);
     const cappedEnd = new Date(new Date(timer.startTime).getTime() + MAX_DURATION_MS).toISOString();
     try {
       await stopAt(cappedEnd);
@@ -192,15 +196,29 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
     onMaxDurationReached: handleMaxDuration,
   });
 
+  // Dismiss the idle prompt whenever the timer is no longer running for any
+  // reason we didn't drive from the modal itself — most importantly a cross-tab
+  // stop arriving via the storage-event sync. Without this the modal would sit
+  // over a stopped timer and its buttons would silently no-op. A save in flight
+  // (pendingStopAt set) is left alone so the modal doesn't flicker mid-stop.
+  useEffect(() => {
+    if (!timer.isRunning && !timer.pendingStopAt && idleAlert) {
+      setIdleAlert(null);
+    }
+  }, [timer.isRunning, timer.pendingStopAt, idleAlert]);
+
   const handleIdleTrim = useCallback(async () => {
     if (!idleAlert) return;
     setIdleAlert(null);
     try {
-      await stopAt(new Date(idleAlert.lastActiveAt).toISOString());
+      const entry = await stopAt(new Date(idleAlert.lastActiveAt).toISOString());
+      // stopAt no-ops (returns undefined) when the timer was already stopped —
+      // tell the user rather than leaving the click with no visible effect.
+      if (!entry) toast("Timer was already stopped — nothing to trim.", "info");
     } catch {
       // toasted by stopAt
     }
-  }, [idleAlert, stopAt]);
+  }, [idleAlert, stopAt, toast]);
 
   const handleIdleKeep = useCallback(() => {
     lastActivity.current = Date.now();
@@ -211,9 +229,16 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
     setIdleAlert(null);
     // cancel() resolves once the draft row is deleted; refresh after so the
     // discarded session's "Running…" row disappears from the timesheet too.
-    await cancel();
-    refresh();
-    toast("Session discarded.", "info");
+    // It reports whether there was actually a session to discard — if the 12h
+    // safety net or another tab already stopped and saved the entry, report
+    // that instead of falsely claiming the session was discarded.
+    const discarded = await cancel();
+    if (discarded) {
+      refresh();
+      toast("Session discarded.", "info");
+    } else {
+      toast("Timer was already stopped — the saved entry was kept.", "info");
+    }
   }, [cancel, refresh, toast]);
 
   const totalMinutesByProject = useMemo(() => {

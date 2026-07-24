@@ -211,8 +211,13 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
 
   const stop = useCallback(() => stopAt(new Date().toISOString()), [stopAt]);
 
-  const cancel = useCallback(async () => {
-    const draftId = timer.draftEntryId;
+  // Returns true if there was actually a session to discard, so callers can
+  // distinguish a real discard from a no-op (e.g. the idle modal firing after
+  // the timer was already stopped by the 12h safety net or another tab).
+  const cancel = useCallback(async (): Promise<boolean> => {
+    const active = timer;
+    const hadSession = active.isRunning || !!active.pendingStopAt || !!active.draftEntryId;
+    const draftId = active.draftEntryId;
     applyTimer(RESET_TIMER);
     localStorage.removeItem(timerKey);
     // Discarding the session must also remove the draft row, or it would be
@@ -221,7 +226,8 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
     if (draftId) {
       await svc.deleteTimeEntry(draftId).catch(() => { /* best effort */ });
     }
-  }, [timer.draftEntryId, timerKey]);
+    return hadSession;
+  }, [timer.isRunning, timer.pendingStopAt, timer.draftEntryId, timerKey]);
 
   const update = useCallback((patch: Partial<TimerState>) => {
     setTimer((prev) => {
