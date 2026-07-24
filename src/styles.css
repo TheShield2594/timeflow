@@ -962,6 +962,12 @@ input, select { font-family: inherit; }
    (only < 768px falls back to the tap-only mobile list). A touch drag that
    turns into a scroll just fires pointercancel, which safely drops the
    in-progress drag-create instead of opening the modal. */
+/* Each ARIA row is a real grid box (not display:contents) so the
+   grid → row → gridcell hierarchy is reliably exposed to assistive tech. It
+   spans the 7 day columns of the parent grid and re-divides that span into 7
+   equal columns — identical widths to the parent's `1fr` day tracks (no gap),
+   so the cells land exactly where the old direct placement put them. */
+.calendar__slot-row { display: grid; grid-column: 2 / -1; grid-template-columns: repeat(7, 1fr); }
 /* position: relative so entry blocks — now rendered inside the gridcell they
    start in (for a valid ARIA grid) — anchor to the cell. They overflow it
    downward by design; the cell is a single 36px slot but must not clip. */

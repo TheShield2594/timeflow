@@ -838,8 +838,19 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
               <p className="cal-mobile-empty">No entries — tap below to add one.</p>
             ) : dayItems.map(({ entry, running }) => {
               const project = projects.find((p) => p.id === entry.projectId);
+              // Mirror CalendarEntryBlock: the running session is owned by the
+              // timer bar, so its row isn't a button that silently no-ops on
+              // tap/Enter — just a labeled, non-interactive block.
+              const interactiveProps = running
+                ? { "aria-label": `Running session: ${entry.description || project?.name || "Untitled"}` }
+                : {
+                    role: "button" as const,
+                    tabIndex: 0,
+                    onClick: () => handleEntryClick({ stopPropagation: () => {} } as React.MouseEvent, entry),
+                    onKeyDown: (e: React.KeyboardEvent) => handleEntryKeyDown(e, entry),
+                  };
               return (
-                <div key={entry.id} className="cal-mobile-entry" onClick={() => handleEntryClick({ stopPropagation: () => {} } as React.MouseEvent, entry)} role="button" tabIndex={0} onKeyDown={(e) => handleEntryKeyDown(e, entry)}>
+                <div key={entry.id} className="cal-mobile-entry" {...interactiveProps}>
                   <div className="cal-mobile-entry__bar" style={{ background: project?.color || "#6366f1" }} />
                   <div className="cal-mobile-entry__info">
                     <div className="cal-mobile-entry__name">{entry.description || project?.name || "Untitled"}</div>
@@ -920,7 +931,13 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
               in, so the grid actually contains its entries (screen readers in
               table-navigation mode reach them instead of seeing empty cells). */}
           {timeSlots.map((_, row) => (
-            <div key={row} role="row" aria-rowindex={row + 1} style={{ display: "contents" }}>
+            <div
+              key={row}
+              role="row"
+              aria-rowindex={row + 1}
+              className="calendar__slot-row"
+              style={{ gridRow: row + 1 }}
+            >
               {weekDays.map((day, col) => {
                 const ds = localDateStr(day);
                 const isToday = ds === today;
@@ -937,7 +954,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
                     aria-colindex={col + 1}
                     className="calendar__slot-cell"
                     data-today={isToday ? "true" : undefined}
-                    style={{ gridRow: row + 1, gridColumn: col + 2 }}
+                    style={{ gridColumn: col + 1 }}
                     tabIndex={isFocused ? 0 : -1}
                     aria-label={`${formatSlotTime(row)} on ${day.toLocaleDateString("en", { weekday: "long", month: "long", day: "numeric" })} — click, or drag to set a time range`}
                     onPointerDown={(e) => handleSlotPointerDown(e, ds, row, col)}

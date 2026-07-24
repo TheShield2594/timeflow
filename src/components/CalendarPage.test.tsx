@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, within } from "@testing-library/react";
 import { CalendarPage } from "./CalendarPage";
 import { DataRangeProvider } from "../contexts/DataRangeContext";
 
@@ -72,6 +72,19 @@ describe("CalendarPage keyboard navigation", () => {
     const grid = screen.getByRole("grid", { name: "Week calendar" });
     expect(grid).not.toBeNull();
     expect(screen.getAllByRole("gridcell").length).toBe(48 * 7);
+  });
+
+  it("exposes real rows as the parents of their gridcells (grid → row → gridcell)", () => {
+    renderCalendar();
+    const rows = screen.getAllByRole("row");
+    expect(rows).toHaveLength(48);
+    // Every gridcell's parent is a row, and each row owns exactly 7 cells —
+    // the hierarchy assistive tech relies on (would collapse if the row
+    // container used display:contents and got dropped from the a11y tree).
+    rows.forEach((r) => expect(within(r).getAllByRole("gridcell")).toHaveLength(7));
+    screen.getAllByRole("gridcell").forEach((c) => {
+      expect(c.parentElement?.getAttribute("role")).toBe("row");
+    });
   });
 
   it("starts with exactly one gridcell tabbable, and arrow keys move the roving tabindex", () => {
