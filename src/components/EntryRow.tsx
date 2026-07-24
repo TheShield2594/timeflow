@@ -90,7 +90,7 @@ export const EntryRow: React.FC<Props> = ({ entry, project, task, timerBusy, onC
             className="entry-row__edit"
             onClick={() => onEdit(entry)}
             title="Edit entry"
-            aria-label="Edit entry"
+            aria-label={`Edit ${entry.description || project?.name || "this entry"}`}
           >
             <IconPencil />
           </button>
@@ -100,7 +100,7 @@ export const EntryRow: React.FC<Props> = ({ entry, project, task, timerBusy, onC
             className="entry-row__delete"
             onClick={() => onDelete(entry.id)}
             title="Delete entry"
-            aria-label="Delete entry"
+            aria-label={`Delete ${entry.description || project?.name || "this entry"}`}
           >
             <IconX />
           </button>

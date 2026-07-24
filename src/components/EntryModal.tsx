@@ -200,6 +200,7 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
               onChange={(e) => set({ description: e.target.value })}
               maxLength={500}
               autoFocus
+              data-autofocus
             />
           </div>
           <div className="field-row">

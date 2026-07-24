@@ -123,6 +123,9 @@ interface EntryBlockProps {
   entry: TimeEntry;
   startMin: number;
   endMin: number;
+  /** Minutes-of-day of the top of the gridcell this block is rendered inside;
+   *  the block is absolutely positioned relative to that cell. */
+  rowTopMin: number;
   running: boolean;
   resizable: boolean;
   col: number;
@@ -214,16 +217,38 @@ const WeekTargetProgress: React.FC<{ weekMinutes: number }> = ({ weekMinutes }) 
 };
 
 const CalendarEntryBlock = React.memo<EntryBlockProps>(({
-  entry, startMin, endMin, running, resizable, col, cols, color, projectName, taskName,
+  entry, startMin, endMin, rowTopMin, running, resizable, col, cols, color, projectName, taskName,
   onClick, onKeyDown, onResizeStart, onResizeMove, onResizeEnd, onResizeCancel,
 }) => {
-  const top = startMin * PX_PER_MIN;
+  const top = (startMin - rowTopMin) * PX_PER_MIN;
   const height = Math.max((endMin - startMin) * PX_PER_MIN - 2, MIN_ENTRY_PX);
   const widthPct = 100 / cols;
 
+  // Entries now sit inside the slot `gridcell`, so a pointerdown on the block
+  // would otherwise bubble to the cell's drag-to-create handler and race the
+  // entry's own click. Stop it here; the resize handles already stop their own
+  // pointerdown before it reaches this root.
+  const stopPointerDown = (e: React.PointerEvent) => e.stopPropagation();
+
+  // The running session is owned by the timer bar — clicking its block here
+  // does nothing (editing/deleting the draft row would strand the timer's
+  // stop in a 404-retry loop). So it isn't a button: a non-interactive,
+  // non-focusable block whose visible name/time carry the information, rather
+  // than a focusable control that silently no-ops on Enter.
+  const interactiveProps = running
+    ? { "aria-label": `Running session: ${entry.description || projectName || "Untitled"}` }
+    : {
+        onClick: (e: React.MouseEvent) => onClick(e, entry),
+        onKeyDown: (e: React.KeyboardEvent) => onKeyDown(e, entry),
+        role: "button",
+        tabIndex: 0,
+        "aria-label": `Edit entry: ${entry.description || projectName || "Untitled"}`,
+        title: "Click to edit, or drag the top/bottom edge to resize",
+      };
+
   return (
     <div
-      className={`cal-entry cal-entry--clickable ${running ? "cal-entry--running" : ""}`}
+      className={`cal-entry ${running ? "cal-entry--running" : "cal-entry--clickable"}`}
       style={{
         top: `${top}px`,
         height: `${height}px`,
@@ -238,12 +263,8 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
         // via color-mix in dark theme (see styles.css) instead of using it raw.
         "--pc": color,
       } as React.CSSProperties}
-      onClick={(e) => onClick(e, entry)}
-      onKeyDown={(e) => onKeyDown(e, entry)}
-      role="button"
-      tabIndex={0}
-      aria-label={`${running ? "Running session" : "Edit entry"}: ${entry.description || projectName || "Untitled"}`}
-      title={running ? "Timer running" : "Click to edit, or drag the top/bottom edge to resize"}
+      onPointerDown={stopPointerDown}
+      {...interactiveProps}
     >
       {resizable && (
         <div
@@ -402,6 +423,25 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     merged.set(date, layoutDay(allItems));
     return merged;
   }, [staticPositionedByDate, runningPositioned]);
+
+  // Group entries by the grid slot cell they start in, keyed `${date}-${row}`,
+  // so each block can render *inside* its starting `gridcell`. Entries used to
+  // live in a separate day-column overlay that sat directly under the ARIA
+  // grid outside any row/gridcell — screen readers in table-navigation mode
+  // then saw a grid of empty cells and never reached the actual entries.
+  const entriesByCell = useMemo(() => {
+    const m = new Map<string, Positioned[]>();
+    positionedByDate.forEach((items, date) => {
+      items.forEach((p) => {
+        const row = Math.max(0, Math.min(Math.floor(p.startMin / 30), TOTAL_SLOTS - 1));
+        const key = `${date}-${row}`;
+        const list = m.get(key);
+        if (list) list.push(p);
+        else m.set(key, [p]);
+      });
+    });
+    return m;
+  }, [positionedByDate]);
 
   const dayTotals = useMemo(() => {
     const map = new Map<string, number>();
@@ -683,6 +723,41 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     }
   };
 
+  // Render one positioned entry block. Called from inside the `gridcell` the
+  // entry starts in, so the block is positioned relative to that cell
+  // (rowTopMin = the cell's minutes-of-day top).
+  const renderEntryBlock = (p: Positioned, rowTopMin: number) => {
+    const { entry, startMin, endMin, running, col, cols } = p;
+    const project = projects.find((pr) => pr.id === entry.projectId);
+    const task = tasks.find((t) => t.id === entry.taskId);
+    const resizable = !running && !!entry.endTime && localDateStr(new Date(entry.endTime)) <= entry.date;
+    const isResizing = resizePreview?.entryId === entry.id;
+    const effStartMin = isResizing && resizePreview!.edge === "start" ? resizePreview!.minutes : startMin;
+    const effEndMin = isResizing && resizePreview!.edge === "end" ? resizePreview!.minutes : endMin;
+    return (
+      <CalendarEntryBlock
+        key={entry.id}
+        entry={entry}
+        startMin={effStartMin}
+        endMin={effEndMin}
+        rowTopMin={rowTopMin}
+        running={running}
+        resizable={resizable}
+        col={col}
+        cols={cols}
+        color={project?.color || "#6366f1"}
+        projectName={project?.name || "Untitled"}
+        taskName={task?.name}
+        onClick={handleEntryClick}
+        onKeyDown={handleEntryKeyDown}
+        onResizeStart={handleResizeStart}
+        onResizeMove={handleResizeMove}
+        onResizeEnd={handleResizeEnd}
+        onResizeCancel={handleResizeCancel}
+      />
+    );
+  };
+
   return (
     <div className="calendar">
 
@@ -797,17 +872,20 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
             ))}
           </div>
 
-          {/* Day columns — decorative slot lines, now-line and time entries */}
+          {/* Day columns — decorative only (slot lines, now-line, drag
+              preview). aria-hidden because the entries themselves now live in
+              the gridcells below; leaving these plain <div>s in the ARIA grid
+              would put non-row children directly under role="grid". */}
           {weekDays.map((day, dayIdx) => {
             const ds = localDateStr(day);
             const isToday = ds === today;
-            const dayEntries = positionedByDate.get(ds) || [];
 
             return (
               <div
                 key={ds}
                 className={`calendar__day-col ${isToday ? "calendar__day-col--today" : ""}`}
                 style={{ gridColumn: dayIdx + 2 }}
+                aria-hidden="true"
               >
                 {/* Slot lines */}
                 {timeSlots.map(({ half }, i) => (
@@ -822,37 +900,6 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
                   />
                 )}
 
-                {/* Time entries */}
-                {dayEntries.map(({ entry, startMin, endMin, running, col, cols }) => {
-                  const project = projects.find((p) => p.id === entry.projectId);
-                  const task = tasks.find((t) => t.id === entry.taskId);
-                  const resizable = !running && !!entry.endTime && localDateStr(new Date(entry.endTime)) <= entry.date;
-                  const isResizing = resizePreview?.entryId === entry.id;
-                  const effStartMin = isResizing && resizePreview!.edge === "start" ? resizePreview!.minutes : startMin;
-                  const effEndMin = isResizing && resizePreview!.edge === "end" ? resizePreview!.minutes : endMin;
-                  return (
-                    <CalendarEntryBlock
-                      key={entry.id}
-                      entry={entry}
-                      startMin={effStartMin}
-                      endMin={effEndMin}
-                      running={running}
-                      resizable={resizable}
-                      col={col}
-                      cols={cols}
-                      color={project?.color || "#6366f1"}
-                      projectName={project?.name || "Untitled"}
-                      taskName={task?.name}
-                      onClick={handleEntryClick}
-                      onKeyDown={handleEntryKeyDown}
-                      onResizeStart={handleResizeStart}
-                      onResizeMove={handleResizeMove}
-                      onResizeEnd={handleResizeEnd}
-                      onResizeCancel={handleResizeCancel}
-                    />
-                  );
-                })}
-
                 {/* Live preview while dragging out a new entry's time range */}
                 {dragCreate && dragCreate.dayIdx === dayIdx && (() => {
                   const lo = Math.min(dragCreate.fromRow, dragCreate.toRow);
@@ -860,7 +907,6 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
                   return (
                     <div
                       className="cal-drag-preview"
-                      aria-hidden="true"
                       style={{ top: `${lo * SLOT_HEIGHT}px`, height: `${(hi - lo + 1) * SLOT_HEIGHT}px` }}
                     />
                   );
@@ -869,13 +915,17 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
             );
           })}
 
-          {/* Keyboard-navigable slot cells — row-major so ARIA rows span all days */}
+          {/* Keyboard-navigable slot cells — row-major so ARIA rows span all
+              days. Each entry block is rendered inside the gridcell it starts
+              in, so the grid actually contains its entries (screen readers in
+              table-navigation mode reach them instead of seeing empty cells). */}
           {timeSlots.map((_, row) => (
             <div key={row} role="row" aria-rowindex={row + 1} style={{ display: "contents" }}>
               {weekDays.map((day, col) => {
                 const ds = localDateStr(day);
                 const isToday = ds === today;
                 const isFocused = focusedCell.row === row && focusedCell.col === col;
+                const cellEntries = entriesByCell.get(`${ds}-${row}`);
                 return (
                   <div
                     key={`${row}-${col}`}
@@ -896,7 +946,9 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
                     onPointerCancel={handleSlotPointerCancel}
                     onKeyDown={(e) => handleCellKeyDown(e, row, col, ds)}
                     onFocus={() => setFocusedCell({ row, col })}
-                  />
+                  >
+                    {cellEntries?.map((p) => renderEntryBlock(p, row * 30))}
+                  </div>
                 );
               })}
             </div>
