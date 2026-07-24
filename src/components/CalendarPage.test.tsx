@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, within } from "@testing-library/react";
 import { CalendarPage } from "./CalendarPage";
 import { DataRangeProvider } from "../contexts/DataRangeContext";
 
@@ -42,12 +42,49 @@ function renderCalendar() {
   );
 }
 
+// A local YYYY-MM-DD for a day in the currently-displayed week (the calendar
+// anchors to today), so seeded entries land inside the rendered grid.
+function todayStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+const project = { id: "p1", name: "Project One", color: "#719500", isActive: true, createdAt: "" };
+
+function renderCalendarWith(entries: Parameters<typeof CalendarPage>[0]["entries"]) {
+  return render(
+    <DataRangeProvider>
+      <CalendarPage
+        entries={entries}
+        projects={[project]}
+        tasks={[]}
+        onCreateEntry={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+      />
+    </DataRangeProvider>
+  );
+}
+
 describe("CalendarPage keyboard navigation", () => {
   it("renders the week grid with ARIA grid semantics", () => {
     renderCalendar();
     const grid = screen.getByRole("grid", { name: "Week calendar" });
     expect(grid).not.toBeNull();
     expect(screen.getAllByRole("gridcell").length).toBe(48 * 7);
+  });
+
+  it("exposes real rows as the parents of their gridcells (grid → row → gridcell)", () => {
+    renderCalendar();
+    const rows = screen.getAllByRole("row");
+    expect(rows).toHaveLength(48);
+    // Every gridcell's parent is a row, and each row owns exactly 7 cells —
+    // the hierarchy assistive tech relies on (would collapse if the row
+    // container used display:contents and got dropped from the a11y tree).
+    rows.forEach((r) => expect(within(r).getAllByRole("gridcell")).toHaveLength(7));
+    screen.getAllByRole("gridcell").forEach((c) => {
+      expect(c.parentElement?.getAttribute("role")).toBe("row");
+    });
   });
 
   it("starts with exactly one gridcell tabbable, and arrow keys move the roving tabindex", () => {
@@ -88,5 +125,39 @@ describe("CalendarPage keyboard navigation", () => {
 
     expect(screen.getByText("Log Time")).not.toBeNull();
     expect(screen.getByDisplayValue("07:00")).not.toBeNull();
+  });
+});
+
+describe("CalendarPage entry accessibility", () => {
+  it("renders a completed entry as an editable button inside a gridcell", () => {
+    const ds = todayStr();
+    renderCalendarWith([
+      {
+        id: "e1", projectId: "p1", description: "Design review",
+        startTime: `${ds}T09:00:00`, endTime: `${ds}T10:00:00`,
+        durationMinutes: 60, date: ds, userId: "u1", userDisplayName: "U",
+      },
+    ]);
+
+    // The block is reachable as a labeled button (issue #3: entries used to sit
+    // outside any row/gridcell, so grid navigation never reached them)…
+    const block = screen.getByRole("button", { name: /Edit entry: Design review/ });
+    // …and it lives inside a gridcell, so the ARIA grid actually contains it.
+    expect(block.closest('[role="gridcell"]')).not.toBeNull();
+  });
+
+  it("does not expose the running entry block as a focusable button", () => {
+    const ds = todayStr();
+    renderCalendarWith([
+      {
+        id: "run", projectId: "p1", description: "In progress",
+        startTime: `${ds}T09:00:00`, date: ds, userId: "u1", userDisplayName: "U",
+      },
+    ]);
+
+    // The running session is owned by the timer bar; activating its calendar
+    // block does nothing, so it must not be a focusable button that no-ops.
+    expect(screen.queryByRole("button", { name: /Running session/ })).toBeNull();
+    expect(screen.getByText("In progress")).not.toBeNull();
   });
 });

@@ -13,8 +13,15 @@ export function useFocusTrap<T extends HTMLElement>(): React.RefObject<T> {
 
     const focusable = (): HTMLElement[] => Array.from(el.querySelectorAll<HTMLElement>(FOCUSABLE));
 
-    // Move focus into the modal.
-    focusable()[0]?.focus();
+    // Move focus into the modal. Prefer an explicitly designated initial-focus
+    // target (`[data-autofocus]`) so focus lands on the first real input — the
+    // first *focusable* element is usually the header Close button, and landing
+    // there means a keyboard user's opening Enter dismisses the dialog instead
+    // of typing. If none is designated but React's autoFocus already moved focus
+    // inside the modal, respect it; otherwise fall back to the first focusable.
+    const designated = el.querySelector<HTMLElement>("[data-autofocus]");
+    if (designated) designated.focus();
+    else if (!el.contains(document.activeElement)) focusable()[0]?.focus();
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Tab") return;

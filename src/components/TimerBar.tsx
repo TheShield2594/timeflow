@@ -140,6 +140,7 @@ export const TimerBar: React.FC<Props> = ({
         <input
           className="timer-bar__desc"
           placeholder="What are you working on?"
+          aria-label="What are you working on?"
           value={isRunning ? description : desc}
           onChange={(e) => {
             if (isRunning) onUpdate({ description: e.target.value });
@@ -171,6 +172,7 @@ export const TimerBar: React.FC<Props> = ({
             <>
               <select
                 className="timer-bar__select"
+                aria-label="Project"
                 value={selectedProject}
                 onChange={(e) => {
                   const pid = e.target.value;
@@ -190,6 +192,7 @@ export const TimerBar: React.FC<Props> = ({
               {selectedProject && !addingNewTask && (
                 <select
                   className="timer-bar__select"
+                  aria-label="Task"
                   value={selectedTask}
                   onChange={(e) => {
                     if (e.target.value === NEW_TASK_OPTION) {
@@ -212,6 +215,7 @@ export const TimerBar: React.FC<Props> = ({
                   <input
                     className="timer-bar__new-task-input"
                     placeholder="New task name"
+                    aria-label="New task name"
                     value={newTaskName}
                     onChange={(e) => setNewTaskName(e.target.value)}
                     onKeyDown={async (e) => {

@@ -73,12 +73,15 @@ export const DateRangeFilter: React.FC<Props> = ({
   return (
     <>
       <div className="reports__controls">
-        <div className="reports__range-tabs" role="tablist">
+        {/* Filter buttons, not tabs: they don't control adjacent tabpanels and
+            have no tab keyboard semantics, so the `tablist`/`tab` roles just
+            mislead assistive tech. Selection is conveyed with `aria-pressed`. */}
+        <div className="reports__range-tabs" role="group" aria-label="Date range">
           {presets.map((p) => (
             <button
               key={p}
-              role="tab"
-              aria-selected={value.preset === p}
+              type="button"
+              aria-pressed={value.preset === p}
               className={`reports__tab ${value.preset === p ? "reports__tab--active" : ""}`}
               onClick={() => onChange({ ...value, preset: p })}
             >
@@ -86,8 +89,8 @@ export const DateRangeFilter: React.FC<Props> = ({
             </button>
           ))}
           <button
-            role="tab"
-            aria-selected={showCustom}
+            type="button"
+            aria-pressed={showCustom}
             className={`reports__tab ${showCustom ? "reports__tab--active" : ""}`}
             onClick={() => onChange({ ...value, preset: "custom" })}
           >
@@ -100,15 +103,17 @@ export const DateRangeFilter: React.FC<Props> = ({
 
       {showCustom && (
         <div className="reports__custom-range">
-          <label className="custom-range__label">From</label>
+          <label className="custom-range__label" htmlFor="range-from">From</label>
           <input
+            id="range-from"
             type="date"
             className="custom-range__input"
             value={value.customFrom}
             onChange={(e) => onChange({ ...value, customFrom: e.target.value })}
           />
-          <label className="custom-range__label">To</label>
+          <label className="custom-range__label" htmlFor="range-to">To</label>
           <input
+            id="range-to"
             type="date"
             className="custom-range__input"
             value={value.customTo}
