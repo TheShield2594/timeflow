@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import type { Project } from "../types";
 import * as svc from "../services/dataverseService";
 import { useToast } from "../contexts/ToastContext";
-import { tempId, errMsg } from "./_shared";
+import { tempId, isTempId, errMsg } from "./_shared";
 
 export function useProjects() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -29,6 +29,16 @@ export function useProjects() {
     setProjects((prev) => [...prev, optimistic]);
     try {
       const real = await svc.createProject(data);
+      if (!real.id) {
+        // The connector dropped the response body, so we have no server id for
+        // the row it created. Adopting `id: ""` leaves a project that can't be
+        // edited, archived or picked for a task; keep the temp id (the temp-id
+        // guards then say "still saving") and re-read the list to reconcile.
+        const pending = { ...real, id: optimistic.id };
+        setProjects((prev) => prev.map((p) => (p.id === optimistic.id ? pending : p)));
+        refresh();
+        return pending;
+      }
       setProjects((prev) => prev.map((p) => (p.id === optimistic.id ? real : p)));
       return real;
     } catch (err) {
@@ -36,15 +46,23 @@ export function useProjects() {
       toast(`Could not create project: ${errMsg(err)}`, "error");
       throw err;
     }
-  }, [toast]);
+  }, [refresh, toast]);
 
   const editProject = useCallback(async (id: string, data: Partial<Project>) => {
     const snapshot = projectsRef.current.find((p) => p.id === id);
     if (!snapshot) throw new Error("Project not found");
+    if (isTempId(id)) {
+      toast("Project is still saving — please wait a moment and try again", "error");
+      throw new Error("Project not yet saved");
+    }
     setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, ...data } : p)));
     try {
       const updated = await svc.updateProject(id, data);
-      setProjects((prev) => prev.map((p) => (p.id === id ? updated : p)));
+      // Merged over the existing record, not swapped in for it: a dropped
+      // response body makes `updated` carry only the patched fields, and
+      // replacing wholesale would drop createdAt/isActive — an absent
+      // isActive reads as falsy and hides the project from every picker.
+      setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, ...updated } : p)));
       return updated;
     } catch (err) {
       setProjects((prev) => prev.map((p) => (p.id === id ? snapshot : p)));
@@ -61,6 +79,13 @@ export function useProjects() {
   // flagged inactive, so historical entries keep resolving its name/color;
   // pickers filter it out. Restore reactivates the same record.
   const archiveProject = useCallback(async (project: Project) => {
+    // A temp id has no row to deactivate, and deactivate deliberately treats a
+    // 404 as success — so without this guard the archive would look like it
+    // worked while the real project stayed active.
+    if (isTempId(project.id)) {
+      toast("Project is still saving — please wait a moment and try again", "error");
+      throw new Error("Project not yet saved");
+    }
     setProjectActive(project.id, false);
     try {
       await svc.deactivateProject(project.id);

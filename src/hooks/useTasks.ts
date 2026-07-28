@@ -60,11 +60,21 @@ export function useTasks() {
     });
     try {
       const real = await svc.createTask(data);
+      // No server id means the connector dropped the response body. Keeping
+      // the temp id leaves the task pickable and covered by the temp-id guards
+      // above, instead of an `id: ""` row that rename/delete would send to the
+      // wrong endpoint; the re-read below reconciles it to the real record.
+      const resolved = real.id ? real : { ...real, id: optimistic.id };
       setTasksByProject((prev) => {
-        const existing = (prev.get(data.projectId) ?? []).map((t) => (t.id === optimistic.id ? real : t));
+        const existing = (prev.get(data.projectId) ?? []).map((t) => (t.id === optimistic.id ? resolved : t));
         return new Map([...prev, [data.projectId, existing]]);
       });
-      return real;
+      if (!real.id) {
+        svc.getTasksForProject(data.projectId)
+          .then((loaded) => setTasksByProject((prev) => new Map([...prev, [data.projectId, loaded]])))
+          .catch(() => { /* the temp-id row stays until the next load */ });
+      }
+      return resolved;
     } catch (err) {
       setTasksByProject((prev) => {
         const existing = (prev.get(data.projectId) ?? []).filter((t) => t.id !== optimistic.id);

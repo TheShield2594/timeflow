@@ -25,10 +25,17 @@ const PRESET_LABEL: Record<DateRangePreset, string> = {
   custom: "Custom",
 };
 
-export function resolveDateRange(state: DateRangeState): { from: string; to: string } {
-  const today = new Date();
-  const todayStr = localDateStr(today);
-
+/**
+ * Resolve a preset to concrete YYYY-MM-DD bounds.
+ *
+ * `todayStr` is a parameter rather than a call to localDateStr() so callers
+ * that memoize the result can list it as a dependency and recompute at the
+ * midnight rollover — see useToday. Defaults to the current local date.
+ */
+export function resolveDateRange(
+  state: DateRangeState,
+  todayStr: string = localDateStr(),
+): { from: string; to: string } {
   if (state.preset === "custom") {
     return {
       from: state.customFrom || todayStr,
@@ -39,7 +46,7 @@ export function resolveDateRange(state: DateRangeState): { from: string; to: str
     return { from: "1970-01-01", to: "9999-12-31" };
   }
 
-  const from = new Date(today);
+  const from = new Date(todayStr + "T00:00:00");
   if (state.preset === "7d") from.setDate(from.getDate() - 6);
   else if (state.preset === "30d") from.setDate(from.getDate() - 29);
   else if (state.preset === "90d") from.setDate(from.getDate() - 89);

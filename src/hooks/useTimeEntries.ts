@@ -3,7 +3,7 @@ import type { TimeEntry } from "../types";
 import * as svc from "../services/dataverseService";
 import { getCurrentUser } from "../services/userService";
 import { useToast } from "../contexts/ToastContext";
-import { tempId, errMsg } from "./_shared";
+import { tempId, isTempId, errMsg } from "./_shared";
 
 // sessionStorage (not a ref) so the "warn once per session" guard survives
 // this hook's component unmounting/remounting, not just re-renders of one
@@ -69,6 +69,14 @@ export function useTimeEntries(from?: string, to?: string) {
     const idx = entriesRef.current.findIndex((e) => e.id === id);
     if (idx === -1) return;
     const snapshot = entriesRef.current[idx];
+    // A temp id is either an in-flight create or one whose response body was
+    // dropped — in both cases a row may exist server-side that this delete
+    // can't name, and deleteTimeEntry treats the resulting 404 as success, so
+    // the entry would vanish locally and come back on the next load.
+    if (isTempId(id)) {
+      toast("Entry is still saving — please wait a moment and try again", "error");
+      throw new Error("Entry not yet saved");
+    }
     setEntries((prev) => prev.filter((e) => e.id !== id));
     try {
       await svc.deleteTimeEntry(id);
@@ -88,6 +96,16 @@ export function useTimeEntries(from?: string, to?: string) {
     setEntries((prev) => [optimistic, ...prev]);
     try {
       const real = await svc.createTimeEntry(data);
+      if (!real.id) {
+        // Dropped response body: the row exists server-side but we don't know
+        // its id. `id: ""` would make Edit/Delete on the new row PATCH or
+        // DELETE the collection itself, so keep the temp id (editEntry's guard
+        // then explains the wait) and re-read the range to reconcile.
+        const pending = { ...real, id: optimistic.id };
+        setEntries((prev) => prev.map((e) => (e.id === optimistic.id ? pending : e)));
+        refresh();
+        return pending;
+      }
       setEntries((prev) => prev.map((e) => (e.id === optimistic.id ? real : e)));
       return real;
     } catch (err) {
@@ -95,15 +113,22 @@ export function useTimeEntries(from?: string, to?: string) {
       toast(`Could not save entry: ${errMsg(err)}`, "error");
       throw err;
     }
-  }, [toast]);
+  }, [refresh, toast]);
 
   const editEntry = useCallback(async (id: string, data: Partial<TimeEntry>) => {
     const snapshot = entriesRef.current.find((e) => e.id === id);
     if (!snapshot) throw new Error("Entry not found");
+    if (isTempId(id)) {
+      toast("Entry is still saving — please wait a moment and try again", "error");
+      throw new Error("Entry not yet saved");
+    }
     setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...data } : e)));
     try {
       const updated = await svc.updateTimeEntry(id, data);
-      setEntries((prev) => prev.map((e) => (e.id === id ? updated : e)));
+      // Merged over the existing entry rather than replacing it: with a dropped
+      // response body `updated` holds only the patched fields, and a wholesale
+      // swap would blank the rest of the row.
+      setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...updated } : e)));
       return updated;
     } catch (err) {
       setEntries((prev) => prev.map((e) => (e.id === id ? snapshot : e)));

@@ -161,3 +161,64 @@ describe("CalendarPage entry accessibility", () => {
     expect(screen.getByText("In progress")).not.toBeNull();
   });
 });
+
+describe("CalendarPage totals include the running session (#74)", () => {
+  // Fixed clock so "elapsed so far" is deterministic. Local noon on today's
+  // date, with the running entry started at 09:00 local — 180 minutes ago.
+  function freezeAtNoon(): string {
+    const ds = todayStr();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(`${ds}T12:00:00`));
+    return ds;
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("counts elapsed time of the running entry in the day and week totals", () => {
+    const ds = freezeAtNoon();
+    renderCalendarWith([
+      {
+        id: "run", projectId: "p1", description: "In progress",
+        startTime: `${ds}T09:00:00`, date: ds, userId: "u1", userDisplayName: "U",
+      },
+    ]);
+
+    // The running entry has no durationMinutes, so both totals used to read
+    // zero while the block on screen visibly grew.
+    expect(screen.getByText("3h this week")).not.toBeNull();
+    expect(screen.getAllByText("3h").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Nothing logged this week/)).toBeNull();
+  });
+
+  it("adds the running time on top of completed entries for the same day", () => {
+    const ds = freezeAtNoon();
+    renderCalendarWith([
+      {
+        id: "done", projectId: "p1", description: "Done",
+        startTime: `${ds}T07:00:00`, endTime: `${ds}T08:00:00`,
+        durationMinutes: 60, date: ds, userId: "u1", userDisplayName: "U",
+      },
+      {
+        id: "run", projectId: "p1", description: "In progress",
+        startTime: `${ds}T09:00:00`, date: ds, userId: "u1", userDisplayName: "U",
+      },
+    ]);
+
+    expect(screen.getByText("4h this week")).not.toBeNull();
+  });
+
+  it("leaves totals alone when nothing is running", () => {
+    const ds = freezeAtNoon();
+    renderCalendarWith([
+      {
+        id: "done", projectId: "p1", description: "Done",
+        startTime: `${ds}T07:00:00`, endTime: `${ds}T08:00:00`,
+        durationMinutes: 60, date: ds, userId: "u1", userDisplayName: "U",
+      },
+    ]);
+
+    expect(screen.getByText("1h this week")).not.toBeNull();
+  });
+});

@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useMemo } from "react";
 import type { TimeEntry, Project, Task } from "../types";
 import { formatMinutes } from "../hooks";
-import { useDataRange } from "../contexts/DataRangeContext";
+import { useRangeRequest } from "../contexts/DataRangeContext";
+import { useToday } from "../hooks/useToday";
 import { useWeeklyTarget } from "../hooks/useWeeklyTarget";
-import { addDaysStr, localDateStr, weekStartStr } from "../utils/dates";
+import { addDaysStr, weekStartStr } from "../utils/dates";
 import { EntryRow } from "./EntryRow";
 import { ActivityHeatmap } from "./ActivityHeatmap";
 import { SvgBarChart } from "./SvgBarChart";
@@ -22,17 +23,17 @@ const HEATMAP_WEEKS = 12;
 const RECENT_COUNT = 5;
 
 export const OverviewPage: React.FC<Props> = ({ entries, projects, tasks, timerBusy, onContinue, onGoToProjects }) => {
-  const { ensureRangeLoaded } = useDataRange();
   const { targetHours } = useWeeklyTarget();
-  const today = localDateStr();
+  const today = useToday();
 
   // The heatmap looks back HEATMAP_WEEKS weeks — make sure that window is
   // actually loaded rather than assuming it fits inside whatever range
   // another page last requested.
-  useEffect(() => {
-    const heatmapStart = addDaysStr(weekStartStr(today), -(HEATMAP_WEEKS - 1) * 7);
-    ensureRangeLoaded(heatmapStart, today);
-  }, [ensureRangeLoaded, today]);
+  const heatmapStart = useMemo(
+    () => addDaysStr(weekStartStr(today), -(HEATMAP_WEEKS - 1) * 7),
+    [today]
+  );
+  useRangeRequest("overview", heatmapStart, today);
 
   const minutesByDate = useMemo(() => {
     const map = new Map<string, number>();

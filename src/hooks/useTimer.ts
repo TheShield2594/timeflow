@@ -183,6 +183,12 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       date: localDateStr(new Date(newTimer.startTime!)),
       ratio,
     }).then((draftEntryId) => {
+      // Null means the row may exist but we couldn't establish its id (dropped
+      // response body, and the read-back didn't resolve it either). Storing it
+      // would make stop() PATCH `undefined`; leaving draftEntryId unset instead
+      // routes stop() through the create path, and bootstrap's reconcile adopts
+      // or restores the orphaned draft on the next load (#70).
+      if (!draftEntryId) return;
       // If the user already stopped or discarded this session while the draft
       // create was in flight, the completed entry (if any) was created via the
       // no-draft path — this row would linger open (endTime null) and be

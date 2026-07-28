@@ -22,10 +22,20 @@ interface Cell {
   row: number;
 }
 
+/** Long form of a cell's date, matching the visual tooltip. */
+function cellDateLabel(date: string): string {
+  return new Date(date + "T00:00:00").toLocaleDateString("en", {
+    weekday: "short", month: "short", day: "numeric",
+  });
+}
+
 /** GitHub/solidtime-style contribution grid — one cell per day, shaded by
- *  minutes logged, most recent week on the right. Purely a supplementary
- *  visualization: the same totals are already available as accessible text
- *  in the KPI strip above it, so the grid itself is decorative. */
+ *  minutes logged, most recent week on the right. The grid itself is
+ *  decorative (aria-hidden): its shading carries no information that isn't
+ *  also in the accessible summary below it. The per-day values used to live
+ *  only in `title` tooltips on those hidden cells, which put them out of
+ *  reach of both screen readers and the keyboard — they're now listed as
+ *  text as well (#73). */
 export const ActivityHeatmap: React.FC<Props> = ({ entries, weeks = 12 }) => {
   const { cells, monthMarkers, maxMinutes } = useMemo(() => {
     const today = localDateStr();
@@ -80,6 +90,8 @@ export const ActivityHeatmap: React.FC<Props> = ({ entries, weeks = 12 }) => {
     return { cells: list, monthMarkers: markers, maxMinutes: actualMax };
   }, [entries, weeks]);
 
+  const activeCells = useMemo(() => cells.filter((c) => c.minutes > 0), [cells]);
+
   return (
     <div className="activity-heatmap-wrap">
       <div className="activity-heatmap">
@@ -103,7 +115,7 @@ export const ActivityHeatmap: React.FC<Props> = ({ entries, weeks = 12 }) => {
                 key={c.date}
                 className={`activity-heatmap__cell activity-heatmap__cell--${c.level}`}
                 style={{ gridColumn: c.col + 1, gridRow: c.row + 1 }}
-                title={`${new Date(c.date + "T00:00:00").toLocaleDateString("en", { weekday: "short", month: "short", day: "numeric" })} — ${c.minutes > 0 ? formatMinutes(c.minutes) : "no time logged"}`}
+                title={`${cellDateLabel(c.date)} — ${c.minutes > 0 ? formatMinutes(c.minutes) : "no time logged"}`}
               />
             ))}
           </div>
@@ -117,12 +129,23 @@ export const ActivityHeatmap: React.FC<Props> = ({ entries, weeks = 12 }) => {
         <span>More</span>
       </div>
       {/* The grid above is aria-hidden decoration; this is the accessible
-          summary of the same data (totals are also in the KPI strip). */}
-      <p className="sr-only">
-        {maxMinutes > 0
-          ? `Activity over the last ${weeks} weeks — busiest day totaled ${formatMinutes(maxMinutes)}.`
-          : `No activity logged in the last ${weeks} weeks.`}
-      </p>
+          equivalent of the same data (totals are also in the KPI strip).
+          Only days with time logged are listed — an entry per empty day
+          would bury the ones that matter under weeks of "no time logged". */}
+      <div className="sr-only">
+        {maxMinutes > 0 ? (
+          <>
+            <p>{`Activity over the last ${weeks} weeks — busiest day totaled ${formatMinutes(maxMinutes)}. Days with time logged:`}</p>
+            <ul>
+              {activeCells.map((c) => (
+                <li key={c.date}>{`${cellDateLabel(c.date)}: ${formatMinutes(c.minutes)}`}</li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p>{`No activity logged in the last ${weeks} weeks.`}</p>
+        )}
+      </div>
     </div>
   );
 };

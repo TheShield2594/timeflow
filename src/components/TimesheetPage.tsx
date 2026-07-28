@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { TimeEntry, Project, Task } from "../types";
 import { formatMinutes } from "../hooks";
-import { useDataRange } from "../contexts/DataRangeContext";
+import { useRangeRequest } from "../contexts/DataRangeContext";
+import { useToday } from "../hooks/useToday";
 import { useWeeklyTarget } from "../hooks/useWeeklyTarget";
 import { getCurrentUser } from "../services/userService";
 import { friendlyDate, localDateStr, toTimeInput, weekStartStr } from "../utils/dates";
@@ -69,7 +70,7 @@ function newEntryDraft(): EntryDraft {
 export const TimesheetPage: React.FC<Props> = ({
   entries, projects, tasks, timerBusy, rangeLoading, onDelete, onEdit, onCreate, onContinue, onLoadTasksForProject, onGoToProjects,
 }) => {
-  const { ensureRangeLoaded } = useDataRange();
+  const today = useToday();
   const { targetHours } = useWeeklyTarget();
   const [modal, setModal] = useState<ModalState | null>(null);
   const [search, setSearch] = useState("");
@@ -81,14 +82,12 @@ export const TimesheetPage: React.FC<Props> = ({
     customTo: "",
   });
 
-  const { from, to } = useMemo(() => resolveDateRange(rangeState), [rangeState]);
+  const { from, to } = useMemo(() => resolveDateRange(rangeState, today), [rangeState, today]);
 
   // Reset visible days when the filter/range changes so "Load more" state doesn't carry over.
   useEffect(() => { setVisibleDays(INITIAL_VISIBLE_DAYS); }, [from, to, search, projectFilter]);
 
-  useEffect(() => {
-    ensureRangeLoaded(from, to);
-  }, [from, to, ensureRangeLoaded]);
+  useRangeRequest("timesheet", from, to);
 
   const filteredEntries = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -119,12 +118,14 @@ export const TimesheetPage: React.FC<Props> = ({
   // Current calendar week (Mon–Sun) total across ALL entries — independent of
   // the page's search/range filters — for the weekly-target chip.
   const thisWeekMinutes = useMemo(() => {
-    const weekFrom = weekStartStr(localDateStr());
+    // Derived from `today` so the week boundary moves at the rollover; keyed
+    // off `entries` alone it would keep counting last week after midnight.
+    const weekFrom = weekStartStr(today);
     return entries.reduce(
       (s, e) => (e.date >= weekFrom ? s + (e.durationMinutes || 0) : s),
       0
     );
-  }, [entries]);
+  }, [entries, today]);
 
   const openNew = () => setModal({ editingId: null, draft: newEntryDraft() });
 
