@@ -102,18 +102,24 @@ async function retryWithBackoff<T>(fn: () => Promise<T>, maxAttempts = 3): Promi
 // ---------------------------------------------------------------------------
 const IF_MATCH_ANY = "*";
 
+// unwrap() runs inside the retried callback, as on the read path: the SDK
+// reports some failures as a { success: false } envelope rather than a throw,
+// and a throttled update returned that way would otherwise skip the backoff.
 function updateOnly(
-  entitySet: string, id: string, item: Raw,
-): Promise<{ success: boolean; data: Record<string, unknown>; error?: unknown }> {
-  return retryWithBackoff(() => MicrosoftDataverseService.UpdateOnlyRecordWithOrganization(
-    PREFER_RETURN,
-    ACCEPT,
-    IF_MATCH_ANY,
-    orgUrl(),
-    entitySet,
-    id,
-    item,
-  ));
+  entitySet: string, id: string, item: Raw, label: string,
+): Promise<Record<string, unknown>> {
+  return retryWithBackoff(async () => {
+    const result = await MicrosoftDataverseService.UpdateOnlyRecordWithOrganization(
+      PREFER_RETURN,
+      ACCEPT,
+      IF_MATCH_ANY,
+      orgUrl(),
+      entitySet,
+      id,
+      item,
+    );
+    return unwrap(result, label);
+  });
 }
 
 // Mirrors Dataverse's "row doesn't exist" response in the dev mock so callers'
@@ -446,11 +452,11 @@ export async function updateProject(id: string, data: Partial<Project>): Promise
     persist(STORAGE_KEYS.projects, all);
     return all[idx];
   }
-  const result = await updateOnly(SETS.projects, id, projectToDataverse(data));
+  const row = await updateOnly(SETS.projects, id, projectToDataverse(data), "Update project");
   // Patch needs all fields populated for the UI to render correctly even when
   // the connector returns an empty body.
   const inputAsProject = { ...data, id } as Project;
-  return mergeOver(inputAsProject, mapProject(unwrapRow(unwrap(result, "Update project"))));
+  return mergeOver(inputAsProject, mapProject(unwrapRow(row)));
 }
 
 // ---------------------------------------------------------------------------
@@ -539,8 +545,7 @@ async function setRecordState(
     return;
   }
   try {
-    const result = await updateOnly(setName, id, { statecode: active ? 0 : 1 });
-    unwrap(result, label);
+    await updateOnly(setName, id, { statecode: active ? 0 : 1 }, label);
   } catch (err) {
     // Deactivating a record that no longer exists: the goal state is met.
     if (!active && isNotFoundError(err)) return;
@@ -573,9 +578,9 @@ export async function updateTask(id: string, data: Partial<Task>): Promise<Task>
     persist(STORAGE_KEYS.tasks, all);
     return all[idx];
   }
-  const result = await updateOnly(SETS.tasks, id, taskToDataverse(data));
+  const row = await updateOnly(SETS.tasks, id, taskToDataverse(data), "Update task");
   const inputAsTask = { ...data, id } as Task;
-  return mergeOver(inputAsTask, mapTask(unwrapRow(unwrap(result, "Update task"))));
+  return mergeOver(inputAsTask, mapTask(unwrapRow(row)));
 }
 
 // ---------------------------------------------------------------------------
@@ -691,9 +696,9 @@ export async function updateTimeEntry(id: string, data: Partial<TimeEntry>): Pro
     persist(STORAGE_KEYS.entries, all);
     return all[idx];
   }
-  const result = await updateOnly(SETS.entries, id, entryToDataverse(owned));
+  const row = await updateOnly(SETS.entries, id, entryToDataverse(owned), "Update entry");
   const inputAsEntry = { ...owned, id } as TimeEntry;
-  const merged = mergeOver(inputAsEntry, mapEntry(unwrapRow(unwrap(result, "Update entry"))));
+  const merged = mergeOver(inputAsEntry, mapEntry(unwrapRow(row)));
   if (!merged.userDisplayName) merged.userDisplayName = user.displayName;
   return merged;
 }

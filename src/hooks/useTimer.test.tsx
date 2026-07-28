@@ -346,6 +346,10 @@ describe("useTimer", () => {
     expect(onStop).toHaveBeenCalledWith(savedEntry);
     expect(result.current.timer.isRunning).toBe(false);
     expect(toastSpy).not.toHaveBeenCalledWith(expect.stringContaining("retry"), "error");
+    // The save above only proves the stop path survived; this proves it
+    // survived *because* persistTimer swallowed the write, not because the
+    // spied setItem was never reached.
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("could not be persisted"));
     warn.mockRestore();
   });
 

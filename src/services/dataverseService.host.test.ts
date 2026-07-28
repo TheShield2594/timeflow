@@ -71,6 +71,26 @@ describe("updates use update-only (If-Match) rather than upsert", () => {
     expect(sdk.UpdateOnlyRecordWithOrganization).toHaveBeenCalledTimes(1);
   });
 
+  it("surfaces an envelope-shaped failure without retrying a non-transient error", async () => {
+    // The SDK reports some failures as { success: false } rather than throwing.
+    sdk.UpdateOnlyRecordWithOrganization.mockResolvedValue({ success: false, data: {}, error: httpError(400) });
+
+    await expect(updateTimeEntry("e1", { description: "x" })).rejects.toThrow(/400/);
+    expect(sdk.UpdateOnlyRecordWithOrganization).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries an envelope-shaped throttling failure, then gives up", async () => {
+    vi.useFakeTimers();
+    sdk.UpdateOnlyRecordWithOrganization.mockResolvedValue({ success: false, data: {}, error: httpError(503) });
+
+    const pending = updateTimeEntry("e1", { description: "x" });
+    const assertion = expect(pending).rejects.toThrow();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await assertion;
+
+    expect(sdk.UpdateOnlyRecordWithOrganization).toHaveBeenCalledTimes(3);
+  });
+
   it.each([
     ["updateTask", () => updateTask("t1", { name: "Renamed" }), "ever_workitemses"],
     ["updateProject", () => updateProject("p1", { name: "Renamed" }), "ever_projectses"],
