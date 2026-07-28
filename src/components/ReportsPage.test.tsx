@@ -1,0 +1,173 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, cleanup, fireEvent, within } from "@testing-library/react";
+import type { Project, Task, TimeEntry } from "../types";
+import { ReportsPage } from "./ReportsPage";
+import { DataRangeProvider } from "../contexts/DataRangeContext";
+import { localDateStr, addDaysStr } from "../utils/dates";
+
+vi.mock("../services/userService", () => ({
+  getCurrentUser: () => ({ id: "user-1", email: "user1@example.com", displayName: "User One", environmentId: "env-1" }),
+}));
+// The hooks barrel transitively imports the generated Dataverse SDK; Reports
+// only needs formatMinutes from it, so stub the rest (same approach as
+// CalendarPage.test.tsx) to avoid loading the SDK's broken transitive deps.
+vi.mock("../generated", () => ({ MicrosoftDataverseService: {} }));
+
+const projects: Project[] = [
+  { id: "p1", name: "Alpha", color: "#111111", isActive: true, createdAt: "" },
+  { id: "p2", name: "Beta", color: "#222222", isActive: true, createdAt: "" },
+];
+const tasks: Task[] = [{ id: "t1", projectId: "p1", name: "Build", isActive: true }];
+
+const today = localDateStr();
+const yesterday = addDaysStr(today, -1);
+
+let seq = 0;
+function entry(date: string, minutes: number, projectId = "p1", taskId?: string): TimeEntry {
+  seq += 1;
+  return {
+    id: `e${seq}`, projectId, taskId,
+    startTime: `${date}T09:00:00`, endTime: `${date}T10:00:00`,
+    durationMinutes: minutes, date, userId: "u1", userDisplayName: "U",
+  };
+}
+
+function renderReports(entries: TimeEntry[]) {
+  return render(
+    <DataRangeProvider>
+      <ReportsPage entries={entries} projects={projects} tasks={tasks} />
+    </DataRangeProvider>
+  );
+}
+
+/** Read a KPI card's value by its label — the strip is the headline number
+ *  users read, so assert on it the way they see it. */
+function kpi(label: string): string {
+  const labelEl = screen.getByText(label);
+  return labelEl.parentElement!.querySelector(".kpi-card__value")!.textContent!;
+}
+
+beforeEach(() => {
+  localStorage.clear();
+  // jsdom has no ResizeObserver — SvgBarChart needs one to exist, even if it
+  // never actually fires.
+  (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+});
+
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
+
+describe("ReportsPage KPI strip", () => {
+  it("reports total, average per active day, session count and project count", () => {
+    renderReports([
+      entry(today, 60, "p1"),
+      entry(today, 30, "p2"),
+      entry(yesterday, 90, "p1"),
+    ]);
+
+    expect(kpi("Total tracked")).toBe("3h");
+    // 180 minutes over the two days that actually have time on them, not over
+    // the seven days in the range.
+    expect(kpi("Avg per active day")).toBe("1h 30m");
+    expect(kpi("Sessions logged")).toBe("3");
+    expect(kpi("Projects active")).toBe("2");
+  });
+
+  it("shows zeroes rather than NaN when the range is empty", () => {
+    renderReports([]);
+    expect(kpi("Total tracked")).toBe("0m");
+    expect(kpi("Avg per active day")).toBe("0m");
+    expect(kpi("Sessions logged")).toBe("0");
+    expect(screen.getByText("No data to report. Track some time first.")).not.toBeNull();
+  });
+
+  it("never multiplies hours by the billing ratio (#71)", () => {
+    renderReports([
+      { ...entry(today, 60, "p1"), ratio: 2 },
+      { ...entry(today, 60, "p2"), ratio: 3 },
+    ]);
+
+    // Ratio is an account identifier; a "Weighted total" of Σ duration × ratio
+    // reported 5h of billable time for 2h of work.
+    expect(screen.queryByText("Weighted total")).toBeNull();
+    expect(kpi("Total tracked")).toBe("2h");
+  });
+
+  it("counts only entries inside the selected range", () => {
+    renderReports([entry(today, 60), entry(addDaysStr(today, -20), 600)]);
+
+    expect(kpi("Total tracked")).toBe("1h"); // default preset is "Last 7 days"
+    fireEvent.click(screen.getByRole("button", { name: "Last 30 days" }));
+    expect(kpi("Total tracked")).toBe("11h");
+  });
+});
+
+describe("ReportsPage project × period matrix", () => {
+  it("renders a row per project with cell and column totals in hours", () => {
+    renderReports([
+      entry(today, 60, "p1"),
+      entry(today, 30, "p2"),
+      entry(yesterday, 90, "p1"),
+    ]);
+
+    const table = screen.getByRole("table");
+    const alpha = within(table).getByRole("row", { name: /Alpha/ });
+    // Sorted by total: Alpha (2.5h) above Beta (0.5h), and the row's own total
+    // is the last cell.
+    const alphaCells = within(alpha).getAllByRole("cell").map((c) => c.textContent);
+    expect(alphaCells[alphaCells.length - 1]).toBe("2.5");
+
+    const footer = table.querySelector("tfoot tr")!;
+    const footerCells = [...footer.querySelectorAll("td")].map((c) => c.textContent);
+    // Grand total agrees with the KPI: 3h.
+    expect(footerCells[footerCells.length - 1]).toBe("3.0");
+  });
+
+  it("is omitted entirely when nothing was tracked", () => {
+    renderReports([]);
+    expect(screen.queryByRole("table")).toBeNull();
+  });
+});
+
+describe("ReportsPage breakdowns", () => {
+  it("shares out project percentages and lists the top tasks", () => {
+    renderReports([
+      entry(today, 90, "p1", "t1"),
+      entry(today, 30, "p2"),
+    ]);
+
+    expect(screen.getByText("75%")).not.toBeNull();
+    expect(screen.getByText("25%")).not.toBeNull();
+    expect(screen.getByText("Build")).not.toBeNull();
+  });
+
+  it("says so plainly when there are no tasks to rank", () => {
+    renderReports([entry(today, 60, "p1")]);
+    expect(screen.getByText("No tasks logged.")).not.toBeNull();
+  });
+});
+
+describe("ReportsPage export controls", () => {
+  it("disables the export button until there is something to export", () => {
+    renderReports([]);
+    expect(screen.getByRole("button", { name: /Export CSV/ }).hasAttribute("disabled")).toBe(true);
+    cleanup();
+
+    renderReports([entry(today, 60)]);
+    expect(screen.getByRole("button", { name: /Export CSV/ }).hasAttribute("disabled")).toBe(false);
+  });
+
+  it("remembers the chosen rounding rule as a device preference", () => {
+    renderReports([entry(today, 60)]);
+    fireEvent.change(screen.getByLabelText("Duration rounding applied to the CSV export"), {
+      target: { value: "up15" },
+    });
+    expect(localStorage.getItem("tt_export_rounding")).toBe("up15");
+  });
+});

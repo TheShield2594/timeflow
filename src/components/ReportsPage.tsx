@@ -7,9 +7,22 @@ import {
   exportToCSV, buildExportFilename,
   RoundingRule, ROUNDING_LABELS,
 } from "../services/csvExport";
-import { localDateStr, weekStartStr } from "../utils/dates";
+import {
+  Bucket,
+  bucketKeysFor,
+  buildChartData,
+  buildMatrix,
+  buildProjectBreakdown,
+  buildTaskBreakdown,
+  countActiveDays,
+  filterEntriesForRange,
+  getDaysInRange,
+  pickBucket,
+  resolveEffectiveRange,
+  sumMinutes,
+} from "../utils/reportAggregations";
 import { IconDownload } from "./Icons";
-import { SvgBarChart, Bucket } from "./SvgBarChart";
+import { SvgBarChart } from "./SvgBarChart";
 import {
   DateRangeFilter,
   DateRangeState,
@@ -23,23 +36,7 @@ interface Props {
   rangeLoading?: boolean;
 }
 
-function getDaysInRange(from: string, to: string): string[] {
-  const days: string[] = [];
-  const cur = new Date(from + "T00:00:00");
-  const end = new Date(to + "T00:00:00");
-  while (cur <= end) {
-    days.push(localDateStr(cur));
-    cur.setDate(cur.getDate() + 1);
-  }
-  return days;
-}
-
 const REPORTS_PRESETS = ["7d", "30d", "thisMonth", "all"] as const;
-
-// Past this many days, daily bars become unreadable — bucket by week instead;
-// past MONTHLY_BUCKET_THRESHOLD, bucket by month.
-const WEEKLY_BUCKET_THRESHOLD = 35;
-const MONTHLY_BUCKET_THRESHOLD = 180;
 
 // The rounding choice is a device preference, not data — persist locally.
 const ROUNDING_STORAGE_KEY = "tt_export_rounding";
@@ -73,33 +70,17 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, rangeLo
   // away (#74).
   useRangeRequest("reports", from, to);
 
-  const filtered = useMemo(
-    () => entries.filter((e) => e.date >= from && e.date <= to && e.durationMinutes),
-    [entries, from, to]
-  );
+  const filtered = useMemo(() => filterEntriesForRange(entries, from, to), [entries, from, to]);
 
   // The "all" preset resolves to 1970→9999; the chart/matrix axes must never
   // enumerate that, so for "all" (and only "all" — short presets keep their
-  // leading/trailing empty days) clamp the *display* range to the dates that
-  // actually hold data, falling back to today. `filtered` itself still uses
-  // from/to, and the clamped bounds cover every filtered entry by
-  // construction. Both bounds are ordered: effFrom <= effTo always holds.
-  const { effFrom, effTo } = useMemo(() => {
-    if (rangeState.preset !== "all") {
-      // Guard against an inverted custom range (customFrom after customTo).
-      return { effFrom: from, effTo: to >= from ? to : from };
-    }
-    let min = "";
-    let max = "";
-    for (const e of filtered) {
-      if (!e.date) continue;
-      if (!min || e.date < min) min = e.date;
-      if (!max || e.date > max) max = e.date;
-    }
-    const lower = min || today;
-    const upper = max > today ? max : today;
-    return { effFrom: lower, effTo: upper >= lower ? upper : lower };
-  }, [rangeState.preset, filtered, from, to, today]);
+  // leading/trailing empty days) the display range is clamped to the dates
+  // that actually hold data. `filtered` itself still uses from/to, and the
+  // clamped bounds cover every filtered entry by construction.
+  const { effFrom, effTo } = useMemo(
+    () => resolveEffectiveRange(rangeState.preset, filtered, from, to, today),
+    [rangeState.preset, filtered, from, to, today]
+  );
 
   const handleRoundingChange = (rule: RoundingRule) => {
     setRounding(rule);
@@ -116,53 +97,26 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, rangeLo
     }
   };
 
-  const totalMinutes = useMemo(() => filtered.reduce((s, e) => s + (e.durationMinutes || 0), 0), [filtered]);
+  const totalMinutes = useMemo(() => sumMinutes(filtered), [filtered]);
 
   // Per-project breakdown
-  const projectBreakdown = useMemo(() => {
-    const map = new Map<string, number>();
-    filtered.forEach((e) => {
-      map.set(e.projectId, (map.get(e.projectId) || 0) + (e.durationMinutes || 0));
-    });
-    return [...map.entries()]
-      .map(([id, mins]) => ({
-        project: projects.find((p) => p.id === id),
-        minutes: mins,
-        percent: totalMinutes > 0 ? Math.round((mins / totalMinutes) * 100) : 0,
-      }))
-      .filter((r) => r.project)
-      .sort((a, b) => b.minutes - a.minutes);
-  }, [filtered, projects, totalMinutes]);
+  const projectBreakdown = useMemo(
+    () => buildProjectBreakdown(filtered, projects, totalMinutes),
+    [filtered, projects, totalMinutes]
+  );
 
   // Bar chart + matrix: daily buckets for short ranges, weekly for long ones,
   // monthly beyond that.
   const days = useMemo(() => getDaysInRange(effFrom, effTo), [effFrom, effTo]);
-  const bucket: Bucket = days.length > MONTHLY_BUCKET_THRESHOLD ? "month"
-    : days.length > WEEKLY_BUCKET_THRESHOLD ? "week" : "day";
-  const bucketKeyFor = useCallback(
-    (d: string) => (bucket === "month" ? d.slice(0, 7) : bucket === "week" ? weekStartStr(d) : d),
-    [bucket]
-  );
+  const bucket: Bucket = pickBucket(days.length);
 
   // Ordered unique bucket keys spanning the range (including empty buckets).
-  const bucketKeys = useMemo(() => {
-    const keys: string[] = [];
-    let last = "";
-    for (const d of days) {
-      const k = bucketKeyFor(d);
-      if (k !== last) { keys.push(k); last = k; }
-    }
-    return keys;
-  }, [days, bucketKeyFor]);
+  const bucketKeys = useMemo(() => bucketKeysFor(days, bucket), [days, bucket]);
 
-  const chartData = useMemo(() => {
-    const byBucket = new Map<string, number>();
-    filtered.forEach((e) => {
-      const k = bucketKeyFor(e.date);
-      byBucket.set(k, (byBucket.get(k) || 0) + (e.durationMinutes || 0));
-    });
-    return bucketKeys.map((k) => ({ key: k, minutes: byBucket.get(k) || 0, bucket }));
-  }, [filtered, bucketKeys, bucketKeyFor, bucket]);
+  const chartData = useMemo(
+    () => buildChartData(filtered, bucketKeys, bucket),
+    [filtered, bucketKeys, bucket]
+  );
 
   const maxBar = useMemo(() => Math.max(...chartData.map((d) => d.minutes), 1), [chartData]);
 
@@ -174,51 +128,19 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, rangeLo
   // never multiplied by anything.
 
   // Project × period matrix — the classic timesheet grid.
-  const matrix = useMemo(() => {
-    const byProject = new Map<string, Map<string, number>>();
-    filtered.forEach((e) => {
-      const k = bucketKeyFor(e.date);
-      if (!byProject.has(e.projectId)) byProject.set(e.projectId, new Map());
-      const row = byProject.get(e.projectId)!;
-      row.set(k, (row.get(k) || 0) + (e.durationMinutes || 0));
-    });
-    const rows = [...byProject.entries()]
-      .map(([id, cells]) => ({
-        project: projects.find((p) => p.id === id),
-        cells,
-        total: [...cells.values()].reduce((s, m) => s + m, 0),
-      }))
-      .filter((r) => r.project)
-      .sort((a, b) => b.total - a.total);
-    const colTotals = bucketKeys.map((k) =>
-      rows.reduce((s, r) => s + (r.cells.get(k) || 0), 0)
-    );
-    return { rows, colTotals };
-  }, [filtered, projects, bucketKeys, bucketKeyFor]);
+  const matrix = useMemo(
+    () => buildMatrix(filtered, projects, bucketKeys, bucket),
+    [filtered, projects, bucketKeys, bucket]
+  );
 
   // Days that actually have logged time — the average people expect.
-  const activeDays = useMemo(() => {
-    const set = new Set<string>();
-    filtered.forEach((e) => set.add(e.date));
-    return set.size;
-  }, [filtered]);
+  const activeDays = useMemo(() => countActiveDays(filtered), [filtered]);
 
   // Per-task breakdown
-  const taskBreakdown = useMemo(() => {
-    const map = new Map<string, number>();
-    filtered.filter((e) => e.taskId).forEach((e) => {
-      map.set(e.taskId!, (map.get(e.taskId!) || 0) + (e.durationMinutes || 0));
-    });
-    return [...map.entries()]
-      .map(([id, mins]) => ({
-        task: tasks.find((t) => t.id === id),
-        project: projects.find((p) => p.id === tasks.find((t) => t.id === id)?.projectId),
-        minutes: mins,
-      }))
-      .filter((r) => r.task)
-      .sort((a, b) => b.minutes - a.minutes)
-      .slice(0, 8);
-  }, [filtered, tasks, projects]);
+  const taskBreakdown = useMemo(
+    () => buildTaskBreakdown(filtered, tasks, projects),
+    [filtered, tasks, projects]
+  );
 
   const shortDate = useCallback((d: string, b: Bucket) => {
     // Month keys are "YYYY-MM"; day/week keys are full dates.

@@ -131,6 +131,10 @@ export const TimerBar: React.FC<Props> = ({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  // handleStart is re-created every render; every input it reads is listed
+  // here instead, so the shortcut always starts with the current form values
+  // without re-binding the listener on each keystroke.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRunning, pendingStopAt, selectedProject, selectedTask, desc, ratioInput, onStart, onStop, onRetryStop]);
 
   return (

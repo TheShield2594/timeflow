@@ -1,6 +1,9 @@
 import React, { useLayoutEffect, useRef, useState } from "react";
+// Owned by the aggregation helpers that produce the chart's data; re-exported
+// here so chart consumers can keep importing it alongside the component.
+import type { Bucket } from "../utils/reportAggregations";
 
-export type Bucket = "day" | "week" | "month";
+export type { Bucket };
 
 interface SvgBarChartProps {
   chartData: { key: string; minutes: number; bucket: Bucket }[];

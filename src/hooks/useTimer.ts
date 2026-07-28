@@ -80,6 +80,9 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
+  // applyTimer is stable (a useCallback over setState only); listing it would
+  // not change when this listener is bound.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timerKey]);
 
   useEffect(() => {
@@ -138,6 +141,7 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
   // the readStoredTimer/persistTimer callbacks are stable too, and this check
   // must run only once on mount — adding them would be safe but redundant,
   // and adding svc would cause unnecessary re-runs.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

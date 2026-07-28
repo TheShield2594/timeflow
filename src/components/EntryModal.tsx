@@ -75,6 +75,10 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  // safeClose is re-created every render but reads nothing beyond onClose and
+  // saving, both listed — depending on it would just re-bind the listener on
+  // every keystroke in the form.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onClose, saving]);
 
   const startDt = draft.date && draft.startTime ? new Date(`${draft.date}T${draft.startTime}:00`) : null;

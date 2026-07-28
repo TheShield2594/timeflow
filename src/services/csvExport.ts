@@ -1,17 +1,29 @@
 import type { TimeEntry, Project, Task } from "../types";
 import { localDateStr } from "../utils/dates";
 
-function escapeCSV(value: string | number | undefined | null): string {
+/**
+ * Exported for tests: this is the security-relevant half of the export, and a
+ * regression here silently reopens CSV injection into Excel.
+ */
+export function escapeCSV(value: string | number | undefined | null): string {
   if (value === null || value === undefined) return "";
   let str = String(value);
   // Neutralize formula injection: a cell starting with =, +, -, @, tab, or CR
   // executes as a formula when the export is opened in Excel/Sheets.
   if (/^[=+\-@\t\r]/.test(str)) str = `'${str}`;
-  if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+  // A bare CR is quoted along with LF: Excel treats a lone \r inside an
+  // unquoted field as a row break, so leaving it out split one entry's
+  // description across two rows and shifted every later column.
+  if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
     return `"${str.replace(/"/g, '""')}"`;
   }
   return str;
 }
+
+// Excel decides a CSV's encoding from its first bytes and defaults to the
+// system codepage without this, turning "Zoë" into "ZoÃ«" (the file itself is
+// UTF-8 either way — the BOM is what makes Excel read it as such).
+const UTF8_BOM = "\uFEFF";
 
 /**
  * Billing-style duration rounding, applied to the CSV's duration columns only
@@ -103,7 +115,7 @@ export function exportToCSV(
     });
 
   const csv = [headers.join(","), ...rows].join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const blob = new Blob([UTF8_BOM + csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

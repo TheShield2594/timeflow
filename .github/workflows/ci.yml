@@ -28,6 +28,12 @@ jobs:
 
       - run: npm ci
 
-      - run: npm test
+      - run: npm run lint
+
+      # Type errors used to surface only via `npm run build`, i.e. after the
+      # whole test suite had already run.
+      - run: npm run typecheck
+
+      - run: npm run test:coverage
 
       - run: npm run build
