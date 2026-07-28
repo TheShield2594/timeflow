@@ -163,7 +163,7 @@ export const TimerBar: React.FC<Props> = ({
               else setRatioInput(e.target.value);
             }}
           />
-          <HelpTip label="What is Ratio?" text="Billing ratio — tells billing which account/rate this entry's time is billed to. Leave blank if not applicable." />
+          <HelpTip label="What is Ratio?" text="Billing ratio — the account/rate code this entry's time is billed to. It's a label, not a multiplier: reports never multiply your hours by it. Leave blank if not applicable." />
         </div>
 
         {/* Project selector */}

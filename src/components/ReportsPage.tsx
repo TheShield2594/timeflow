@@ -166,13 +166,12 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, rangeLo
 
   const maxBar = useMemo(() => Math.max(...chartData.map((d) => d.minutes), 1), [chartData]);
 
-  // Ratio-weighted total (Σ duration × ratio, missing ratio counts ×1) —
-  // only meaningful, and only shown, when at least one entry carries a ratio.
-  const hasRatios = useMemo(() => filtered.some((e) => e.ratio !== undefined), [filtered]);
-  const weightedMinutes = useMemo(
-    () => Math.round(filtered.reduce((s, e) => s + (e.durationMinutes || 0) * (e.ratio ?? 1), 0)),
-    [filtered]
-  );
+  // No ratio arithmetic here, deliberately (#71): `ratio` is a billing
+  // account identifier, not a multiplier. A "Weighted total" KPI used to
+  // compute Σ duration × ratio, so a user who followed the field's own help
+  // text and entered account `2` saw their tracked hours doubled on the
+  // billing dashboard. Ratio travels to the CSV export as data and is
+  // never multiplied by anything.
 
   // Project × period matrix — the classic timesheet grid.
   const matrix = useMemo(() => {
@@ -296,12 +295,6 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, rangeLo
           <div className="kpi-card__label">Projects active</div>
           <div className="kpi-card__value">{projectBreakdown.length}</div>
         </div>
-        {hasRatios && (
-          <div className="kpi-card" title="Σ duration × ratio — entries without a ratio count ×1">
-            <div className="kpi-card__label">Weighted total</div>
-            <div className="kpi-card__value">{formatMinutes(weightedMinutes)}</div>
-          </div>
-        )}
       </div>
 
       {filtered.length === 0 && (

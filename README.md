@@ -14,6 +14,7 @@ Tracks time against projects and tasks, stores data in Microsoft Dataverse, and 
 | Timesheet view (grouped by day, search + project filter) | ✅ |
 | Manual entry creation (timesheet + calendar click-to-log) | ✅ |
 | Week calendar (24h grid, overlap layout, running session) | ✅ |
+| Calendar drag-to-reschedule + drag-to-resize (Shift + arrows by keyboard) | ✅ |
 | Reports dashboard (daily/weekly bar chart, project %, top tasks) | ✅ |
 | KPI strip (total, avg per active day, sessions, projects) | ✅ |
 | Projects management (create, edit, archive/restore) | ✅ |
@@ -25,7 +26,7 @@ Tracks time against projects and tasks, stores data in Microsoft Dataverse, and 
 | Idle detection + 12h auto-stop safety net | ✅ |
 | Delete with Undo | ✅ |
 | CSV export (incl. Jira ticket + ratio, billing-style rounding) | ✅ |
-| Reports: project × period matrix, weighted total, all-time range | ✅ |
+| Reports: project × period matrix, all-time range | ✅ |
 | Light + dark theme | ✅ |
 | Dataverse backend wired (@microsoft/power-apps SDK) | ✅ |
 

@@ -302,7 +302,7 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
             <div className="field">
               <span className="cal-modal__label-row">
                 <label className="cal-modal__label" htmlFor="entry-ratio">Ratio</label>
-                <HelpTip label="What is Ratio?" text="Billing ratio — tells billing which account/rate this entry's time is billed to. Leave blank if not applicable." />
+                <HelpTip label="What is Ratio?" text="Billing ratio — the account/rate code this entry's time is billed to. It's a label, not a multiplier: reports never multiply your hours by it. Leave blank if not applicable." />
               </span>
               <input
                 id="entry-ratio"

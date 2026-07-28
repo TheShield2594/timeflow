@@ -172,7 +172,7 @@ export const ProjectsPage: React.FC<Props> = ({
               value={draft.ratio}
               onChange={(e) => setDraft((d) => d && ({ ...d, ratio: e.target.value }))}
             />
-            <HelpTip label="What is Ratio?" text="Default billing ratio for this project — tells billing which account/rate new entries are billed to, unless overridden per entry. Leave blank if not applicable." />
+            <HelpTip label="What is Ratio?" text="Default billing ratio for this project — the account/rate code new entries are billed to, unless overridden per entry. It's a label, not a multiplier: reports never multiply your hours by it. Leave blank if not applicable." />
           </div>
           <input
             className="form-input"
