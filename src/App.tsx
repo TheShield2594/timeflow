@@ -2,8 +2,9 @@ import React, { useState, useMemo, useCallback, useEffect, Component } from "rea
 import { TimerBar } from "./components/TimerBar";
 import { IdleModal } from "./components/IdleModal";
 import { PageRouter, Page } from "./components/PageRouter";
-import { IconHome, IconTimesheet, IconCalendar, IconChart, IconFolder, IconMoon, IconSun } from "./components/Icons";
+import { IconHome, IconTimesheet, IconCalendar, IconChart, IconFolder, IconMoon, IconSun, IconUsers } from "./components/Icons";
 import { useProjects, useTasks, useTimeEntries, useTimer } from "./hooks";
+import { useTeamContext } from "./hooks/useTeam";
 import { useActivityTracker, useTimerSafetyMonitor, MAX_DURATION_MS } from "./hooks/useTimerSafety";
 import { useAppBootstrap } from "./hooks/useAppBootstrap";
 import { useTheme, Theme } from "./hooks/useTheme";
@@ -67,6 +68,10 @@ const NAV_ITEMS: { key: Page; label: string; icon: React.ReactNode }[] = [
   { key: "projects", label: "Projects", icon: <IconFolder /> },
 ];
 
+// Shown after Reports, only when the signed-in user has direct reports.
+const TEAM_NAV_ITEM: { key: Page; label: string; icon: React.ReactNode } =
+  { key: "team", label: "Team", icon: <IconUsers /> };
+
 const App: React.FC = () => {
   const { user, authError } = useAppBootstrap();
   // Theme lives above sign-in so the loading screen renders in the right
@@ -105,6 +110,15 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
   const { projects, addProject, editProject, archiveProject, restoreProject } = useProjects();
   const { tasks, addTask, deleteTask, restoreTask, renameTask, loadTasksForProject } = useTasks();
   const { entries, loading, isFetching, deleteEntry, editEntry, createEntry, refresh } = useTimeEntries(from, to);
+  const { teamContext } = useTeamContext();
+  const isManager = (teamContext?.reports.length ?? 0) > 0;
+
+  const navItems = useMemo(() => {
+    if (!isManager) return NAV_ITEMS;
+    const items = [...NAV_ITEMS];
+    items.splice(4, 0, TEAM_NAV_ITEM); // after Reports, before Projects
+    return items;
+  }, [isManager]);
 
   const handleNewEntry = useCallback(
     (_entry: TimeEntry) => { refresh(); },
@@ -255,7 +269,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
           <img src={logoUrl} alt="Everence" className="sidebar__logo-img" />
         </div>
         <nav className="sidebar__nav">
-          {NAV_ITEMS.map(({ key, label, icon }) => (
+          {navItems.map(({ key, label, icon }) => (
             <button
               key={key}
               className={`sidebar__link ${page === key ? "sidebar__link--active" : ""}`}
@@ -327,6 +341,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
             onRenameTask={renameTask}
             onLoadTasksForProject={loadTasksForProject}
             onGoToProjects={() => setPage("projects")}
+            teamContext={teamContext}
           />
         </div>
       </div>

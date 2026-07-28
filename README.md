@@ -30,6 +30,7 @@ Tracks time against projects and tasks, stores data in Microsoft Dataverse, and 
 | Light + dark theme | ✅ |
 | Dataverse backend wired (@microsoft/power-apps SDK) | ✅ |
 | Outlook meeting overlay + log-from-meeting (Office 365 connector) | ✅ (needs [connector setup](#outlook-calendar-overlay)) |
+| Manager Team view — reports' week totals, missing-day flags, project rollup | ✅ (needs [hierarchy security](#manager-team-view-hierarchy-security)) |
 
 ---
 
@@ -152,6 +153,30 @@ Correct table-level security role configuration is required to keep each user's 
 2. Open **Settings** → **Advanced options** → confirm *Ownership* is set to **User or Team**.
 3. In your Security Role, confirm the `ever_timeentries` row is set to **User** scope for Read/Write/Create/Delete.
 4. Repeat for `ever_projects` and `ever_workitems` (Organization scope for shared data is correct).
+
+#### Manager Team view (hierarchy security)
+
+The **Team** page (issue #61) shows a manager their direct reports' week —
+per-member day/week totals, missing-weekday flags, and a project rollup. It
+is built on Dataverse **Hierarchy security (Manager hierarchy)**, not on a
+loosened read filter, so the per-user isolation above is untouched:
+
+- The nav item only appears for users who have direct reports (the app probes
+  `systemuser.parentsystemuserid`; requires org-level Read on the User table,
+  which baseline roles typically grant).
+- The Team page reads with FetchXML's `eq-useroruserhierarchy` operator,
+  which Dataverse resolves server-side to "the calling user and their
+  reports". A non-manager who somehow reached the page would get only their
+  own rows back — the client never widens anything.
+- The personal pages still read with `eq-userid`, and their
+  `hasForeignUserEntries()` isolation check stays armed unchanged (the Team
+  page's cross-user rows never flow through `useTimeEntries`).
+
+Environment setup (details in `Brandon To Do.md`): set the **Manager** field
+on user records (the Entra ID manager does *not* sync into Dataverse by
+itself), then enable **Hierarchy security** with the Manager hierarchy and
+include `ever_timeentries` in its table list. In local dev, preview the page
+with `localStorage.setItem("tt_mock_team", "1")`.
 
 **Runtime detection (UAT sign-off check):** as defense in depth, on the first
 entries refresh `useTimeEntries` calls `hasForeignUserEntries()` to check
