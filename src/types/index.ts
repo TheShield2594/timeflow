@@ -79,3 +79,11 @@ export interface CurrentUser {
   displayName: string;
   environmentId: string;
 }
+
+/** A meeting pulled from the user's Outlook calendar (read-only overlay). */
+export interface OutlookEvent {
+  id: string;
+  subject: string;
+  startTime: string;
+  endTime: string;
+}

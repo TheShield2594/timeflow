@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { TimeEntry, Project, Task } from "../types";
+import type { TimeEntry, Project, Task, OutlookEvent } from "../types";
 import { getCurrentUser } from "../services/userService";
+import { markEventLogged, readLoggedEventIds } from "../services/outlookService";
+import { useOutlookEvents } from "../hooks/useOutlookEvents";
 import { addDaysStr, localDateStr, minutesOfDay, toTimeInput } from "../utils/dates";
 import {
   ColumnRect,
@@ -38,6 +40,28 @@ interface Props {
 interface ModalState {
   editingId: string | null; // null = create
   draft: EntryDraft;
+  /** Set when the modal was opened from an Outlook meeting — a successful
+   *  save marks that event as logged (see outlookService). */
+  sourceEventId?: string;
+}
+
+// Whether the Outlook overlay is shown, persisted per environment + user like
+// the weekly target. Defaults to shown — the overlay is the feature's whole
+// point, and it degrades to a "not connected" hint when the connector is
+// missing rather than erroring.
+const SHOW_OUTLOOK_KEY_PREFIX = "tt_show_outlook:";
+
+function showOutlookKey(): string {
+  const user = getCurrentUser();
+  return `${SHOW_OUTLOOK_KEY_PREFIX}${user.environmentId}:${user.id}`;
+}
+
+function readShowOutlook(): boolean {
+  try {
+    return localStorage.getItem(showOutlookKey()) !== "0";
+  } catch {
+    return true;
+  }
 }
 
 // Full 24h grid (geometry constants live in utils/calendarGeometry); we
@@ -346,6 +370,55 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
 });
 CalendarEntryBlock.displayName = "CalendarEntryBlock";
 
+interface GhostBlockProps {
+  event: OutlookEvent;
+  startMin: number;
+  endMin: number;
+  rowTopMin: number;
+  logged: boolean;
+  onLog: (event: OutlookEvent) => void;
+}
+
+/**
+ * An Outlook meeting drawn as a muted, full-width block *behind* the tracked
+ * entries (z-index below .cal-entry). Clicking it opens the Log Time modal
+ * prefilled with the meeting's span and subject — the categorize step.
+ */
+const OutlookGhostBlock = React.memo<GhostBlockProps>(({ event, startMin, endMin, rowTopMin, logged, onLog }) => {
+  const top = (startMin - rowTopMin) * PX_PER_MIN;
+  const height = Math.max((endMin - startMin) * PX_PER_MIN - 2, MIN_ENTRY_PX);
+  const timeLabel = `${clockLabel(startMin)} – ${clockLabel(endMin)}`;
+  return (
+    <div
+      className={`cal-ghost ${logged ? "cal-ghost--logged" : ""}`}
+      style={{ top: `${top}px`, height: `${height}px` }}
+      role="button"
+      tabIndex={0}
+      aria-label={`Log time for Outlook meeting: ${event.subject}, ${timeLabel}${logged ? " (already logged)" : ""}`}
+      title={logged
+        ? `${event.subject} — already logged; click to log again`
+        : `${event.subject} — click to log this meeting as a time entry`}
+      // Stop the cell's drag-to-create from also arming on this press.
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => { e.stopPropagation(); onLog(event); }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          e.stopPropagation();
+          onLog(event);
+        }
+      }}
+    >
+      <div className="cal-ghost__name">
+        {logged && <IconCheck size={11} className="cal-ghost__check" />}
+        {event.subject}
+      </div>
+      {height >= 42 && <div className="cal-ghost__time">{timeLabel}</div>}
+    </div>
+  );
+});
+OutlookGhostBlock.displayName = "OutlookGhostBlock";
+
 export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeLoading, onCreateEntry, onEdit, onDelete, onLoadTasksForProject }) => {
   const [anchor, setAnchor] = useState(() => new Date());
   const weekDays = useMemo(() => getWeekDays(anchor), [anchor]);
@@ -400,6 +473,71 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     to: weekDays.length ? localDateStr(weekDays[weekDays.length - 1]) : "",
   }), [weekDays]);
   useRangeRequest("calendar", weekBounds.from, weekBounds.to);
+
+  // ── Outlook meeting overlay ─────────────────────────────────────────
+  const [showOutlook, setShowOutlook] = useState(readShowOutlook);
+  const [loggedEventIds, setLoggedEventIds] = useState<Set<string>>(() => readLoggedEventIds());
+  const {
+    events: outlookEvents,
+    status: outlookStatus,
+    refresh: refreshOutlook,
+  } = useOutlookEvents(weekBounds.from, weekBounds.to, showOutlook);
+
+  const toggleOutlook = () => {
+    setShowOutlook((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(showOutlookKey(), next ? "1" : "0");
+      } catch { /* storage unavailable — the preference just won't persist */ }
+      return next;
+    });
+  };
+
+  // Ghosts grouped by the grid slot cell their start falls in, mirroring
+  // entriesByCell below. Full-width blocks behind the entries, so they don't
+  // participate in the entries' column layout.
+  const ghostsByCell = useMemo(() => {
+    const m = new Map<string, { event: OutlookEvent; startMin: number; endMin: number }[]>();
+    outlookEvents.forEach((event) => {
+      const date = localDateStr(new Date(event.startTime));
+      const startMin = minutesOfDay(event.startTime);
+      // Meetings that run past midnight are clamped to the day they start on,
+      // exactly like entry blocks.
+      const endMin = localDateStr(new Date(event.endTime)) > date
+        ? 24 * 60
+        : Math.max(minutesOfDay(event.endTime), startMin + 15);
+      const row = Math.max(0, Math.min(Math.floor(startMin / 30), TOTAL_SLOTS - 1));
+      const key = `${date}-${row}`;
+      const list = m.get(key);
+      const item = { event, startMin, endMin };
+      if (list) list.push(item);
+      else m.set(key, [item]);
+    });
+    return m;
+  }, [outlookEvents]);
+
+  // Click a meeting → the normal Log Time modal, prefilled with the meeting's
+  // span and subject; the user adds project/task and saves.
+  const openLogEvent = useCallback((event: OutlookEvent) => {
+    const date = localDateStr(new Date(event.startTime));
+    const crossesMidnight = localDateStr(new Date(event.endTime)) > date;
+    setModal({
+      editingId: null,
+      sourceEventId: event.id,
+      draft: {
+        date,
+        startTime: toTimeInput(event.startTime),
+        // "00:00" reads as next-day midnight in EntryModal, clamping an
+        // overnight meeting to the day it starts on (like the block does).
+        endTime: crossesMidnight ? "00:00" : toTimeInput(event.endTime),
+        description: event.subject,
+        projectId: "",
+        taskId: "",
+        jiraTicket: "",
+        ratio: "",
+      },
+    });
+  }, []);
 
   const [modal, setModal] = useState<ModalState | null>(null);
 
@@ -959,6 +1097,12 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     } else {
       const user = getCurrentUser();
       await onCreateEntry({ ...data, userId: user.id, userDisplayName: user.displayName });
+      // Entry saved from an Outlook meeting: remember it so the ghost renders
+      // with a "logged" check. (An overnight split saves twice; marking twice
+      // is harmless — it's a set.)
+      if (modal?.sourceEventId) {
+        setLoggedEventIds(markEventLogged(modal.sourceEventId));
+      }
     }
   };
 
@@ -1025,6 +1169,40 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
             <h2 className="calendar__title">{monthLabel}</h2>
             <span className="calendar__week-total">{formatMinutes(weekTotal)} this week</span>
             <WeekTargetProgress weekMinutes={weekTotal} />
+            {(() => {
+              // One chip owns show/hide; a second appears only when a shown
+              // overlay failed to load and a retry makes sense.
+              if (!showOutlook) {
+                return (
+                  <button className="cal-outlook-toggle" onClick={toggleOutlook} title="Show your Outlook meetings on the calendar">
+                    Outlook: off
+                  </button>
+                );
+              }
+              if (outlookStatus === "unavailable") {
+                return (
+                  <button
+                    className="cal-outlook-toggle cal-outlook-toggle--warn"
+                    onClick={toggleOutlook}
+                    title="The Office 365 Outlook connector isn't set up for this app yet — an admin needs to add it (see the README's Outlook calendar section). Click to hide this."
+                  >
+                    Outlook: not connected
+                  </button>
+                );
+              }
+              return (
+                <>
+                  <button className="cal-outlook-toggle cal-outlook-toggle--active" onClick={toggleOutlook} title="Hide Outlook meetings">
+                    Outlook: on
+                  </button>
+                  {outlookStatus === "error" && (
+                    <button className="cal-outlook-toggle cal-outlook-toggle--warn" onClick={refreshOutlook} title="Couldn't load your Outlook meetings — click to retry">
+                      Retry
+                    </button>
+                  )}
+                </>
+              );
+            })()}
             {rangeLoading && <RangeSpinner label="Loading this week's entries…" />}
           </div>
           <div className="calendar__nav">
@@ -1076,8 +1254,40 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
       {isMobile && (() => {
         const ds = localDateStr(mobileDay);
         const dayItems = (positionedByDate.get(ds) ?? []).slice().sort((a, b) => a.startMin - b.startMin);
+        const dayGhosts = outlookEvents
+          .filter((ev) => localDateStr(new Date(ev.startTime)) === ds)
+          .sort((a, b) => a.startTime.localeCompare(b.startTime));
         return (
           <div className="cal-mobile-list">
+            {dayGhosts.map((event) => (
+              <div
+                key={event.id}
+                className={`cal-mobile-ghost ${loggedEventIds.has(event.id) ? "cal-mobile-ghost--logged" : ""}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => openLogEvent(event)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    openLogEvent(event);
+                  }
+                }}
+                aria-label={`Log time for Outlook meeting: ${event.subject}`}
+              >
+                <div className="cal-mobile-ghost__info">
+                  <div className="cal-mobile-ghost__name">
+                    {loggedEventIds.has(event.id) && <IconCheck size={11} className="cal-ghost__check" />}
+                    {event.subject}
+                  </div>
+                  <div className="cal-mobile-entry__time">
+                    {new Date(event.startTime).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })}
+                    {" – "}
+                    {new Date(event.endTime).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })}
+                  </div>
+                </div>
+                <span className="cal-mobile-ghost__cta">{loggedEventIds.has(event.id) ? "Logged" : "Log"}</span>
+              </div>
+            ))}
             {dayItems.length === 0 ? (
               <p className="cal-mobile-empty">No entries — tap below to add one.</p>
             ) : dayItems.map(({ entry, running }) => {
@@ -1230,6 +1440,18 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
                     onKeyDown={(e) => handleCellKeyDown(e, row, col, ds)}
                     onFocus={() => setFocusedCell({ row, col })}
                   >
+                    {/* Ghosts render before (so behind) the tracked entries. */}
+                    {ghostsByCell.get(`${ds}-${row}`)?.map(({ event, startMin, endMin }) => (
+                      <OutlookGhostBlock
+                        key={event.id}
+                        event={event}
+                        startMin={startMin}
+                        endMin={endMin}
+                        rowTopMin={row * 30}
+                        logged={loggedEventIds.has(event.id)}
+                        onLog={openLogEvent}
+                      />
+                    ))}
                     {cellEntries?.map((p) => renderEntryBlock(p, row * 30))}
                   </div>
                 );
