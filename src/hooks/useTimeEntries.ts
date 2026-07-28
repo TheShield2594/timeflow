@@ -127,9 +127,11 @@ export function useTimeEntries(from?: string, to?: string) {
       const updated = await svc.updateTimeEntry(id, data);
       // Merged over the existing entry rather than replacing it: with a dropped
       // response body `updated` holds only the patched fields, and a wholesale
-      // swap would blank the rest of the row.
+      // swap would blank the rest of the row. The merged entry is returned too,
+      // so callers get the whole TimeEntry this signature promises.
+      const merged = { ...snapshot, ...updated };
       setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...updated } : e)));
-      return updated;
+      return merged;
     } catch (err) {
       setEntries((prev) => prev.map((e) => (e.id === id ? snapshot : e)));
       toast(`Could not save changes: ${errMsg(err)}`, "error");

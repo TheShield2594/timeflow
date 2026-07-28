@@ -1,10 +1,22 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import React from "react";
 import { renderHook, act, cleanup } from "@testing-library/react";
 import { DataRangeProvider, useDataRange, useRangeRequest } from "./DataRangeContext";
 import { addDaysStr, localDateStr } from "../utils/dates";
 
-afterEach(cleanup);
+// The provider derives its baseline from the clock at render time while the
+// assertions derive theirs at assert time. Freeze one local instant for both,
+// or a run that straddles midnight compares two different "today"s. Local
+// noon, so no timezone can push the frozen date onto an adjacent day.
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(2026, 5, 15, 12, 0, 0));
+});
+
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 const wrapper = ({ children }: { children: React.ReactNode }) => (
   <DataRangeProvider>{children}</DataRangeProvider>

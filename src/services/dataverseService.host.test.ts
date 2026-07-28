@@ -383,6 +383,10 @@ describe("create with a dropped response body (#70)", () => {
     // statecode is absent, so isActive must not be derived (it would be false).
     expect(project.isActive).toBe(true);
     expect(project.name).toBe("New");
+    // Nor may the other mapper defaults win: with no ever_color the mapper
+    // reports the default indigo, which isFilled() would happily merge over
+    // the colour the user actually picked.
+    expect(project.color).toBe("#123456");
     // No server id: the caller keeps its optimistic temp id.
     expect(project.id).toBe("");
   });
@@ -396,23 +400,41 @@ describe("create with a dropped response body (#70)", () => {
     expect(task.id).toBe("");
   });
 
-  it("still honours an explicit statecode when the body does come back", async () => {
-    sdk.CreateRecordWithOrganization.mockResolvedValue(ok({ ever_projectsid: "p9", statecode: 1 }));
+  it("still honours the server's values when the body does come back", async () => {
+    sdk.CreateRecordWithOrganization.mockResolvedValue(ok({
+      ever_projectsid: "p9", statecode: 1, ever_color: "#abcdef", createdon: "2026-01-02T03:04:05Z",
+    }));
 
     const project = await createProject({ name: "Archived", color: "#000", isActive: true });
 
-    expect(project).toMatchObject({ id: "p9", isActive: false });
+    // Present in the row, so these are real data and must win over the input.
+    expect(project).toMatchObject({
+      id: "p9", isActive: false, color: "#abcdef", createdAt: "2026-01-02T03:04:05Z",
+    });
   });
 
-  it("does not reactivate an archived project when an unrelated patch loses its body", async () => {
+  it("does not rewrite a project's colour, state or creation date when a patch loses its body", async () => {
     sdk.UpdateOnlyRecordWithOrganization.mockResolvedValue(emptyBody);
 
     const updated = await updateProject("p1", { name: "Renamed" });
 
     expect(updated.name).toBe("Renamed");
-    // Untouched by the patch and unknown in the response — absent, so callers
-    // merging this over their record keep whatever they already had.
+    // Untouched by the patch and unknown in the response — all three must be
+    // absent, so a caller merging this over its record keeps what it had.
+    // Present-but-fabricated would archive the project, repaint it the default
+    // indigo, and restamp its creation date as now.
     expect("isActive" in updated).toBe(false);
+    expect("color" in updated).toBe(false);
+    expect("createdAt" in updated).toBe(false);
+  });
+
+  it("keeps the colour the patch itself set", async () => {
+    sdk.UpdateOnlyRecordWithOrganization.mockResolvedValue(emptyBody);
+
+    const updated = await updateProject("p1", { color: "#654321" });
+
+    // Dropping the derived field must not drop the caller's own value with it.
+    expect(updated.color).toBe("#654321");
   });
 
   it("recovers a draft timer id from the open-draft query when the body is dropped", async () => {
@@ -429,6 +451,41 @@ describe("create with a dropped response body (#70)", () => {
     });
 
     expect(id).toBe("draft-9");
+  });
+
+  it("matches the read-back row despite Dataverse dropping sub-second precision", async () => {
+    sdk.CreateRecordWithOrganization.mockResolvedValue(emptyBody);
+    // We send toISOString() with milliseconds; the column comes back rounded
+    // to the second. Comparing the strings would reject the row we just wrote
+    // and leave this whole fallback dead.
+    sdk.ListRecordsWithOrganization.mockResolvedValue(page([{
+      ever_timeentriesid: "draft-10",
+      _ever_project_value: "proj-1",
+      ever_starttime: "2026-06-01T09:00:00Z",
+    }]));
+
+    const id = await createDraftTimerEntry({
+      projectId: "proj-1", startTime: "2026-06-01T09:00:00.427Z", date: "2026-06-01",
+    });
+
+    expect(id).toBe("draft-10");
+  });
+
+  it("still refuses a row more than a second away from the session it started", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    sdk.CreateRecordWithOrganization.mockResolvedValue(emptyBody);
+    sdk.ListRecordsWithOrganization.mockResolvedValue(page([{
+      ever_timeentriesid: "draft-near",
+      _ever_project_value: "proj-1",
+      ever_starttime: "2026-06-01T09:00:02Z",
+    }]));
+
+    const id = await createDraftTimerEntry({
+      projectId: "proj-1", startTime: "2026-06-01T09:00:00.000Z", date: "2026-06-01",
+    });
+
+    expect(id).toBeNull();
+    vi.restoreAllMocks();
   });
 
   it("reports an unknown draft id rather than adopting an older session's row", async () => {

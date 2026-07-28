@@ -62,8 +62,11 @@ export function useProjects() {
       // response body makes `updated` carry only the patched fields, and
       // replacing wholesale would drop createdAt/isActive — an absent
       // isActive reads as falsy and hides the project from every picker.
+      // The merged record is what's returned too, so callers get the whole
+      // Project this signature promises rather than that partial.
+      const merged = { ...snapshot, ...updated };
       setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, ...updated } : p)));
-      return updated;
+      return merged;
     } catch (err) {
       setProjects((prev) => prev.map((p) => (p.id === id ? snapshot : p)));
       toast(`Could not save project: ${errMsg(err)}`, "error");

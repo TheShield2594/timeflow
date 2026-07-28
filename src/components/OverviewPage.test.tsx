@@ -124,6 +124,18 @@ describe("OverviewPage", () => {
 });
 
 describe("ActivityHeatmap accessible equivalent (#73)", () => {
+  // makeEntry() dates its entry off the clock, the component buckets it off
+  // the clock, and the expected label is built off the clock again. Freeze one
+  // local instant so a run crossing midnight can't have them disagree.
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 5, 15, 12, 0, 0));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("exposes each logged day's total as text, not just a title tooltip", () => {
     // The grid cells are aria-hidden decoration and their `title` tooltips are
     // mouse-only, so the per-day values have to be reachable some other way.

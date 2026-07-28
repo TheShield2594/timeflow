@@ -97,12 +97,12 @@ export function useTasks() {
   // — pickers filter it out — and undo restores the very same record.
   const deleteTask = useCallback(async (task: Task) => {
     if (isTempId(task.id)) {
-      // Never saved server-side: just drop it locally.
-      setTasksByProject((prev) => {
-        const existing = (prev.get(task.projectId) ?? []).filter((t) => t.id !== task.id);
-        return new Map([...prev, [task.projectId, existing]]);
-      });
-      return;
+      // A temp id no longer means "never saved": since #70 it also covers a
+      // task that *was* created but whose id came back missing. Dropping it
+      // locally would hide a row that still exists and reappears on the next
+      // load, so refuse the same way the other pending-record guards do.
+      toast("Task is still saving — please wait a moment and try again", "error");
+      throw new Error("Task not yet saved");
     }
     setTaskActive(task.projectId, task.id, false);
     try {

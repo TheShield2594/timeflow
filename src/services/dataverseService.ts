@@ -340,15 +340,31 @@ export function mergeOver<T extends object>(input: T, mapped: T): T {
   return out as T;
 }
 
-// mergeOver for a create/update response row, which may be empty. Fields the
-// mapper *derives* rather than reads have to be dropped when the column they
-// derive from is absent, or the fallback invents data: with no `statecode`,
-// mapProject/mapTask report isActive: false, and isFilled(false) is true — so
-// mergeOver used to overwrite the optimistic `true` and make a project or task
-// the user had just created vanish from every picker (#70).
+// Every mapped field whose mapper substitutes a *non-empty* default when its
+// column is missing, paired with the column it comes from. These are the only
+// fields mergeOver can't be trusted with on a possibly-empty row: the default
+// passes isFilled(), so it overwrites the optimistic value instead of losing
+// to it. An absent `statecode` reports isActive: false and archives a project
+// the user just created; an absent `ever_color` repaints it the default
+// indigo; an absent `createdon` restamps its creation date as now (#70).
+//
+// Mappers whose fallbacks are "" or undefined (name, description, every field
+// of mapEntry) need no entry here — isFilled() already rejects those.
+const DERIVED_FIELDS: { field: string; column: string }[] = [
+  { field: "isActive", column: "statecode" },
+  { field: "color", column: "ever_color" },
+  { field: "createdAt", column: "createdon" },
+];
+
+// mergeOver for a create/update response row, which may be empty. Drops the
+// derived fields above when the row doesn't actually carry their source
+// column, so the caller's own value survives instead of being overwritten by
+// a fabricated default.
 function mergeResponseRow<T extends object>(input: T, row: Raw, mapped: T): T {
   const known = { ...(mapped as Record<string, unknown>) };
-  if (num(row, "statecode") === undefined) delete known.isActive;
+  for (const { field, column } of DERIVED_FIELDS) {
+    if (!isFilled(row[column])) delete known[field];
+  }
   return mergeOver(input, known as T);
 }
 
@@ -793,6 +809,18 @@ export async function updateTimeEntry(id: string, data: Partial<TimeEntry>): Pro
   return merged;
 }
 
+// Two timestamps naming the same moment, allowing for the sub-second precision
+// Dataverse drops on the round trip. Deliberately tight: anything looser risks
+// matching a *different* session's draft, which is worse than not matching at
+// all. Unparseable input is not a match.
+function sameInstant(a: string | undefined, b: string | undefined): boolean {
+  if (!a || !b) return false;
+  const ta = new Date(a).getTime();
+  const tb = new Date(b).getTime();
+  if (!Number.isFinite(ta) || !Number.isFinite(tb)) return false;
+  return Math.abs(ta - tb) < 1000;
+}
+
 /**
  * Creates a draft timer entry in Dataverse when the timer starts (#15).
  * The record has ever_endtime = null so it can be detected on bootstrap.
@@ -844,11 +872,15 @@ export async function createDraftTimerEntry(data: {
 
   // The connector dropped the response body. The draft is the current user's
   // only open (endTime null) row, so read it back instead of returning an
-  // unusable id. startTime must match — a pre-existing draft from an older
-  // session would otherwise be adopted as this one and stopped in its place.
+  // unusable id. The start time must still match — a pre-existing draft from
+  // an older session would otherwise be adopted as this one and stopped in
+  // its place — but compared as instants, not strings: we send
+  // toISOString() with milliseconds and Dataverse hands the column back at
+  // second precision, so string equality would reject the very row we just
+  // wrote and make this whole fallback dead code.
   try {
     const open = await getOpenTimerEntry();
-    if (open?.id && open.startTime === data.startTime) return open.id;
+    if (open?.id && sameInstant(open.startTime, data.startTime)) return open.id;
   } catch {
     // Fall through: "couldn't look it up" and "isn't there" both mean the id
     // is unknown, which is what null says.
