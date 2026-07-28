@@ -88,6 +88,47 @@ async function retryWithBackoff<T>(fn: () => Promise<T>, maxAttempts = 3): Promi
 }
 
 // ---------------------------------------------------------------------------
+// Update helper — the connector exposes two update operations and they are NOT
+// interchangeable: UpdateRecordWithOrganization is an *upsert* (it creates the
+// row when the id doesn't exist), while UpdateOnlyRecordWithOrganization sends
+// an If-Match header so a missing row 404s. Every update in this file goes
+// through here so a concurrently deleted record can't be silently resurrected
+// as a half-populated row — the callers' isNotFoundError() branches all assume
+// update-only semantics.
+//
+// If-Match: "*" means "the row must exist" without pinning a specific version,
+// so concurrent edits from two tabs are still last-writer-wins. Threading real
+// ETags through would upgrade that to optimistic concurrency; see issue #72.
+// ---------------------------------------------------------------------------
+const IF_MATCH_ANY = "*";
+
+// unwrap() runs inside the retried callback, as on the read path: the SDK
+// reports some failures as a { success: false } envelope rather than a throw,
+// and a throttled update returned that way would otherwise skip the backoff.
+function updateOnly(
+  entitySet: string, id: string, item: Raw, label: string,
+): Promise<Record<string, unknown>> {
+  return retryWithBackoff(async () => {
+    const result = await MicrosoftDataverseService.UpdateOnlyRecordWithOrganization(
+      PREFER_RETURN,
+      ACCEPT,
+      IF_MATCH_ANY,
+      orgUrl(),
+      entitySet,
+      id,
+      item,
+    );
+    return unwrap(result, label);
+  });
+}
+
+// Mirrors Dataverse's "row doesn't exist" response in the dev mock so callers'
+// isNotFoundError() branches take the same path in dev as in the Power Apps host.
+function notFoundError(message: string): Error {
+  return Object.assign(new Error(message), { status: 404 });
+}
+
+// ---------------------------------------------------------------------------
 // SDK result helpers — every call returns { success, data, error? }; unwrap
 // or throw so the calling hooks can keep using try/catch.
 // ---------------------------------------------------------------------------
@@ -157,22 +198,29 @@ async function listAllPages(
   for (let page = 0; page < MAX_PAGES; page++) {
     let env: ListEnvelope;
     try {
-      const result = await MicrosoftDataverseService.ListRecordsWithOrganization(
-        orgUrl(),
-        entitySet,
-        undefined, // prefer
-        ACCEPT,
-        undefined, // x-ms-odata-metadata-full
-        undefined, // MSCRM.IncludeMipSensitivityLabel
-        undefined, // $select
-        fetchXml ? undefined : filter,
-        fetchXml ? undefined : orderby,
-        undefined, // $expand
-        fetchXml ? withFetchPaging(fetchXml, page + 1, pagingCookie) : undefined,
-        undefined, // $top
-        fetchXml ? undefined : skiptoken,
-      );
-      env = unwrap(result, `List ${entitySet}`) as unknown as ListEnvelope;
+      // Reads get the same backoff as writes: a single transient 429/503 on a
+      // page would otherwise fail the whole load (blank timesheet + error
+      // toast) even though the next attempt would have succeeded. unwrap() is
+      // inside the retried callback so a { success: false } envelope carrying
+      // a throttling error is retried too, not just a thrown one.
+      env = await retryWithBackoff(async () => {
+        const result = await MicrosoftDataverseService.ListRecordsWithOrganization(
+          orgUrl(),
+          entitySet,
+          undefined, // prefer
+          ACCEPT,
+          undefined, // x-ms-odata-metadata-full
+          undefined, // MSCRM.IncludeMipSensitivityLabel
+          undefined, // $select
+          fetchXml ? undefined : filter,
+          fetchXml ? undefined : orderby,
+          undefined, // $expand
+          fetchXml ? withFetchPaging(fetchXml, page + 1, pagingCookie) : undefined,
+          undefined, // $top
+          fetchXml ? undefined : skiptoken,
+        );
+        return unwrap(result, `List ${entitySet}`) as unknown as ListEnvelope;
+      });
     } catch (err) {
       if (page === 0) {
         // First page failure is fatal — there's nothing useful to return.
@@ -399,23 +447,16 @@ export async function updateProject(id: string, data: Partial<Project>): Promise
   if (!isPowerAppsHost()) {
     const all = load<Project>(STORAGE_KEYS.projects);
     const idx = all.findIndex((p) => p.id === id);
-    if (idx === -1) throw new Error("Project not found");
+    if (idx === -1) throw notFoundError("Project not found");
     all[idx] = { ...all[idx], ...data };
     persist(STORAGE_KEYS.projects, all);
     return all[idx];
   }
-  const result = await retryWithBackoff(() => MicrosoftDataverseService.UpdateRecordWithOrganization(
-    PREFER_RETURN,
-    ACCEPT,
-    orgUrl(),
-    SETS.projects,
-    id,
-    projectToDataverse(data),
-  ));
+  const row = await updateOnly(SETS.projects, id, projectToDataverse(data), "Update project");
   // Patch needs all fields populated for the UI to render correctly even when
   // the connector returns an empty body.
   const inputAsProject = { ...data, id } as Project;
-  return mergeOver(inputAsProject, mapProject(unwrapRow(unwrap(result, "Update project"))));
+  return mergeOver(inputAsProject, mapProject(unwrapRow(row)));
 }
 
 // ---------------------------------------------------------------------------
@@ -493,21 +534,18 @@ async function setRecordState(
   if (!isPowerAppsHost()) {
     const all = load<{ id: string; isActive: boolean }>(storageKey);
     const idx = all.findIndex((r) => r.id === id);
-    if (idx === -1) return;
+    // Mirror Dataverse's update-only 404 so the tolerate-missing-on-deactivate
+    // branch below is exercised in dev too.
+    if (idx === -1) {
+      if (!active) return;
+      throw notFoundError(`${label}: record not found`);
+    }
     all[idx] = { ...all[idx], isActive: active };
     persist(storageKey, all);
     return;
   }
   try {
-    const result = await retryWithBackoff(() => MicrosoftDataverseService.UpdateRecordWithOrganization(
-      PREFER_RETURN,
-      ACCEPT,
-      orgUrl(),
-      setName,
-      id,
-      { statecode: active ? 0 : 1 },
-    ));
-    unwrap(result, label);
+    await updateOnly(setName, id, { statecode: active ? 0 : 1 }, label);
   } catch (err) {
     // Deactivating a record that no longer exists: the goal state is met.
     if (!active && isNotFoundError(err)) return;
@@ -535,21 +573,14 @@ export async function updateTask(id: string, data: Partial<Task>): Promise<Task>
   if (!isPowerAppsHost()) {
     const all = load<Task>(STORAGE_KEYS.tasks);
     const idx = all.findIndex((t) => t.id === id);
-    if (idx === -1) throw new Error("Task not found");
+    if (idx === -1) throw notFoundError("Task not found");
     all[idx] = { ...all[idx], ...data };
     persist(STORAGE_KEYS.tasks, all);
     return all[idx];
   }
-  const result = await retryWithBackoff(() => MicrosoftDataverseService.UpdateRecordWithOrganization(
-    PREFER_RETURN,
-    ACCEPT,
-    orgUrl(),
-    SETS.tasks,
-    id,
-    taskToDataverse(data),
-  ));
+  const row = await updateOnly(SETS.tasks, id, taskToDataverse(data), "Update task");
   const inputAsTask = { ...data, id } as Task;
-  return mergeOver(inputAsTask, mapTask(unwrapRow(unwrap(result, "Update task"))));
+  return mergeOver(inputAsTask, mapTask(unwrapRow(row)));
 }
 
 // ---------------------------------------------------------------------------
@@ -658,26 +689,16 @@ export async function updateTimeEntry(id: string, data: Partial<TimeEntry>): Pro
   if (!isPowerAppsHost()) {
     const all = load<TimeEntry>(STORAGE_KEYS.entries);
     const idx = all.findIndex((e) => e.id === id);
-    if (idx === -1) {
-      // Match Dataverse semantics so callers' isNotFoundError checks work in dev.
-      const err = new Error("Entry not found") as Error & { status: number };
-      err.status = 404;
-      throw err;
-    }
+    // Match Dataverse's update-only semantics so callers' isNotFoundError
+    // checks (e.g. useTimer's stop fallback) work in dev.
+    if (idx === -1) throw notFoundError("Entry not found");
     all[idx] = { ...all[idx], ...owned };
     persist(STORAGE_KEYS.entries, all);
     return all[idx];
   }
-  const result = await retryWithBackoff(() => MicrosoftDataverseService.UpdateRecordWithOrganization(
-    PREFER_RETURN,
-    ACCEPT,
-    orgUrl(),
-    SETS.entries,
-    id,
-    entryToDataverse(owned),
-  ));
+  const row = await updateOnly(SETS.entries, id, entryToDataverse(owned), "Update entry");
   const inputAsEntry = { ...owned, id } as TimeEntry;
-  const merged = mergeOver(inputAsEntry, mapEntry(unwrapRow(unwrap(result, "Update entry"))));
+  const merged = mergeOver(inputAsEntry, mapEntry(unwrapRow(row)));
   if (!merged.userDisplayName) merged.userDisplayName = user.displayName;
   return merged;
 }
@@ -755,7 +776,12 @@ export async function getOpenTimerEntry(): Promise<TimeEntry | null> {
         '<order attribute="ever_starttime" descending="true" />' +
       '</entity>' +
     '</fetch>';
-  try {
+  // Retried and allowed to throw on failure: "there is no open draft" and "we
+  // couldn't find out" are different answers, and collapsing them to null lost
+  // running timers on a transient 429 during bootstrap — the user would start a
+  // second timer and the orphaned draft resurfaced later as a phantom. Callers
+  // must treat a rejection as "unknown" and keep local timer state authoritative.
+  const env = await retryWithBackoff(async () => {
     const result = await MicrosoftDataverseService.ListRecordsWithOrganization(
       orgUrl(),
       SETS.entries,
@@ -771,20 +797,17 @@ export async function getOpenTimerEntry(): Promise<TimeEntry | null> {
       undefined, // $top
       undefined, // $skiptoken
     );
-    const env = unwrap(result, "Get open timer entry") as unknown as ListEnvelope;
-    const rows = (env?.value ?? []).map(unwrapRow);
-    if (!rows.length) return null;
-    // No client-side ownership re-check here: eq-userid above is resolved
-    // by Dataverse against the calling user's actual token, so — unlike a
-    // compare against the stored ever_userid column — it isn't subject to
-    // that column's known objectId drift across SDK sessions (see README
-    // "Row security matters"). Re-checking with the drift-prone column here
-    // would risk rejecting the user's own timer, not add real protection.
-    return mapEntry(rows[0]);
-  } catch {
-    // If the query fails (e.g. column not filterable), fail gracefully.
-    return null;
-  }
+    return unwrap(result, "Get open timer entry") as unknown as ListEnvelope;
+  });
+  const rows = (env?.value ?? []).map(unwrapRow);
+  if (!rows.length) return null;
+  // No client-side ownership re-check here: eq-userid above is resolved
+  // by Dataverse against the calling user's actual token, so — unlike a
+  // compare against the stored ever_userid column — it isn't subject to
+  // that column's known objectId drift across SDK sessions (see README
+  // "Row security matters"). Re-checking with the drift-prone column here
+  // would risk rejecting the user's own timer, not add real protection.
+  return mapEntry(rows[0]);
 }
 
 export function isNotFoundError(err: unknown): boolean {

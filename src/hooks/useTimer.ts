@@ -22,6 +22,28 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
     localStorage.removeItem(`${TIMER_KEY_PREFIX}${user.id}`);
   }, [user.id]);
 
+  const readStoredTimer = useCallback((): TimerState | null => {
+    try {
+      return JSON.parse(localStorage.getItem(timerKey) || "null");
+    } catch {
+      return null;
+    }
+  }, [timerKey]);
+
+  // localStorage is a *mirror* of the timer, not its source of truth: it exists
+  // so a reload can pick the session back up. Writes therefore never throw —
+  // quota-exceeded, disabled or private-mode storage must not abort the caller
+  // (a throw here used to kill the stop path before it saved, see issue #75),
+  // and the in-memory state plus the server draft row still carry the session.
+  const persistTimer = useCallback((next: TimerState | null) => {
+    try {
+      if (next) localStorage.setItem(timerKey, JSON.stringify(next));
+      else localStorage.removeItem(timerKey);
+    } catch {
+      console.warn("Timer state could not be persisted to localStorage.");
+    }
+  }, [timerKey]);
+
   const [timer, setTimer] = useState<TimerState>(() => {
     try {
       return JSON.parse(localStorage.getItem(timerKey) || "null") || RESET_TIMER;
@@ -61,12 +83,32 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
   }, [timerKey]);
 
   useEffect(() => {
-    const localState = (() => {
-      try { return JSON.parse(localStorage.getItem(timerKey) || "null"); } catch { return null; }
-    })();
-    if (localState) return;
+    if (readStoredTimer()) return;
     svc.getOpenTimerEntry().then((open) => {
       if (!open || !open.projectId || !open.startTime) return;
+      // The pre-fetch check above is not enough: this read is async, and the
+      // user can hit Start (or "Continue" on an entry) while it is in flight.
+      // Applying the server row unconditionally there would replace their
+      // intentional new session with a stale one — and the draft-create guard
+      // below (startTime mismatch) would then delete the draft it just made.
+      // A local session always wins; the server row is only reconciled.
+      const local = timerRef.current;
+      if (local.isRunning || local.pendingStopAt || readStoredTimer()) {
+        // Same session round-tripping back from the server (a slow read that
+        // caught the draft this tab just created): adopt the row id so stop
+        // updates that draft instead of creating a second row. Everything else
+        // stays local, since description/ratio may have been edited since.
+        if (local.isRunning && local.startTime === open.startTime && !local.draftEntryId) {
+          const adopted: TimerState = { ...local, draftEntryId: open.id };
+          applyTimer(adopted);
+          persistTimer(adopted);
+        }
+        // Otherwise the open row is from an older session (e.g. a crash on
+        // another device). Leave it alone rather than deleting it: it may
+        // still be someone's live timer, and it is restorable on a later
+        // reload, whereas a delete is unrecoverable.
+        return;
+      }
       // Ownership is already enforced server-side by getOpenTimerEntry's
       // eq-userid FetchXML filter, which Dataverse resolves authoritatively
       // for "the calling user" — unlike a client-side compare against the
@@ -84,11 +126,18 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
         draftEntryId: open.id,
       };
       applyTimer(restored);
-      localStorage.setItem(timerKey, JSON.stringify(restored));
-    }).catch(() => { /* non-critical */ });
-  // Empty deps: timerKey is stable (derived from the immutable user.id), and
-  // this check must run only once on mount — adding timerKey would be safe but
-  // redundant, and adding svc would cause unnecessary re-runs.
+      persistTimer(restored);
+    }).catch(() => {
+      // Couldn't check for an open draft (throttling, network). Distinct from
+      // "there is none": leave whatever local state exists authoritative and
+      // don't reset the timer — assuming "no draft" here is what strands a
+      // running timer server-side and resurfaces it later as a phantom.
+      console.warn("Could not check for an open timer entry; keeping local timer state.");
+    });
+  // Empty deps: timerKey is stable (derived from the immutable user.id), so
+  // the readStoredTimer/persistTimer callbacks are stable too, and this check
+  // must run only once on mount — adding them would be safe but redundant,
+  // and adding svc would cause unnecessary re-runs.
   }, []);
 
   useEffect(() => {
@@ -124,7 +173,7 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       ratio,
     };
     applyTimer(newTimer);
-    localStorage.setItem(timerKey, JSON.stringify(newTimer));
+    persistTimer(newTimer);
 
     svc.createDraftTimerEntry({
       projectId,
@@ -143,17 +192,23 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
         svc.deleteTimeEntry(draftEntryId).catch(() => { /* best effort */ });
         return;
       }
-      setTimer((prev) => {
-        if (!prev.isRunning || prev.startTime !== newTimer.startTime) return prev;
-        const next = { ...prev, draftEntryId };
-        localStorage.setItem(timerKey, JSON.stringify(next));
-        return next;
-      });
+      // applyTimer, not setTimer: the ref has to carry draftEntryId
+      // *synchronously* (see the invariant above). With a plain setTimer, a
+      // stop or cancel landing before React commits would read a ref with no
+      // draftEntryId and create a duplicate entry / strand the draft as a
+      // phantom running timer on the next reload.
+      const next: TimerState = { ...current, draftEntryId };
+      applyTimer(next);
+      persistTimer(next);
     }).catch(() => { /* non-critical */ });
-  }, [timerKey, toast, timer.isRunning, timer.pendingStopAt]);
+  }, [persistTimer, applyTimer, toast, timer.isRunning, timer.pendingStopAt]);
 
   const stopAt = useCallback(async (endIso: string) => {
-    const activeTimer = timer;
+    // The ref, not the render snapshot: a draft create (or a description edit)
+    // resolving in this same tick updates the ref synchronously but not the
+    // closed-over state, and stopping against a snapshot with no draftEntryId
+    // creates a duplicate entry alongside the still-open draft.
+    const activeTimer = timerRef.current;
     if (!activeTimer.startTime || !activeTimer.projectId) return;
     if (!activeTimer.isRunning && !activeTimer.pendingStopAt) return;
 
@@ -163,7 +218,7 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
 
     const stoppedTimer: TimerState = { ...activeTimer, isRunning: false, pendingStopAt: endIso };
     applyTimer(stoppedTimer);
-    localStorage.setItem(timerKey, JSON.stringify(stoppedTimer));
+    persistTimer(stoppedTimer);
 
     const completed: Omit<TimeEntry, "id"> = {
       projectId: activeTimer.projectId,
@@ -200,14 +255,14 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
         entry = await svc.createTimeEntry(completed);
       }
       applyTimer(RESET_TIMER);
-      localStorage.removeItem(timerKey);
+      persistTimer(null);
       onStop(entry);
       return entry;
     } catch (err) {
       toast("Failed to save entry. Press Stop to retry.", "error");
       throw err;
     }
-  }, [timer, onStop, timerKey, user.id, user.displayName, toast]);
+  }, [onStop, persistTimer, applyTimer, user.id, user.displayName, toast]);
 
   const stop = useCallback(() => stopAt(new Date().toISOString()), [stopAt]);
 
@@ -215,11 +270,13 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
   // distinguish a real discard from a no-op (e.g. the idle modal firing after
   // the timer was already stopped by the 12h safety net or another tab).
   const cancel = useCallback(async (): Promise<boolean> => {
-    const active = timer;
+    // Ref for the same reason as stopAt: a draft id that arrived this tick
+    // must still be deleted, or it lingers open as a phantom running timer.
+    const active = timerRef.current;
     const hadSession = active.isRunning || !!active.pendingStopAt || !!active.draftEntryId;
     const draftId = active.draftEntryId;
     applyTimer(RESET_TIMER);
-    localStorage.removeItem(timerKey);
+    persistTimer(null);
     // Discarding the session must also remove the draft row, or it would be
     // restored as a phantom running timer on the next reload. deleteTimeEntry
     // already retries transient failures and tolerates 404s.
@@ -227,15 +284,17 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       await svc.deleteTimeEntry(draftId).catch(() => { /* best effort */ });
     }
     return hadSession;
-  }, [timer.isRunning, timer.pendingStopAt, timer.draftEntryId, timerKey]);
+  }, [applyTimer, persistTimer]);
 
+  // Also applyTimer (see the invariant above): edits made here must be visible
+  // to the async draft/stop paths immediately, not only after React commits —
+  // otherwise a draft resolving in between reverts the user's edit. Reading
+  // from the ref keeps successive updates in one tick composing correctly.
   const update = useCallback((patch: Partial<TimerState>) => {
-    setTimer((prev) => {
-      const next = { ...prev, ...patch };
-      if (next.isRunning) localStorage.setItem(timerKey, JSON.stringify(next));
-      return next;
-    });
-  }, [timerKey]);
+    const next = { ...timerRef.current, ...patch };
+    applyTimer(next);
+    if (next.isRunning) persistTimer(next);
+  }, [applyTimer, persistTimer]);
 
   return { timer, elapsed, start, stop, stopAt, cancel, update };
 }

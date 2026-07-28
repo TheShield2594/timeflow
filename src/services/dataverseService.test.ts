@@ -14,6 +14,7 @@ const {
   mapEntry, entryToDataverse, mergeOver, hasForeignUserEntries,
   deactivateTask, reactivateTask, getAllTasks, getTasksForProject,
   deactivateProject, reactivateProject, getProjects, updateTask,
+  updateProject, isNotFoundError,
 } = await import("./dataverseService");
 
 function makeEntry(overrides: Partial<TimeEntry> = {}): TimeEntry {
@@ -218,6 +219,21 @@ describe("task soft delete (dev mock path)", () => {
     await expect(deactivateTask("nope")).resolves.toBeUndefined();
     expect(await getAllTasks()).toHaveLength(2);
   });
+
+  // Update-only (If-Match) semantics in the host: a missing row 404s instead
+  // of being upserted into existence. The mock has to match, or dev never
+  // exercises the callers' isNotFoundError branches.
+  it("reactivating a missing task 404s, matching the host's update-only semantics", async () => {
+    const err = await reactivateTask("nope").catch((e) => e);
+    expect(isNotFoundError(err)).toBe(true);
+    expect(await getAllTasks()).toHaveLength(2);
+  });
+
+  it("renaming a missing task 404s rather than creating one", async () => {
+    const err = await updateTask("nope", { name: "Ghost" }).catch((e) => e);
+    expect(isNotFoundError(err)).toBe(true);
+    expect(await getAllTasks()).toHaveLength(2);
+  });
 });
 
 describe("project archive (dev mock path)", () => {
@@ -246,6 +262,12 @@ describe("project archive (dev mock path)", () => {
 
   it("getProjects keeps returning archived projects for name/color resolution", async () => {
     await deactivateProject("p1");
+    expect((await getProjects()).map((p) => p.id).sort()).toEqual(["p1", "p2"]);
+  });
+
+  it("updating a missing project 404s rather than creating one", async () => {
+    const err = await updateProject("nope", { name: "Ghost" }).catch((e) => e);
+    expect(isNotFoundError(err)).toBe(true);
     expect((await getProjects()).map((p) => p.id).sort()).toEqual(["p1", "p2"]);
   });
 });

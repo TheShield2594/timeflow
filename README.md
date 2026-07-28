@@ -202,6 +202,14 @@ as `_ever_project_value`. The mapping lives in the `mapXxx` /
 `xxxToDataverse` helpers — the rest of the app does not depend on those
 details.
 
+Updates go through `UpdateOnlyRecordWithOrganization` (If-Match `*`), never
+the connector's `UpdateRecordWithOrganization`, which is an *upsert*: saving
+an edit to a row someone else deleted must fail with a 404 the caller can
+handle, not silently recreate the row from the patch. Reads and writes are
+both wrapped in the same 429/503 backoff, and `getOpenTimerEntry()` throws
+rather than reporting "no open timer" when it can't reach Dataverse — the
+timer bootstrap treats that as "unknown" and keeps local state.
+
 User identity is resolved by `src/services/userService.ts` via the SDK's
 `getContext()`, with a persistent local-dev fallback for `npm run dev`.
 

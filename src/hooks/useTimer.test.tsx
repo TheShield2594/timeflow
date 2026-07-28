@@ -205,6 +205,154 @@ describe("useTimer", () => {
     expect(result.current.timer.draftEntryId).toBeUndefined();
   });
 
+  it("keeps a freshly started timer when the mount-time server restore resolves late", async () => {
+    let resolveOpen!: (entry: TimeEntry | null) => void;
+    vi.mocked(svc.getOpenTimerEntry).mockImplementationOnce(
+      () => new Promise<TimeEntry | null>((res) => { resolveOpen = res; })
+    );
+    const { result } = renderHook(() => useTimer(vi.fn()));
+
+    act(() => {
+      result.current.start("proj-new", null, "Fresh session");
+    });
+    const startedAt = result.current.timer.startTime;
+
+    // A stale open draft from a crashed session on another device lands after
+    // the user already started a new timer.
+    await act(async () => {
+      resolveOpen({
+        id: "stale-draft",
+        projectId: "proj-old",
+        startTime: "2020-01-01T00:00:00Z",
+        date: "2020-01-01",
+        userId: "user-1",
+        userDisplayName: "User One",
+      } as TimeEntry);
+    });
+
+    expect(result.current.timer.projectId).toBe("proj-new");
+    expect(result.current.timer.startTime).toBe(startedAt);
+    expect(result.current.timer.description).toBe("Fresh session");
+    // The new session's own draft survives — the old code deleted it here.
+    await waitFor(() => expect(result.current.timer.draftEntryId).toBe("draft-1"));
+    expect(svc.deleteTimeEntry).not.toHaveBeenCalled();
+  });
+
+  it("adopts the restored row as the draft id when it is the running session's own draft", async () => {
+    let resolveOpen!: (entry: TimeEntry | null) => void;
+    vi.mocked(svc.getOpenTimerEntry).mockImplementationOnce(
+      () => new Promise<TimeEntry | null>((res) => { resolveOpen = res; })
+    );
+    // Draft create still in flight, so the timer has no draftEntryId yet.
+    vi.mocked(svc.createDraftTimerEntry).mockImplementationOnce(() => new Promise<string>(() => {}));
+    const { result } = renderHook(() => useTimer(vi.fn()));
+
+    act(() => {
+      result.current.start("proj-1", null, "Working");
+    });
+    act(() => {
+      result.current.update({ description: "edited after start" });
+    });
+    const startedAt = result.current.timer.startTime!;
+
+    await act(async () => {
+      resolveOpen({
+        id: "server-draft",
+        projectId: "proj-1",
+        startTime: startedAt,
+        description: "Working",
+        date: "2026-01-01",
+        userId: "user-1",
+        userDisplayName: "User One",
+      } as TimeEntry);
+    });
+
+    expect(result.current.timer.draftEntryId).toBe("server-draft");
+    // The local edit wins over the server's older copy of the same row.
+    expect(result.current.timer.description).toBe("edited after start");
+    expect(svc.deleteTimeEntry).not.toHaveBeenCalled();
+  });
+
+  it("keeps the local timer when the open-draft check fails outright", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let rejectOpen!: (err: unknown) => void;
+    vi.mocked(svc.getOpenTimerEntry).mockImplementationOnce(
+      () => new Promise<TimeEntry | null>((_res, rej) => { rejectOpen = rej; })
+    );
+    const { result } = renderHook(() => useTimer(vi.fn()));
+
+    act(() => {
+      result.current.start("proj-1", null, "Working");
+    });
+
+    await act(async () => {
+      rejectOpen(Object.assign(new Error("429 throttled"), { status: 429 }));
+    });
+
+    expect(result.current.timer.isRunning).toBe(true);
+    expect(result.current.timer.projectId).toBe("proj-1");
+    warn.mockRestore();
+  });
+
+  it("keeps edits made while the draft create is in flight", async () => {
+    let resolveDraft!: (id: string) => void;
+    vi.mocked(svc.createDraftTimerEntry).mockImplementationOnce(
+      () => new Promise<string>((res) => { resolveDraft = res; })
+    );
+    const { result } = renderHook(() => useTimer(vi.fn()));
+
+    await act(async () => {
+      result.current.start("proj-1", null, "Working");
+    });
+    act(() => {
+      result.current.update({ description: "typed while saving", ratio: 1.5 });
+    });
+
+    await act(async () => {
+      resolveDraft("draft-late");
+    });
+
+    expect(result.current.timer.draftEntryId).toBe("draft-late");
+    expect(result.current.timer.description).toBe("typed while saving");
+    expect(result.current.timer.ratio).toBe(1.5);
+    expect(JSON.parse(localStorage.getItem(TIMER_STORAGE_KEY)!).description).toBe("typed while saving");
+  });
+
+  it("still saves the entry when persisting the timer to localStorage throws", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const savedEntry = { id: "entry-9" } as TimeEntry;
+    vi.mocked(svc.updateTimeEntry).mockResolvedValue(savedEntry);
+    const onStop = vi.fn();
+    const { result } = renderHook(() => useTimer(onStop));
+
+    await act(async () => {
+      result.current.start("proj-1", null, "Working");
+    });
+    await waitFor(() => expect(result.current.timer.draftEntryId).toBe("draft-1"));
+
+    // Quota exceeded / storage disabled kicks in before the stop is saved.
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("QuotaExceededError");
+    });
+    try {
+      await act(async () => {
+        await result.current.stop();
+      });
+    } finally {
+      setItem.mockRestore();
+    }
+
+    expect(svc.updateTimeEntry).toHaveBeenCalledWith("draft-1", expect.objectContaining({ endTime: expect.any(String) }));
+    expect(onStop).toHaveBeenCalledWith(savedEntry);
+    expect(result.current.timer.isRunning).toBe(false);
+    expect(toastSpy).not.toHaveBeenCalledWith(expect.stringContaining("retry"), "error");
+    // The save above only proves the stop path survived; this proves it
+    // survived *because* persistTimer swallowed the write, not because the
+    // spied setItem was never reached.
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("could not be persisted"));
+    warn.mockRestore();
+  });
+
   it("adopts another tab's timer state from its storage event", () => {
     const { result } = renderHook(() => useTimer(vi.fn()));
     const otherTab = {
