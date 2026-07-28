@@ -155,3 +155,93 @@ describe("useTimeEntries", () => {
     expect(toastSpy).not.toHaveBeenCalled();
   });
 });
+
+describe("useTimeEntries with a dropped response body (#70)", () => {
+  it("keeps the optimistic temp id and re-reads the range when no server id comes back", async () => {
+    vi.mocked(svc.getTimeEntries).mockResolvedValue([]);
+    // The create succeeded server-side but the connector dropped the body, so
+    // the service can only report id: "".
+    vi.mocked(svc.createTimeEntry).mockResolvedValue(
+      makeEntry({ id: "", description: "Saved but unnamed" })
+    );
+
+    const { result } = renderHook(() => useTimeEntries());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const reconciled = makeEntry({ id: "real-7", description: "Saved but unnamed" });
+    vi.mocked(svc.getTimeEntries).mockResolvedValue([reconciled]);
+
+    await act(async () => {
+      await result.current.createEntry({
+        projectId: "proj-1",
+        startTime: "2024-06-01T09:00:00Z",
+        date: "2024-06-01",
+        userId: "user-1",
+        userDisplayName: "User One",
+      });
+    });
+
+    // Never id: "" — an empty id would make a later edit PATCH the collection
+    // rather than the row. The refresh reconciles it to the real record.
+    await waitFor(() => expect(result.current.entries).toEqual([reconciled]));
+  });
+
+  it("refuses to edit or delete an entry whose id is still unknown", async () => {
+    vi.mocked(svc.getTimeEntries).mockResolvedValue([]);
+    vi.mocked(svc.createTimeEntry).mockResolvedValue(makeEntry({ id: "" }));
+
+    const { result } = renderHook(() => useTimeEntries());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // The reconciling re-read fails too, so the row stays pending — this is
+    // the window in which the temp-id guards have to hold.
+    vi.mocked(svc.getTimeEntries).mockRejectedValue(new Error("still offline"));
+
+    await act(async () => {
+      await result.current.createEntry({
+        projectId: "proj-1",
+        startTime: "2024-06-01T09:00:00Z",
+        date: "2024-06-01",
+        userId: "user-1",
+        userDisplayName: "User One",
+      });
+    });
+
+    const pendingId = result.current.entries[0].id;
+    expect(pendingId).not.toBe("");
+
+    await act(async () => {
+      await expect(result.current.editEntry(pendingId, { description: "x" }))
+        .rejects.toThrow(/not yet saved/);
+      await expect(result.current.deleteEntry(pendingId)).rejects.toThrow(/not yet saved/);
+    });
+
+    expect(svc.updateTimeEntry).not.toHaveBeenCalled();
+    expect(svc.deleteTimeEntry).not.toHaveBeenCalled();
+  });
+
+  it("merges an update over the existing entry instead of replacing it", async () => {
+    const existing = makeEntry({ id: "e1", description: "Original", durationMinutes: 60, ratio: 2 });
+    vi.mocked(svc.getTimeEntries).mockResolvedValue([existing]);
+    // Dropped body on the patch: only the fields we sent come back.
+    vi.mocked(svc.updateTimeEntry).mockResolvedValue(
+      { id: "e1", description: "Edited" } as TimeEntry
+    );
+
+    const { result } = renderHook(() => useTimeEntries());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.editEntry("e1", { description: "Edited" });
+    });
+
+    expect(result.current.entries[0]).toMatchObject({
+      id: "e1",
+      description: "Edited",
+      // Untouched by the patch — a wholesale swap would have blanked these.
+      durationMinutes: 60,
+      ratio: 2,
+      date: "2024-06-01",
+    });
+  });
+});

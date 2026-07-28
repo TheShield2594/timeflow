@@ -10,7 +10,6 @@ import { useTheme, Theme } from "./hooks/useTheme";
 import { setPaginationWarningHandler } from "./services/dataverseService";
 import { ToastProvider, useToast } from "./contexts/ToastContext";
 import { DataRangeProvider, useDataRange } from "./contexts/DataRangeContext";
-import { isTempId } from "./hooks/_shared";
 
 import type { TimeEntry, Task, Project } from "./types";
 import logoUrl from "./everence-logo.png";
@@ -136,15 +135,15 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
     } catch {
       return;
     }
-    // Delete deactivates the record, so undo reactivates that same record —
-    // historical entries keep pointing at it. A temp-id task was never saved
-    // server-side, so recreate it instead.
-    const { id: _omit, ...data } = task;
-    const undo = isTempId(task.id)
-      ? () => { addTask(data).catch(() => { /* toasted by hook */ }); }
-      : () => { restoreTask(task).catch(() => { /* toasted by hook */ }); };
-    toast("Task deleted.", "info", { label: "Undo", onAction: undo });
-  }, [deleteTask, restoreTask, addTask, toast]);
+    // Delete deactivates the record, so undo reactivates that same record and
+    // historical entries keep pointing at it. Only saved tasks get this far —
+    // deleteTask refuses a task whose id is still pending — so there's no
+    // recreate-instead case to handle.
+    toast("Task deleted.", "info", {
+      label: "Undo",
+      onAction: () => { restoreTask(task).catch(() => { /* toasted by hook */ }); },
+    });
+  }, [deleteTask, restoreTask, toast]);
 
   const archiveProjectWithUndo = useCallback(async (project: Project) => {
     try {

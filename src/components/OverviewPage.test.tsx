@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, within } from "@testing-library/react";
 import { OverviewPage } from "./OverviewPage";
 import { DataRangeProvider } from "../contexts/DataRangeContext";
 import { addDaysStr, localDateStr } from "../utils/dates";
@@ -120,5 +120,49 @@ describe("OverviewPage", () => {
     expect(screen.getByText("Activity")).not.toBeNull();
     expect(screen.getByText("Less")).not.toBeNull();
     expect(screen.getByText("More")).not.toBeNull();
+  });
+});
+
+describe("ActivityHeatmap accessible equivalent (#73)", () => {
+  // makeEntry() dates its entry off the clock, the component buckets it off
+  // the clock, and the expected label is built off the clock again. Freeze one
+  // local instant so a run crossing midnight can't have them disagree.
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 5, 15, 12, 0, 0));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("exposes each logged day's total as text, not just a title tooltip", () => {
+    // The grid cells are aria-hidden decoration and their `title` tooltips are
+    // mouse-only, so the per-day values have to be reachable some other way.
+    const date = addDaysStr(localDateStr(), -3);
+    renderOverview([makeEntry(3, 90)]);
+
+    const label = new Date(date + "T00:00:00").toLocaleDateString("en", {
+      weekday: "short", month: "short", day: "numeric",
+    });
+    expect(screen.getByText(`${label}: 1h 30m`)).not.toBeNull();
+    expect(screen.getByText(/busiest day totaled 1h 30m/)).not.toBeNull();
+  });
+
+  it("lists only days that have time logged", () => {
+    const { container } = renderOverview([makeEntry(3, 90), makeEntry(5, 30)]);
+
+    // Two logged days out of ~84 in the window — the empty ones must not be
+    // enumerated, or the ones that matter get buried.
+    const heatmap = container.querySelector(".activity-heatmap-wrap") as HTMLElement;
+    expect(within(heatmap).getAllByRole("listitem")).toHaveLength(2);
+  });
+
+  it("says so plainly when the window holds no activity", () => {
+    // Not entries: [] — that hits the page's empty state and the heatmap is
+    // never rendered. An entry outside the 12-week window is the real case.
+    renderOverview([makeEntry(200, 60)]);
+
+    expect(screen.getByText(/No activity logged in the last 12 weeks/)).not.toBeNull();
   });
 });

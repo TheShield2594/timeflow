@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import type { TimeEntry, Project, Task } from "../types";
 import { formatMinutes } from "../hooks";
-import { useDataRange } from "../contexts/DataRangeContext";
+import { useRangeRequest } from "../contexts/DataRangeContext";
+import { useToday } from "../hooks/useToday";
 import {
   exportToCSV, buildExportFilename,
   RoundingRule, ROUNDING_LABELS,
@@ -52,7 +53,7 @@ function readStoredRounding(): RoundingRule {
 }
 
 export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, rangeLoading }) => {
-  const { ensureRangeLoaded } = useDataRange();
+  const today = useToday();
   const [rangeState, setRangeState] = useState<DateRangeState>({
     preset: "7d",
     customFrom: "",
@@ -61,12 +62,16 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, rangeLo
   const [exporting, setExporting] = useState(false);
   const [rounding, setRounding] = useState<RoundingRule>(readStoredRounding);
 
-  const { from, to } = useMemo(() => resolveDateRange(rangeState), [rangeState]);
+  // Keyed off `today` as well as the preset so a relative range ("last 7 days")
+  // follows the local calendar past midnight instead of pinning the day the
+  // page happened to mount.
+  const { from, to } = useMemo(() => resolveDateRange(rangeState, today), [rangeState, today]);
 
-  // If the user picks a range that extends past what's cached, ask App to widen.
-  useEffect(() => {
-    ensureRangeLoaded(from, to);
-  }, [from, to, ensureRangeLoaded]);
+  // Hold this range open while Reports is showing it. Released on unmount and
+  // replaced when the preset changes, so "All time" stops widening every other
+  // page's fetches the moment the user picks something narrower or navigates
+  // away (#74).
+  useRangeRequest("reports", from, to);
 
   const filtered = useMemo(
     () => entries.filter((e) => e.date >= from && e.date <= to && e.durationMinutes),
@@ -80,7 +85,6 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, rangeLo
   // from/to, and the clamped bounds cover every filtered entry by
   // construction. Both bounds are ordered: effFrom <= effTo always holds.
   const { effFrom, effTo } = useMemo(() => {
-    const today = localDateStr();
     if (rangeState.preset !== "all") {
       // Guard against an inverted custom range (customFrom after customTo).
       return { effFrom: from, effTo: to >= from ? to : from };
@@ -95,7 +99,7 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, rangeLo
     const lower = min || today;
     const upper = max > today ? max : today;
     return { effFrom: lower, effTo: upper >= lower ? upper : lower };
-  }, [rangeState.preset, filtered, from, to]);
+  }, [rangeState.preset, filtered, from, to, today]);
 
   const handleRoundingChange = (rule: RoundingRule) => {
     setRounding(rule);

@@ -164,14 +164,54 @@ function extractSkipToken(nextLink?: string): string | undefined {
   }
 }
 
+// Rows per FetchXML page. Set explicitly (rather than relying on the server
+// default) so "a short page is the last page" — the documented termination
+// rule — has a known threshold to compare against. 5,000 is Dataverse's
+// maximum page size, so this doesn't add round-trips to normal loads.
+const FETCH_PAGE_SIZE = 5000;
+
 // FetchXML-based Web API queries don't page via @odata.nextLink/$skiptoken —
-// Dataverse instead returns a paging-cookie annotation, which must be
-// echoed back (HTML-escaped) as a `paging-cookie` attribute on <fetch>,
-// alongside an incremented `page` attribute, to get the next page.
+// Dataverse instead returns a paging-cookie annotation whose *inner*
+// pagingcookie value must be echoed back as a `paging-cookie` attribute on
+// <fetch>, alongside an incremented `page` attribute, to get the next page.
 function withFetchPaging(fetchXml: string, page: number, pagingCookie?: string): string {
-  if (page <= 1 && !pagingCookie) return fetchXml;
   const cookieAttr = pagingCookie ? ` paging-cookie="${escapeXmlAttr(pagingCookie)}"` : "";
-  return fetchXml.replace(/<fetch(\s|>)/, `<fetch page="${page}"${cookieAttr}$1`);
+  return fetchXml.replace(
+    /<fetch(\s|>)/,
+    `<fetch count="${FETCH_PAGE_SIZE}" page="${page}"${cookieAttr}$1`,
+  );
+}
+
+// The annotation is itself a scrap of XML wrapping the value we actually need:
+//   <cookie pagenumber="1" pagingcookie="%253ccookie%2520pagenumber%253d..." istracking="False" />
+// Only the inner `pagingcookie` attribute goes back to Dataverse, and it
+// arrives double-URL-encoded. Echoing the whole annotation verbatim (as this
+// did before #69) produces a malformed page-2 request, which the mid-pagination
+// catch below then turns into silently truncated data.
+export function extractPagingCookie(annotation?: string): string | undefined {
+  if (!annotation) return undefined;
+  const match = /\bpagingcookie\s*=\s*("([^"]*)"|'([^']*)')/.exec(annotation);
+  const encoded = match?.[2] ?? match?.[3];
+  if (!encoded) return undefined;
+  try {
+    return decodeURIComponent(decodeURIComponent(decodeXmlAttr(encoded)));
+  } catch {
+    // Malformed percent-escapes: better to stop paging (and warn) than to
+    // send a cookie Dataverse will reject.
+    console.error("Could not decode the FetchXML paging cookie.");
+    return undefined;
+  }
+}
+
+// Inverse of escapeXmlAttr, for reading a value back out of an XML attribute.
+// &amp; is unescaped last so "&amp;lt;" round-trips to "&lt;", not "<".
+function decodeXmlAttr(value: string): string {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
 }
 
 // Hard ceiling so a misbehaving nextLink/paging-cookie can never loop forever.
@@ -195,7 +235,12 @@ async function listAllPages(
   const rows: Raw[] = [];
   let skiptoken: string | undefined;
   let pagingCookie: string | undefined;
+  // True while a page has been consumed but the server may still hold more.
+  // Cleared by whichever branch below decides we've reached the end, so it is
+  // still set if the loop falls out of MAX_PAGES with data left behind.
+  let morePages = false;
   for (let page = 0; page < MAX_PAGES; page++) {
+    morePages = false;
     let env: ListEnvelope;
     try {
       // Reads get the same backoff as writes: a single transient 429/503 on a
@@ -233,17 +278,29 @@ async function listAllPages(
       );
       return rows;
     }
-    for (const item of env?.value ?? []) rows.push(unwrapRow(item));
+    const items = env?.value ?? [];
+    for (const item of items) rows.push(unwrapRow(item));
     if (fetchXml) {
-      pagingCookie = env?.["@Microsoft.Dynamics.CRM.fetchxmlpagingcookie"];
-      if (!pagingCookie) { skiptoken = undefined; break; }
-      skiptoken = "more"; // sentinel so the exceeded-MAX_PAGES check below still fires
+      // Termination is "the page came back short", not "the annotation is
+      // absent": Dataverse returns the paging cookie on every page that
+      // yields rows, including the last one. Keying off its presence made
+      // routine loads issue an extra (malformed) request and then warn the
+      // user about truncation that never happened (#69).
+      if (items.length < FETCH_PAGE_SIZE) break;
+      morePages = true;
+      pagingCookie = extractPagingCookie(env?.["@Microsoft.Dynamics.CRM.fetchxmlpagingcookie"]);
+      // A full page with no usable cookie is ambiguous — either an exactly
+      // page-size result set, or an annotation we couldn't parse. We can't
+      // ask for page 2 without it, so stop and let the warning below say so
+      // rather than quietly dropping whatever follows.
+      if (!pagingCookie) break;
     } else {
       skiptoken = extractSkipToken(env?.["@odata.nextLink"]);
       if (!skiptoken) break;
+      morePages = true;
     }
   }
-  if (skiptoken) {
+  if (morePages) {
     // Exceeded MAX_PAGES — return partial data with a warning rather than
     // throwing, so the user sees what was loaded instead of a blank page.
     console.error(`Loading ${entitySet} exceeded ${MAX_PAGES} pages; partial data returned.`);
@@ -283,6 +340,41 @@ export function mergeOver<T extends object>(input: T, mapped: T): T {
   return out as T;
 }
 
+// Every mapped field whose mapper substitutes a *non-empty* default when its
+// column is missing, paired with the column it comes from. These are the only
+// fields mergeOver can't be trusted with on a possibly-empty row: the default
+// passes isFilled(), so it overwrites the optimistic value instead of losing
+// to it. An absent `statecode` reports isActive: false and archives a project
+// the user just created; an absent `ever_color` repaints it the default
+// indigo; an absent `createdon` restamps its creation date as now (#70).
+//
+// Mappers whose fallbacks are "" or undefined (name, description, every field
+// of mapEntry) need no entry here — isFilled() already rejects those.
+const DERIVED_FIELDS: { field: string; column: string }[] = [
+  { field: "isActive", column: "statecode" },
+  { field: "color", column: "ever_color" },
+  { field: "createdAt", column: "createdon" },
+];
+
+// mergeOver for a create/update response row, which may be empty. Drops the
+// derived fields above when the row doesn't actually carry their source
+// column, so the caller's own value survives instead of being overwritten by
+// a fabricated default.
+function mergeResponseRow<T extends object>(input: T, row: Raw, mapped: T): T {
+  const known = { ...(mapped as Record<string, unknown>) };
+  for (const { field, column } of DERIVED_FIELDS) {
+    if (!isFilled(row[column])) delete known[field];
+  }
+  return mergeOver(input, known as T);
+}
+
+// Note the one field mergeOver can't fall back on: the id. There is nothing
+// sensible to merge in when the response body is dropped on a create, so these
+// functions return id: "" and it is the caller's job to read that as "unknown,
+// reconcile on the next refresh" — keeping its optimistic temp id — rather than
+// adopting an id that would send later updates and deletes to the collection
+// endpoint instead of a row (#70).
+
 // ---------------------------------------------------------------------------
 // Dataverse <-> model mapping
 // ---------------------------------------------------------------------------
@@ -298,6 +390,14 @@ function num(r: Raw, key: string): number | undefined {
   return typeof v === "number" && Number.isFinite(v) ? v : undefined;
 }
 
+// Reads always carry `statecode`; a row without it is a dropped/empty response
+// body, where "inactive" is a guess — and the damaging one, since an inactive
+// project disappears from the pickers. Default to active and let
+// mergeResponseRow drop the field entirely on the merge paths.
+function mapIsActive(r: Raw): boolean {
+  return (num(r, "statecode") ?? 0) === 0;
+}
+
 function mapProject(r: Raw): Project {
   return {
     id: (str(r, "ever_projectsid") ?? str(r, "id")) as string,
@@ -306,7 +406,7 @@ function mapProject(r: Raw): Project {
     description: str(r, "ever_description"),
     ratio: num(r, "ever_ratio"),
     jiraTicket: str(r, "ever_jiraticket"),
-    isActive: num(r, "statecode") === 0,
+    isActive: mapIsActive(r),
     createdAt: str(r, "createdon") ?? new Date().toISOString(),
   };
 }
@@ -317,7 +417,7 @@ function mapTask(r: Raw): Task {
     projectId: str(r, "_ever_project_value") ?? "",
     name: str(r, "ever_name") ?? "",
     description: str(r, "ever_description"),
-    isActive: num(r, "statecode") === 0,
+    isActive: mapIsActive(r),
   };
 }
 
@@ -439,8 +539,11 @@ export async function createProject(data: Omit<Project, "id" | "createdAt">): Pr
     SETS.projects,
     projectToDataverse(data),
   ));
+  // id stays "" when the connector drops the response body — see the note by
+  // mergeResponseRow for what callers must do with that.
   const inputAsProject: Project = { ...data, id: "", createdAt: new Date().toISOString() };
-  return mergeOver(inputAsProject, mapProject(unwrapRow(unwrap(result, "Create project"))));
+  const row = unwrapRow(unwrap(result, "Create project"));
+  return mergeResponseRow(inputAsProject, row, mapProject(row));
 }
 
 export async function updateProject(id: string, data: Partial<Project>): Promise<Project> {
@@ -452,11 +555,13 @@ export async function updateProject(id: string, data: Partial<Project>): Promise
     persist(STORAGE_KEYS.projects, all);
     return all[idx];
   }
-  const row = await updateOnly(SETS.projects, id, projectToDataverse(data), "Update project");
+  const raw = unwrapRow(await updateOnly(SETS.projects, id, projectToDataverse(data), "Update project"));
   // Patch needs all fields populated for the UI to render correctly even when
-  // the connector returns an empty body.
+  // the connector returns an empty body. Fields the patch didn't touch stay
+  // absent from the result, so callers must merge it over the record they
+  // already hold rather than replacing that record wholesale.
   const inputAsProject = { ...data, id } as Project;
-  return mergeOver(inputAsProject, mapProject(unwrapRow(row)));
+  return mergeResponseRow(inputAsProject, raw, mapProject(raw));
 }
 
 // ---------------------------------------------------------------------------
@@ -496,7 +601,8 @@ export async function createTask(data: Omit<Task, "id">): Promise<Task> {
     taskToDataverse(data),
   ));
   const inputAsTask: Task = { ...data, id: "" };
-  return mergeOver(inputAsTask, mapTask(unwrapRow(unwrap(result, "Create task"))));
+  const row = unwrapRow(unwrap(result, "Create task"));
+  return mergeResponseRow(inputAsTask, row, mapTask(row));
 }
 
 // Shared by every entity's delete: local-mock filter/persist, or a Dataverse
@@ -578,9 +684,9 @@ export async function updateTask(id: string, data: Partial<Task>): Promise<Task>
     persist(STORAGE_KEYS.tasks, all);
     return all[idx];
   }
-  const row = await updateOnly(SETS.tasks, id, taskToDataverse(data), "Update task");
+  const raw = unwrapRow(await updateOnly(SETS.tasks, id, taskToDataverse(data), "Update task"));
   const inputAsTask = { ...data, id } as Task;
-  return mergeOver(inputAsTask, mapTask(unwrapRow(row)));
+  return mergeResponseRow(inputAsTask, raw, mapTask(raw));
 }
 
 // ---------------------------------------------------------------------------
@@ -703,9 +809,26 @@ export async function updateTimeEntry(id: string, data: Partial<TimeEntry>): Pro
   return merged;
 }
 
+// Two timestamps naming the same moment, allowing for the sub-second precision
+// Dataverse drops on the round trip. Deliberately tight: anything looser risks
+// matching a *different* session's draft, which is worse than not matching at
+// all. Unparseable input is not a match.
+function sameInstant(a: string | undefined, b: string | undefined): boolean {
+  if (!a || !b) return false;
+  const ta = new Date(a).getTime();
+  const tb = new Date(b).getTime();
+  if (!Number.isFinite(ta) || !Number.isFinite(tb)) return false;
+  return Math.abs(ta - tb) < 1000;
+}
+
 /**
  * Creates a draft timer entry in Dataverse when the timer starts (#15).
  * The record has ever_endtime = null so it can be detected on bootstrap.
+ *
+ * Returns null when the id can't be established — the row may well exist
+ * server-side, we just can't address it. Callers must not store null as the
+ * draft id: stopping against one would PATCH `undefined` and leave the real
+ * row open, to be restored as a phantom running timer on the next load (#70).
  */
 export async function createDraftTimerEntry(data: {
   projectId: string;
@@ -714,7 +837,7 @@ export async function createDraftTimerEntry(data: {
   startTime: string;
   date: string;
   ratio?: number;
-}): Promise<string> {
+}): Promise<string | null> {
   const user = getCurrentUser();
   if (!isPowerAppsHost()) {
     // In dev, store draft ID in localStorage so we can clean it up on stop.
@@ -744,7 +867,26 @@ export async function createDraftTimerEntry(data: {
     PREFER_RETURN, ACCEPT, orgUrl(), SETS.entries, raw,
   ));
   const row = unwrapRow(unwrap(result, "Create draft timer entry"));
-  return (row["ever_timeentriesid"] ?? row["id"]) as string;
+  const id = str(row, "ever_timeentriesid") ?? str(row, "id");
+  if (id) return id;
+
+  // The connector dropped the response body. The draft is the current user's
+  // only open (endTime null) row, so read it back instead of returning an
+  // unusable id. The start time must still match — a pre-existing draft from
+  // an older session would otherwise be adopted as this one and stopped in
+  // its place — but compared as instants, not strings: we send
+  // toISOString() with milliseconds and Dataverse hands the column back at
+  // second precision, so string equality would reject the very row we just
+  // wrote and make this whole fallback dead code.
+  try {
+    const open = await getOpenTimerEntry();
+    if (open?.id && sameInstant(open.startTime, data.startTime)) return open.id;
+  } catch {
+    // Fall through: "couldn't look it up" and "isn't there" both mean the id
+    // is unknown, which is what null says.
+  }
+  console.warn("Draft timer entry created but its id could not be resolved.");
+  return null;
 }
 
 /**

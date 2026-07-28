@@ -3,7 +3,7 @@ import type { TimeEntry, Project, Task } from "../types";
 import { getCurrentUser } from "../services/userService";
 import { addDaysStr, localDateStr, minutesOfDay, toTimeInput } from "../utils/dates";
 import { formatMinutes } from "../hooks";
-import { useDataRange } from "../contexts/DataRangeContext";
+import { useRangeRequest } from "../contexts/DataRangeContext";
 import { useWeeklyTarget } from "../hooks/useWeeklyTarget";
 import { EntryModal, EntryDraft, EntrySaveData } from "./EntryModal";
 import { IconCheck, IconChevronLeft, IconChevronRight, IconPencil, IconX } from "./Icons";
@@ -309,7 +309,6 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
 CalendarEntryBlock.displayName = "CalendarEntryBlock";
 
 export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeLoading, onCreateEntry, onEdit, onDelete, onLoadTasksForProject }) => {
-  const { ensureRangeLoaded } = useDataRange();
   const [anchor, setAnchor] = useState(() => new Date());
   const weekDays = useMemo(() => getWeekDays(anchor), [anchor]);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 769);
@@ -355,11 +354,14 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
   }, [weekDays]);
 
   // Make sure the data for the visible week is loaded — navigating backwards
-  // past the initial 90-day window will pull more entries from Dataverse.
-  useEffect(() => {
-    if (weekDays.length === 0) return;
-    ensureRangeLoaded(localDateStr(weekDays[0]), localDateStr(weekDays[weekDays.length - 1]));
-  }, [weekDays, ensureRangeLoaded]);
+  // past the initial 90-day window will pull more entries from Dataverse. The
+  // request is released when the user leaves the calendar, so paging back a
+  // year doesn't keep every other page fetching that span (#74).
+  const weekBounds = useMemo(() => ({
+    from: weekDays.length ? localDateStr(weekDays[0]) : "",
+    to: weekDays.length ? localDateStr(weekDays[weekDays.length - 1]) : "",
+  }), [weekDays]);
+  useRangeRequest("calendar", weekBounds.from, weekBounds.to);
 
   const [modal, setModal] = useState<ModalState | null>(null);
 
@@ -443,13 +445,32 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     return m;
   }, [positionedByDate]);
 
+  // Elapsed minutes of the running session, on the day it's drawn: the entry
+  // has no durationMinutes until it's stopped, so without this the day-header
+  // and week totals sit at zero while the running block visibly grows (#74).
+  // Bounded the same way the block is — a session started yesterday counts up
+  // to midnight on its own date, not to the current clock.
+  const runningMinutes = useMemo(() => {
+    if (!runningEntry?.startTime) return 0;
+    const nowDate = new Date(tick);
+    const endMin = runningEntry.date === today
+      ? nowDate.getHours() * 60 + nowDate.getMinutes()
+      : 24 * 60;
+    return Math.max(0, endMin - minutesOfDay(runningEntry.startTime));
+  }, [runningEntry, today, tick]);
+
   const dayTotals = useMemo(() => {
     const map = new Map<string, number>();
     entries.forEach((e) => {
+      // Open entries carry no duration; the running one is added below.
+      if (!e.endTime) return;
       map.set(e.date, (map.get(e.date) || 0) + (e.durationMinutes || 0));
     });
+    if (runningEntry && runningMinutes > 0) {
+      map.set(runningEntry.date, (map.get(runningEntry.date) || 0) + runningMinutes);
+    }
     return map;
-  }, [entries]);
+  }, [entries, runningEntry, runningMinutes]);
 
   const weekTotal = useMemo(
     () => weekDays.reduce((s, d) => s + (dayTotals.get(localDateStr(d)) || 0), 0),
