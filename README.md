@@ -14,6 +14,7 @@ Tracks time against projects and tasks, stores data in Microsoft Dataverse, and 
 | Timesheet view (grouped by day, search + project filter) | ✅ |
 | Manual entry creation (timesheet + calendar click-to-log) | ✅ |
 | Week calendar (24h grid, overlap layout, running session) | ✅ |
+| Calendar drag-to-reschedule + drag-to-resize (Shift + arrows by keyboard) | ✅ |
 | Reports dashboard (daily/weekly bar chart, project %, top tasks) | ✅ |
 | KPI strip (total, avg per active day, sessions, projects) | ✅ |
 | Projects management (create, edit, archive/restore) | ✅ |
@@ -25,7 +26,7 @@ Tracks time against projects and tasks, stores data in Microsoft Dataverse, and 
 | Idle detection + 12h auto-stop safety net | ✅ |
 | Delete with Undo | ✅ |
 | CSV export (incl. Jira ticket + ratio, billing-style rounding) | ✅ |
-| Reports: project × period matrix, weighted total, all-time range | ✅ |
+| Reports: project × period matrix, all-time range | ✅ |
 | Light + dark theme | ✅ |
 | Dataverse backend wired (@microsoft/power-apps SDK) | ✅ |
 
@@ -43,6 +44,17 @@ Tracks time against projects and tasks, stores data in Microsoft Dataverse, and 
 npm install
 npm run dev
 ```
+
+### Checks
+```bash
+npm run lint          # ESLint (flat config, react-hooks rules) — warnings fail
+npm run typecheck     # tsc --noEmit
+npm test              # vitest, single run
+npm run test:coverage # same, with a coverage report (text + html + lcov)
+```
+
+CI runs all four plus `npm run build` on every push to `main` and every pull
+request. `npx vitest` (no `run`) starts the watcher for local development.
 
 The app runs with **mock data** in localStorage when `window.PowerApps` is not present.
 There is no seed data — a fresh `npm run dev` starts with an empty workspace; create your first project from the Projects page.
@@ -230,20 +242,32 @@ Or open Power Apps Studio and the app will appear in your environment.
 
 ## Project Structure
 
+Tests live next to what they cover, as `*.test.ts(x)`.
+
 ```
 src/
   types/
     index.ts              — TypeScript interfaces for all data models
     powerapps.d.ts        — window.PowerApps runtime type declarations
+  generated/              — Power Platform SDK client (generated; not linted)
   services/
     dataverseService.ts   — Real Dataverse calls + localStorage mock fallback
     userService.ts        — Current user (PowerApps userInfo / Office365Users / local)
-    csvExport.ts          — CSV export helper
-  hooks/index.ts          — React hooks: useProjects, useTasks, useTimeEntries, useTimer
+    csvExport.ts          — CSV export helper (rounding, escaping, BOM)
+  contexts/
+    DataRangeContext.tsx  — Which date range the pages currently need loaded
+    ToastContext.tsx      — Toast notifications with undo
+  hooks/index.ts          — React hooks: useProjects, useTasks, useTimeEntries, useTimer,
+                            useTimerSafety, useTheme, useToday, useWeeklyTarget, useFocusTrap
+  utils/
+    dates.ts              — Local-timezone date helpers (never toISOString for dates)
+    calendarGeometry.ts   — Calendar pointer maths (slots, snapping, day columns)
+    reportAggregations.ts — Pure aggregation behind the Reports dashboard
   components/
     TimerBar.tsx          — Sticky timer bar at the top
+    OverviewPage.tsx      — Landing page with the activity heatmap
     TimesheetPage.tsx     — Day-grouped list of time entries
-    CalendarPage.tsx      — Week calendar with drag-to-create entries
+    CalendarPage.tsx      — Week calendar: drag to create, resize, reschedule
     ReportsPage.tsx       — Dashboard with charts and KPIs
     ProjectsPage.tsx      — Project/task management
   App.tsx                 — Root layout, sign-in bootstrap, page routing
@@ -264,4 +288,4 @@ src/
 ---
 
 ## License
-MIT
+MIT — see [LICENSE](LICENSE).

@@ -698,7 +698,9 @@ function fmtDate(d: Date): string {
 }
 
 // Minimal escaping for values interpolated into FetchXML condition attributes.
-function escapeXmlAttr(value: string): string {
+// Exported for tests: it's the only thing standing between a caller-supplied
+// date string and the FetchXML the server executes.
+export function escapeXmlAttr(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")

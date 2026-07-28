@@ -1,8 +1,18 @@
+/**
+ * `ratio` is a **billing account/rate identifier**, not a numeric multiplier
+ * (#71). It labels which account a project's or entry's time is billed to;
+ * `parseRatioInput` accordingly keeps it a non-negative whole number. Nothing
+ * may multiply, sum or otherwise do arithmetic with it — a "Weighted total"
+ * KPI once did (Σ duration × ratio), which turned an account code like `2`
+ * into a plausible-looking but meaningless number of hours on the billing
+ * dashboard.
+ */
 export interface Project {
   id: string;
   name: string;
   color: string;
   description?: string;
+  /** Billing account identifier — see the note above; never a multiplier. */
   ratio?: number;
   jiraTicket?: string;
   isActive: boolean;
@@ -25,6 +35,7 @@ export interface TimeEntry {
   startTime: string;
   endTime?: string;
   durationMinutes?: number;
+  /** Billing account identifier — see the note on Project.ratio; never a multiplier. */
   ratio?: number;
   jiraTicket?: string;
   date: string;

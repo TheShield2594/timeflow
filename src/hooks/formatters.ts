@@ -13,6 +13,11 @@ export function formatMinutes(minutes: number): string {
   return `${h}h ${m}m`;
 }
 
+/**
+ * Ratio is a billing account identifier, not a multiplier (#71) — hence the
+ * rounding to a non-negative whole number rather than accepting fractions
+ * like 0.5. See the note on `Project.ratio` in src/types.
+ */
 export function parseRatioInput(v: string): number | undefined {
   if (v.trim() === "") return undefined;
   const n = Math.max(0, Math.round(Number(v)));

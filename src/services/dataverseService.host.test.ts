@@ -26,7 +26,7 @@ vi.mock("../generated", () => ({ MicrosoftDataverseService: sdk }));
 const {
   updateTimeEntry, updateTask, updateProject, deactivateTask,
   getProjects, getOpenTimerEntry, isNotFoundError,
-  getTimeEntries, extractPagingCookie, setPaginationWarningHandler,
+  getTimeEntries, extractPagingCookie, setPaginationWarningHandler, escapeXmlAttr,
   createProject, createTask, createDraftTimerEntry,
 } = await import("./dataverseService");
 
@@ -516,5 +516,62 @@ describe("create with a dropped response body (#70)", () => {
       projectId: "proj-1", startTime: "2026-06-01T09:00:00Z", date: "2026-06-01",
     })).resolves.toBeNull();
     vi.restoreAllMocks();
+  });
+});
+
+describe("escapeXmlAttr", () => {
+  it("escapes every character that could break out of a FetchXML attribute", () => {
+    expect(escapeXmlAttr(`" />< &`)).toBe("&quot; /&gt;&lt; &amp;");
+  });
+
+  it("escapes & first, so an already-escaped entity isn't double-unescaped on the way back", () => {
+    // "&lt;" must survive as the literal text "&lt;", not become "<".
+    expect(escapeXmlAttr("&lt;")).toBe("&amp;lt;");
+  });
+
+  it("leaves ordinary date values untouched", () => {
+    expect(escapeXmlAttr("2026-06-01")).toBe("2026-06-01");
+    expect(escapeXmlAttr("")).toBe("");
+  });
+
+  it("neutralizes a date string that tries to close the condition element", () => {
+    const payload = `2026-06-01" /><condition attribute="ever_userid" operator="ne" value="`;
+    const escaped = escapeXmlAttr(payload);
+    expect(escaped).not.toContain('"');
+    expect(escaped).toContain("&quot;");
+  });
+});
+
+describe("getTimeEntries FetchXML escaping", () => {
+  it("escapes the caller-supplied range into the condition attributes", async () => {
+    sdk.ListRecordsWithOrganization.mockResolvedValue(fetchPage(1));
+
+    await getTimeEntries({ from: `2026-06-01" /><x a="`, to: "2026-06-30" });
+
+    const xml = fetchXmlArg(1);
+    // The injected element never materializes; the payload lands as escaped
+    // text inside the value attribute.
+    expect(xml).not.toContain("<x ");
+    expect(xml).toContain("2026-06-01&quot; /&gt;&lt;x a=&quot;");
+  });
+});
+
+describe("isNotFoundError", () => {
+  it("recognizes a 404 however the SDK reports it", () => {
+    expect(isNotFoundError({ status: 404 })).toBe(true);
+    expect(isNotFoundError({ statusCode: 404 })).toBe(true);
+    expect(isNotFoundError(new Error("request failed: 404"))).toBe(true);
+  });
+
+  it("does not mistake other failures for a missing row", () => {
+    expect(isNotFoundError({ status: 403 })).toBe(false);
+    expect(isNotFoundError({ status: 500 })).toBe(false);
+    expect(isNotFoundError(new Error("network unreachable"))).toBe(false);
+  });
+
+  it("is false for non-error values rather than throwing", () => {
+    expect(isNotFoundError(null)).toBe(false);
+    expect(isNotFoundError(undefined)).toBe(false);
+    expect(isNotFoundError("404")).toBe(false);
   });
 });

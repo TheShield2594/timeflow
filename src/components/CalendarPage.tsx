@@ -2,6 +2,21 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { TimeEntry, Project, Task } from "../types";
 import { getCurrentUser } from "../services/userService";
 import { addDaysStr, localDateStr, minutesOfDay, toTimeInput } from "../utils/dates";
+import {
+  ColumnRect,
+  MINUTES_PER_DAY,
+  MIN_RESIZE_DURATION_MIN,
+  MOVE_THRESHOLD_PX,
+  PX_PER_MIN,
+  SLOTS_PER_HOUR,
+  SLOT_HEIGHT,
+  SNAP_MIN,
+  TOTAL_SLOTS,
+  clampMoveStart,
+  dayIndexFromClientX,
+  rowFromOffsetY,
+  snapMinutesFromOffsetY,
+} from "../utils/calendarGeometry";
 import { formatMinutes } from "../hooks";
 import { useRangeRequest } from "../contexts/DataRangeContext";
 import { useWeeklyTarget } from "../hooks/useWeeklyTarget";
@@ -25,17 +40,11 @@ interface ModalState {
   draft: EntryDraft;
 }
 
-// Full 24h grid; we auto-scroll to the workday on mount so early/late entries
-// are never silently hidden.
-const SLOT_HEIGHT = 36; // px per 30-min slot
-const SLOTS_PER_HOUR = 2;
-const TOTAL_SLOTS = 24 * SLOTS_PER_HOUR;
-const PX_PER_MIN = SLOT_HEIGHT / 30;
+// Full 24h grid (geometry constants live in utils/calendarGeometry); we
+// auto-scroll to the workday on mount so early/late entries are never
+// silently hidden.
 const SCROLL_TO_HOUR = 7;
 const MIN_ENTRY_PX = 22;
-// Drag-resize snaps to quarter-hour steps and can't shrink an entry below this.
-const RESIZE_SNAP_MIN = 15;
-const MIN_RESIZE_DURATION_MIN = 15;
 
 function getWeekDays(anchor: Date): Date[] {
   const days: Date[] = [];
@@ -61,6 +70,17 @@ function isoAtMinutes(dateStr: string, minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return new Date(`${dateStr}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`).toISOString();
+}
+
+// "9:15 AM" for a minutes-of-day offset. 24:00 (the end of the last slot)
+// reads as midnight rather than "0:00 AM".
+function clockLabel(minutes: number): string {
+  const total = Math.min(minutes, 24 * 60);
+  const h24 = Math.floor(total / 60) % 24;
+  const m = total % 60;
+  const suffix = total >= 12 * 60 && total < 24 * 60 ? "PM" : "AM";
+  const display = h24 > 12 ? h24 - 12 : h24 === 0 ? 12 : h24;
+  return `${display}:${String(m).padStart(2, "0")} ${suffix}`;
 }
 
 // Describe a 30-min slot index (0-47) as a time, for gridcell aria-labels.
@@ -127,7 +147,10 @@ interface EntryBlockProps {
    *  the block is absolutely positioned relative to that cell. */
   rowTopMin: number;
   running: boolean;
-  resizable: boolean;
+  /** Completed, same-day entry: its geometry can be dragged (resized/moved). */
+  reshapable: boolean;
+  /** True for the entry currently being dragged to a new slot. */
+  moving: boolean;
   col: number;
   cols: number;
   color: string;
@@ -139,6 +162,10 @@ interface EntryBlockProps {
   onResizeMove: (e: React.PointerEvent) => void;
   onResizeEnd: (e: React.PointerEvent) => void;
   onResizeCancel: () => void;
+  onMoveStart: (e: React.PointerEvent, entry: TimeEntry) => void;
+  onMoveMove: (e: React.PointerEvent) => void;
+  onMoveEnd: (e: React.PointerEvent) => void;
+  onMoveCancel: () => void;
 }
 
 /** "23h 30m / 40h" progress vs the weekly target, with an inline editor.
@@ -217,8 +244,9 @@ const WeekTargetProgress: React.FC<{ weekMinutes: number }> = ({ weekMinutes }) 
 };
 
 const CalendarEntryBlock = React.memo<EntryBlockProps>(({
-  entry, startMin, endMin, rowTopMin, running, resizable, col, cols, color, projectName, taskName,
+  entry, startMin, endMin, rowTopMin, running, reshapable, moving, col, cols, color, projectName, taskName,
   onClick, onKeyDown, onResizeStart, onResizeMove, onResizeEnd, onResizeCancel,
+  onMoveStart, onMoveMove, onMoveEnd, onMoveCancel,
 }) => {
   const top = (startMin - rowTopMin) * PX_PER_MIN;
   const height = Math.max((endMin - startMin) * PX_PER_MIN - 2, MIN_ENTRY_PX);
@@ -226,9 +254,12 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
 
   // Entries now sit inside the slot `gridcell`, so a pointerdown on the block
   // would otherwise bubble to the cell's drag-to-create handler and race the
-  // entry's own click. Stop it here; the resize handles already stop their own
-  // pointerdown before it reaches this root.
-  const stopPointerDown = (e: React.PointerEvent) => e.stopPropagation();
+  // entry's own click. Stop it here (and start a potential move); the resize
+  // handles already stop their own pointerdown before it reaches this root.
+  const handlePointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    onMoveStart(e, entry);
+  };
 
   // The running session is owned by the timer bar — clicking its block here
   // does nothing (editing/deleting the draft row would strand the timer's
@@ -240,15 +271,22 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
     : {
         onClick: (e: React.MouseEvent) => onClick(e, entry),
         onKeyDown: (e: React.KeyboardEvent) => onKeyDown(e, entry),
+        onPointerMove: onMoveMove,
+        onPointerUp: onMoveEnd,
+        onPointerCancel: onMoveCancel,
         role: "button",
         tabIndex: 0,
         "aria-label": `Edit entry: ${entry.description || projectName || "Untitled"}`,
-        title: "Click to edit, or drag the top/bottom edge to resize",
+        title: reshapable
+          ? "Click to edit, drag to reschedule (Shift + arrow keys), or drag the top/bottom edge to resize"
+          : "Click to edit",
       };
 
   return (
     <div
-      className={`cal-entry ${running ? "cal-entry--running" : "cal-entry--clickable"}`}
+      className={`cal-entry ${running ? "cal-entry--running" : "cal-entry--clickable"}`
+        + (reshapable ? " cal-entry--draggable" : "")
+        + (moving ? " cal-entry--moving" : "")}
       style={{
         top: `${top}px`,
         height: `${height}px`,
@@ -263,10 +301,10 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
         // via color-mix in dark theme (see styles.css) instead of using it raw.
         "--pc": color,
       } as React.CSSProperties}
-      onPointerDown={stopPointerDown}
+      onPointerDown={handlePointerDown}
       {...interactiveProps}
     >
-      {resizable && (
+      {reshapable && (
         <div
           className="cal-entry__handle cal-entry__handle--top"
           aria-hidden="true"
@@ -292,7 +330,7 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
             : new Date(entry.endTime!).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })}
         </div>
       )}
-      {resizable && (
+      {reshapable && (
         <div
           className="cal-entry__handle cal-entry__handle--bottom"
           aria-hidden="true"
@@ -426,25 +464,6 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     return merged;
   }, [staticPositionedByDate, runningPositioned]);
 
-  // Group entries by the grid slot cell they start in, keyed `${date}-${row}`,
-  // so each block can render *inside* its starting `gridcell`. Entries used to
-  // live in a separate day-column overlay that sat directly under the ARIA
-  // grid outside any row/gridcell — screen readers in table-navigation mode
-  // then saw a grid of empty cells and never reached the actual entries.
-  const entriesByCell = useMemo(() => {
-    const m = new Map<string, Positioned[]>();
-    positionedByDate.forEach((items, date) => {
-      items.forEach((p) => {
-        const row = Math.max(0, Math.min(Math.floor(p.startMin / 30), TOTAL_SLOTS - 1));
-        const key = `${date}-${row}`;
-        const list = m.get(key);
-        if (list) list.push(p);
-        else m.set(key, [p]);
-      });
-    });
-    return m;
-  }, [positionedByDate]);
-
   // Elapsed minutes of the running session, on the day it's drawn: the entry
   // has no durationMinutes until it's stopped, so without this the day-header
   // and week totals sit at zero while the running block visibly grows (#74).
@@ -533,16 +552,13 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
   const rowFromClientY = useCallback((clientY: number) => {
     const rect = gridRef.current?.getBoundingClientRect();
     if (!rect) return 0;
-    const row = Math.floor((clientY - rect.top) / SLOT_HEIGHT);
-    return Math.max(0, Math.min(row, TOTAL_SLOTS - 1));
+    return rowFromOffsetY(clientY - rect.top);
   }, []);
 
   const minutesFromClientY = useCallback((clientY: number) => {
     const rect = gridRef.current?.getBoundingClientRect();
     if (!rect) return 0;
-    const raw = (clientY - rect.top) / PX_PER_MIN;
-    const snapped = Math.round(raw / RESIZE_SNAP_MIN) * RESIZE_SNAP_MIN;
-    return Math.max(0, Math.min(snapped, 24 * 60));
+    return snapMinutesFromOffsetY(clientY - rect.top);
   }, []);
 
   const handleSlotPointerDown = (e: React.PointerEvent<HTMLDivElement>, dayStr: string, row: number, col: number) => {
@@ -625,10 +641,12 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     if (edge === "start") {
       const newStart = Math.max(0, Math.min(raw, endMinutes - MIN_RESIZE_DURATION_MIN));
       if (newStart === startMinutes) return;
+      // The entries hook rolls back and toasts on failure; catching here just
+      // keeps a failed save from surfacing as an unhandled rejection.
       await onEdit(entry.id, {
         startTime: isoAtMinutes(entry.date, newStart),
         durationMinutes: endMinutes - newStart,
-      });
+      }).catch(() => {});
     } else {
       const newEnd = Math.max(startMinutes + MIN_RESIZE_DURATION_MIN, Math.min(raw, 24 * 60));
       if (newEnd === endMinutes) return;
@@ -638,16 +656,194 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
       await onEdit(entry.id, {
         endTime: endIso,
         durationMinutes: newEnd - startMinutes,
-      });
+      }).catch(() => {});
     }
   }, [minutesFromClientY, onEdit]);
 
-  // Escape drops an in-progress drag-create or drag-resize instead of
-  // letting the eventual pointerup commit a span the user regrets. The
-  // stray pointerup that follows is harmless: both handlers no-op once
-  // their drag state is cleared.
+  // ── Drag-to-move (#79) ──────────────────────────────────────────────
+  // Press anywhere on a completed entry block and drag it to another slot —
+  // another time, another day of the week, or both. The entry keeps its
+  // duration; only its start (and date) move. Below MOVE_THRESHOLD_PX the
+  // gesture is still a plain click that opens the edit modal, so the pointer
+  // drift in an ordinary click can't silently reschedule anything.
+  //
+  // The drop target is drawn as a separate ghost in the day column rather
+  // than by relocating the block itself: the block holds the pointer
+  // capture, and re-parenting it into another cell mid-drag would unmount
+  // the captured node and strand the gesture with no pointerup to commit it.
+  const [movePreview, setMovePreview] = useState<
+    { entryId: string; date: string; startMin: number; durationMin: number } | null
+  >(null);
+  const movingRef = useRef<{
+    entry: TimeEntry;
+    durationMin: number;
+    /** Minutes between the entry's start and where the pointer grabbed it. */
+    grabOffsetMin: number;
+    originX: number;
+    originY: number;
+    gridTop: number;
+    dayColumns: ColumnRect[];
+    moved: boolean;
+    target: { date: string; startMin: number } | null;
+  } | null>(null);
+  // Set on the pointerup that ends a real move so the click browsers fire
+  // afterwards doesn't also open the edit modal. Cleared on the next
+  // pointerdown, so a swallowed-but-never-delivered click can't leak into
+  // the following interaction.
+  const suppressClickRef = useRef(false);
+
+  const dayColRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+
+  const readDayColumns = useCallback((): ColumnRect[] =>
+    weekDays.map((_, i) => {
+      const rect = dayColRefs.current.get(i)?.getBoundingClientRect();
+      return { left: rect?.left ?? 0, right: rect?.right ?? 0 };
+    }), [weekDays]);
+
+  const handleMoveStart = useCallback((e: React.PointerEvent, entry: TimeEntry) => {
+    suppressClickRef.current = false;
+    if (e.button !== 0 || !entry.endTime) return;
+    // Same restriction as resize: an entry clamped to 24:00 because it runs
+    // past midnight has its real end on the next calendar day, so moving it
+    // by start-plus-duration would silently rewrite the wrong span.
+    if (localDateStr(new Date(entry.endTime)) > entry.date) return;
+    // Touch is left alone deliberately: the block sits inside a vertically
+    // scrollable grid, and a finger-drag starting on an entry is far more
+    // often a scroll than a reschedule. Touch users get the edit modal (and
+    // keyboard users get Shift + arrows, below).
+    if (e.pointerType === "touch") return;
+    const gridRect = gridRef.current?.getBoundingClientRect();
+    if (!gridRect) return;
+    const startMin = minutesOfDay(entry.startTime);
+    const endMin = minutesOfDay(entry.endTime);
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    movingRef.current = {
+      entry,
+      durationMin: Math.max(endMin - startMin, MIN_RESIZE_DURATION_MIN),
+      grabOffsetMin: (e.clientY - gridRect.top) / PX_PER_MIN - startMin,
+      originX: e.clientX,
+      originY: e.clientY,
+      gridTop: gridRect.top,
+      dayColumns: readDayColumns(),
+      moved: false,
+      target: null,
+    };
+  }, [readDayColumns]);
+
+  const handleMoveMove = useCallback((e: React.PointerEvent) => {
+    const state = movingRef.current;
+    if (!state) return;
+    if (!state.moved) {
+      const dx = e.clientX - state.originX;
+      const dy = e.clientY - state.originY;
+      if (Math.hypot(dx, dy) < MOVE_THRESHOLD_PX) return;
+      state.moved = true;
+    }
+    const dayIdx = dayIndexFromClientX(e.clientX, state.dayColumns);
+    const day = weekDays[dayIdx];
+    if (!day) return;
+    // Snap the *grabbed point* back onto the entry's start, so the block
+    // follows the cursor from wherever it was picked up rather than jumping
+    // its top edge under the pointer.
+    const rawStart = (e.clientY - state.gridTop) / PX_PER_MIN - state.grabOffsetMin;
+    const snapped = Math.round(rawStart / SNAP_MIN) * SNAP_MIN;
+    const target = {
+      date: localDateStr(day),
+      startMin: clampMoveStart(snapped, state.durationMin),
+    };
+    state.target = target;
+    setMovePreview({ entryId: state.entry.id, durationMin: state.durationMin, ...target });
+  }, [weekDays]);
+
+  const handleMoveCancel = useCallback(() => {
+    // A cancelled drag that had already moved still ends in a pointerup and
+    // therefore a click — swallow it, or Escape would drop the move and then
+    // open the edit modal on the way out.
+    if (movingRef.current?.moved) suppressClickRef.current = true;
+    movingRef.current = null;
+    setMovePreview(null);
+  }, []);
+
+  const handleMoveEnd = useCallback((e: React.PointerEvent) => {
+    const state = movingRef.current;
+    movingRef.current = null;
+    setMovePreview(null);
+    if (!state) return;
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    // Never travelled far enough to be a drag — leave the click alone so it
+    // opens the edit modal exactly as it always did.
+    if (!state.moved) return;
+    suppressClickRef.current = true;
+    const { entry, durationMin, target } = state;
+    if (!target) return;
+    if (target.date === entry.date && target.startMin === minutesOfDay(entry.startTime)) return;
+    const endMin = target.startMin + durationMin;
+    const endIso = endMin >= MINUTES_PER_DAY
+      ? new Date(`${addDaysStr(target.date, 1)}T00:00:00`).toISOString()
+      : isoAtMinutes(target.date, endMin);
+    // The entries hook rolls the optimistic update back and toasts on
+    // failure, so there's nothing to do here but not crash on rejection.
+    void onEdit(entry.id, {
+      date: target.date,
+      startTime: isoAtMinutes(target.date, target.startMin),
+      endTime: endIso,
+      durationMinutes: durationMin,
+    }).catch(() => {});
+  }, [onEdit]);
+
+  /** Shift + arrows: the keyboard equivalent of dragging a block to a new
+   *  slot — ±15 minutes vertically, ±1 day horizontally. */
+  const nudgeEntry = useCallback((entry: TimeEntry, deltaMin: number, deltaDays: number) => {
+    if (!entry.endTime) return;
+    if (localDateStr(new Date(entry.endTime)) > entry.date) return;
+    const startMin = minutesOfDay(entry.startTime);
+    const durationMin = Math.max(minutesOfDay(entry.endTime) - startMin, MIN_RESIZE_DURATION_MIN);
+    // Clamped to the week on screen, exactly like a drag: the day columns
+    // bound how far a pointer can carry a block, and an entry nudged off the
+    // edge would simply vanish from the view the user is working in.
+    const stepped = deltaDays ? addDaysStr(entry.date, deltaDays) : entry.date;
+    const date = stepped < weekBounds.from ? entry.date
+      : stepped > weekBounds.to ? entry.date
+      : stepped;
+    const newStart = clampMoveStart(startMin + deltaMin, durationMin);
+    if (date === entry.date && newStart === startMin) return;
+    const endMin = newStart + durationMin;
+    const endIso = endMin >= MINUTES_PER_DAY
+      ? new Date(`${addDaysStr(date, 1)}T00:00:00`).toISOString()
+      : isoAtMinutes(date, endMin);
+    void onEdit(entry.id, {
+      date,
+      startTime: isoAtMinutes(date, newStart),
+      endTime: endIso,
+      durationMinutes: durationMin,
+    }).catch(() => {});
+  }, [onEdit, weekBounds]);
+
+  // Group entries by the grid slot cell they start in, keyed `${date}-${row}`,
+  // so each block can render *inside* its starting `gridcell`. Entries used to
+  // live in a separate day-column overlay that sat directly under the ARIA
+  // grid outside any row/gridcell — screen readers in table-navigation mode
+  // then saw a grid of empty cells and never reached the actual entries.
+  const entriesByCell = useMemo(() => {
+    const m = new Map<string, Positioned[]>();
+    positionedByDate.forEach((items, date) => {
+      items.forEach((p) => {
+        const row = Math.max(0, Math.min(Math.floor(p.startMin / 30), TOTAL_SLOTS - 1));
+        const key = `${date}-${row}`;
+        const list = m.get(key);
+        if (list) list.push(p);
+        else m.set(key, [p]);
+      });
+    });
+    return m;
+  }, [positionedByDate]);
+
+  // Escape drops an in-progress drag-create, drag-resize or drag-move
+  // instead of letting the eventual pointerup commit a change the user
+  // regrets. The stray pointerup that follows is harmless: every handler
+  // no-ops once its drag state is cleared.
   useEffect(() => {
-    if (!dragCreate && !resizePreview) return;
+    if (!dragCreate && !resizePreview && !movePreview) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       // Consume the keystroke: this Escape means "cancel the drag", and it
@@ -656,10 +852,11 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
       e.stopPropagation();
       setDragCreate(null);
       handleResizeCancel();
+      handleMoveCancel();
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [dragCreate, resizePreview, handleResizeCancel]);
+  }, [dragCreate, resizePreview, movePreview, handleResizeCancel, handleMoveCancel]);
 
   // Move the roving-tabindex focus to a clamped (row, col) slot cell and
   // imperatively focus its DOM node (arrow keys don't trigger React re-focus).
@@ -710,6 +907,11 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
   // Click or keyboard-activate existing entry → edit
   const handleEntryClick = useCallback((e: React.MouseEvent | React.KeyboardEvent, entry: TimeEntry) => {
     e.stopPropagation();
+    // The click that closes a drag-to-move isn't a request to edit (#79).
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
     // The running session is owned by the timer bar; editing (or deleting)
     // its draft row here would strand the timer's stop in a 404-retry loop.
     if (!entry.endTime) return;
@@ -732,8 +934,24 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       handleEntryClick(e, entry);
+      return;
     }
-  }, [handleEntryClick]);
+    // Shift + arrows reschedule the focused entry — dragging it with the
+    // keyboard (#79). stopPropagation keeps the keystroke from also driving
+    // the enclosing gridcell's roving-tabindex arrow handling.
+    if (!e.shiftKey) return;
+    const nudge: Record<string, [number, number]> = {
+      ArrowUp: [-SNAP_MIN, 0],
+      ArrowDown: [SNAP_MIN, 0],
+      ArrowLeft: [0, -1],
+      ArrowRight: [0, 1],
+    };
+    const delta = nudge[e.key];
+    if (!delta) return;
+    e.preventDefault();
+    e.stopPropagation();
+    nudgeEntry(entry, delta[0], delta[1]);
+  }, [handleEntryClick, nudgeEntry]);
 
   const handleModalSave = async (data: EntrySaveData) => {
     if (modal?.editingId) {
@@ -751,7 +969,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     const { entry, startMin, endMin, running, col, cols } = p;
     const project = projects.find((pr) => pr.id === entry.projectId);
     const task = tasks.find((t) => t.id === entry.taskId);
-    const resizable = !running && !!entry.endTime && localDateStr(new Date(entry.endTime)) <= entry.date;
+    const reshapable = !running && !!entry.endTime && localDateStr(new Date(entry.endTime)) <= entry.date;
     const isResizing = resizePreview?.entryId === entry.id;
     const effStartMin = isResizing && resizePreview!.edge === "start" ? resizePreview!.minutes : startMin;
     const effEndMin = isResizing && resizePreview!.edge === "end" ? resizePreview!.minutes : endMin;
@@ -763,7 +981,8 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
         endMin={effEndMin}
         rowTopMin={rowTopMin}
         running={running}
-        resizable={resizable}
+        reshapable={reshapable}
+        moving={movePreview?.entryId === entry.id}
         col={col}
         cols={cols}
         color={project?.color || "#6366f1"}
@@ -775,6 +994,10 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
         onResizeMove={handleResizeMove}
         onResizeEnd={handleResizeEnd}
         onResizeCancel={handleResizeCancel}
+        onMoveStart={handleMoveStart}
+        onMoveMove={handleMoveMove}
+        onMoveEnd={handleMoveEnd}
+        onMoveCancel={handleMoveCancel}
       />
     );
   };
@@ -915,6 +1138,13 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
             return (
               <div
                 key={ds}
+                // Measured (not interacted with) during a drag-move: these
+                // decorative columns are the only elements whose horizontal
+                // extent maps cleanly to "which day is under the pointer".
+                ref={(el) => {
+                  if (el) dayColRefs.current.set(dayIdx, el);
+                  else dayColRefs.current.delete(dayIdx);
+                }}
                 className={`calendar__day-col ${isToday ? "calendar__day-col--today" : ""}`}
                 style={{ gridColumn: dayIdx + 2 }}
                 aria-hidden="true"
@@ -930,6 +1160,21 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
                     className="calendar__now-line"
                     style={{ top: `${nowTop}px` }}
                   />
+                )}
+
+                {/* Live preview of where a dragged entry would land (#79) */}
+                {movePreview && movePreview.date === ds && (
+                  <div
+                    className="cal-move-preview"
+                    style={{
+                      top: `${movePreview.startMin * PX_PER_MIN}px`,
+                      height: `${Math.max(movePreview.durationMin * PX_PER_MIN, MIN_ENTRY_PX)}px`,
+                    }}
+                  >
+                    <span className="cal-move-preview__time">
+                      {clockLabel(movePreview.startMin)} – {clockLabel(movePreview.startMin + movePreview.durationMin)}
+                    </span>
+                  </div>
                 )}
 
                 {/* Live preview while dragging out a new entry's time range */}

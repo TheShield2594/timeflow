@@ -845,6 +845,34 @@ input, select { font-family: inherit; }
 .cal-entry:focus-within .cal-entry__handle { opacity: 0.55; }
 .cal-entry__handle:hover { opacity: 0.9 !important; }
 
+/* Drag-to-move (#79). `grab` only on entries whose geometry can actually be
+   dragged — a running session, or one that runs past midnight, keeps the
+   plain pointer so the cursor doesn't promise a gesture that no-ops.
+   touch-action is deliberately left alone: a move drag never starts from a
+   touch pointer (see handleMoveStart), so vertical touch-scrolling that
+   begins on a block still scrolls the grid. */
+.cal-entry--draggable { cursor: grab; }
+/* The block stays put while its ghost tracks the pointer (it owns the
+   pointer capture — see CalendarPage), so it fades to read as "being
+   moved from here" rather than "still scheduled here". */
+.cal-entry--moving { cursor: grabbing; opacity: 0.4; }
+
+/* Ghost showing where a dragged entry would land. Lives in the (aria-hidden,
+   pointer-events: none) day column, so it can never intercept the drag. */
+.cal-move-preview {
+  position: absolute; left: 2px; right: 2px;
+  border-radius: 5px;
+  border: 1.5px solid var(--ev-green);
+  background: var(--ev-green-soft);
+  pointer-events: none; z-index: 4;
+  display: flex; align-items: flex-start;
+  padding: 3px 7px; overflow: hidden;
+}
+.cal-move-preview__time {
+  font-size: 10px; font-weight: 700; font-family: var(--mono);
+  color: var(--ev-green-dark); white-space: nowrap;
+}
+
 /* Live preview shown while dragging out a new entry's time span. */
 .cal-drag-preview {
   position: absolute; left: 2px; right: 2px;

@@ -75,6 +75,10 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  // safeClose is re-created every render but reads nothing beyond onClose and
+  // saving, both listed — depending on it would just re-bind the listener on
+  // every keystroke in the form.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onClose, saving]);
 
   const startDt = draft.date && draft.startTime ? new Date(`${draft.date}T${draft.startTime}:00`) : null;
@@ -302,7 +306,7 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
             <div className="field">
               <span className="cal-modal__label-row">
                 <label className="cal-modal__label" htmlFor="entry-ratio">Ratio</label>
-                <HelpTip label="What is Ratio?" text="Billing ratio — tells billing which account/rate this entry's time is billed to. Leave blank if not applicable." />
+                <HelpTip label="What is Ratio?" text="Billing ratio — the account/rate code this entry's time is billed to. It's a label, not a multiplier: reports never multiply your hours by it. Leave blank if not applicable." />
               </span>
               <input
                 id="entry-ratio"
