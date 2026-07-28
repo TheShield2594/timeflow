@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { Project, Task } from "../types";
+import type { FocusPhase, FocusSettings } from "../hooks/useFocusMode";
 import { formatElapsed, parseRatioInput } from "../hooks";
 import { HelpTip } from "./HelpTip";
-import { IconCheck, IconPlay, IconStop, IconX } from "./Icons";
+import { IconCheck, IconPencil, IconPlay, IconStop, IconX } from "./Icons";
 
 const NEW_TASK_OPTION = "__new_task__";
 
@@ -10,6 +11,16 @@ const NEW_TASK_OPTION = "__new_task__";
 // reader users, so the shortcut also gets a persistent on-screen hint.
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPod|iPad/.test(navigator.platform);
 const SHORTCUT_HINT = IS_MAC ? "⌘." : "Ctrl+.";
+
+export interface FocusControlState {
+  enabled: boolean;
+  phase: FocusPhase;
+  remainingSeconds: number;
+  settings: FocusSettings;
+  sessionsToday: number;
+  onToggle: () => void;
+  onUpdateSettings: (patch: Partial<FocusSettings>) => void;
+}
 
 interface Props {
   projects: Project[];
@@ -22,6 +33,7 @@ interface Props {
   currentTaskId: string | null;
   description: string;
   ratio?: number;
+  focus?: FocusControlState;
   onStart: (projectId: string, taskId: string | null, description: string, ratio?: number) => void;
   onStop: () => void;
   onRetryStop?: (endIso: string) => void;
@@ -30,10 +42,101 @@ interface Props {
   onLoadTasksForProject: (projectId: string) => void;
 }
 
+function mmss(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/** Focus (Pomodoro) chip: toggles the mode, counts down the current focus
+ *  block or break, and hides an interval editor behind a pencil. */
+const FocusControl: React.FC<{ focus: FocusControlState }> = ({ focus }) => {
+  const { enabled, phase, remainingSeconds, settings, sessionsToday, onToggle, onUpdateSettings } = focus;
+  const [editing, setEditing] = useState(false);
+  const [focusInput, setFocusInput] = useState("");
+  const [breakInput, setBreakInput] = useState("");
+
+  const commit = () => {
+    onUpdateSettings({
+      focusMinutes: Number(focusInput) || settings.focusMinutes,
+      breakMinutes: Number(breakInput) || settings.breakMinutes,
+    });
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <span className="focus-editor">
+        <input
+          className="focus-editor__input"
+          type="number" min="1" max="180"
+          value={focusInput}
+          onChange={(e) => setFocusInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commit();
+            if (e.key === "Escape") setEditing(false);
+          }}
+          aria-label="Focus minutes"
+          autoFocus
+        />
+        <span className="focus-editor__sep">/</span>
+        <input
+          className="focus-editor__input"
+          type="number" min="1" max="180"
+          value={breakInput}
+          onChange={(e) => setBreakInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commit();
+            if (e.key === "Escape") setEditing(false);
+          }}
+          aria-label="Break minutes"
+        />
+        <button className="focus-editor__ok" onClick={commit} title="Save focus intervals" aria-label="Save focus intervals"><IconCheck size={13} /></button>
+        <button className="focus-editor__cancel" onClick={() => setEditing(false)} title="Cancel" aria-label="Cancel"><IconX size={13} /></button>
+      </span>
+    );
+  }
+
+  const label = !enabled ? "Focus off"
+    : phase === "focus" ? `Focus ${mmss(remainingSeconds)}`
+    : phase === "break" ? `Break ${mmss(remainingSeconds)}`
+    : "Focus on";
+  const title =
+    `Focus mode — ${settings.focusMinutes}m focus / ${settings.breakMinutes}m break, ` +
+    `${sessionsToday} completed today. Prompts only fire while this tab is open. ` +
+    `Click to turn ${enabled ? "off" : "on"}.`;
+
+  return (
+    <span className="focus-control">
+      <button
+        className={`focus-chip ${enabled ? "focus-chip--on" : ""} ${phase === "break" ? "focus-chip--break" : ""}`}
+        onClick={onToggle}
+        title={title}
+      >
+        {label}
+      </button>
+      {enabled && (
+        <button
+          className="focus-chip__edit"
+          onClick={() => {
+            setFocusInput(String(settings.focusMinutes));
+            setBreakInput(String(settings.breakMinutes));
+            setEditing(true);
+          }}
+          title={`Edit intervals (${settings.focusMinutes}m / ${settings.breakMinutes}m)`}
+          aria-label="Edit focus intervals"
+        >
+          <IconPencil size={11} />
+        </button>
+      )}
+    </span>
+  );
+};
+
 
 export const TimerBar: React.FC<Props> = ({
   projects, tasks, isRunning, pendingStopAt, elapsed,
-  currentProjectId, currentTaskId, description, ratio,
+  currentProjectId, currentTaskId, description, ratio, focus,
   onStart, onStop, onRetryStop, onUpdate, onAddTask, onLoadTasksForProject,
 }) => {
   const [selectedProject, setSelectedProject] = useState(currentProjectId || "");
@@ -261,6 +364,7 @@ export const TimerBar: React.FC<Props> = ({
 
         {/* Elapsed + button */}
         <div className="timer-bar__controls">
+          {focus && <FocusControl focus={focus} />}
           {isRunning && (
             <span className="timer-bar__elapsed">{formatElapsed(elapsed)}</span>
           )}

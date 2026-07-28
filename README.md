@@ -31,6 +31,7 @@ Tracks time against projects and tasks, stores data in Microsoft Dataverse, and 
 | Dataverse backend wired (@microsoft/power-apps SDK) | ✅ |
 | Outlook meeting overlay + log-from-meeting (Office 365 connector) | ✅ (needs [connector setup](#outlook-calendar-overlay)) |
 | Manager Team view — reports' week totals, missing-day flags, project rollup | ✅ (needs [hierarchy security](#manager-team-view-hierarchy-security)) |
+| Focus mode (Pomodoro) — focus/break cadence on the timer, daily block count | ✅ |
 
 ---
 
@@ -122,9 +123,18 @@ are the only records the app hard-deletes.
 
 User preferences live in `localStorage` — Code Apps have no per-user settings
 store, and this keeps the app free of extra Dataverse tables. Weekly target
-hours and export rounding are scoped per environment + user; the theme is a
-device/browser preference stored under a flat `tt_theme` key so it applies
-before sign-in resolves (see `useTheme`).
+hours, export rounding, focus-mode settings/session counts, the Outlook
+overlay toggle and its logged-meeting checkmarks are scoped per environment +
+user; the theme is a device/browser preference stored under a flat `tt_theme`
+key so it applies before sign-in resolves (see `useTheme`).
+
+**Focus mode (Pomodoro):** the "Focus" chip in the timer bar layers a
+prescriptive cadence on the descriptive timer — after each focus block
+(default 25m, editable via the pencil) a prompt offers a break or keep-going;
+taking the break stops and saves the entry, counts the block, and counts the
+break down in the chip, then offers to restart the timer on the same work.
+Prompts only fire while the app tab is open — a Code App has no OS-level
+presence for background notifications.
 
 > **Row security matters.** Reads filter server-side via FetchXML's
 > `eq-userid` operator (Dataverse resolves this to "the calling user" itself,

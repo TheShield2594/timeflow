@@ -1,6 +1,8 @@
-import React, { useState, useMemo, useCallback, useEffect, Component } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useRef, Component } from "react";
 import { TimerBar } from "./components/TimerBar";
 import { IdleModal } from "./components/IdleModal";
+import { FocusModal } from "./components/FocusModal";
+import { useFocusMode } from "./hooks/useFocusMode";
 import { PageRouter, Page } from "./components/PageRouter";
 import { IconHome, IconTimesheet, IconCalendar, IconChart, IconFolder, IconMoon, IconSun, IconUsers } from "./components/Icons";
 import { useProjects, useTasks, useTimeEntries, useTimer } from "./hooks";
@@ -120,12 +122,20 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
     return items;
   }, [isManager]);
 
+  // Last completed entry, so the focus-mode "start next block" prompt can
+  // restart the timer on what the user was just doing.
+  const lastEntryRef = useRef<TimeEntry | null>(null);
+
   const handleNewEntry = useCallback(
-    (_entry: TimeEntry) => { refresh(); },
+    (entry: TimeEntry) => {
+      lastEntryRef.current = entry;
+      refresh();
+    },
     [refresh]
   );
 
   const { timer, elapsed, start, stop, stopAt, cancel, update } = useTimer(handleNewEntry);
+  const focusMode = useFocusMode(timer.isRunning, elapsed);
 
   const deleteWithUndo = useCallback(async (id: string) => {
     const snapshot = entries.find((e) => e.id === id);
@@ -177,6 +187,20 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
   const continueEntry = useCallback((entry: TimeEntry) => {
     start(entry.projectId, entry.taskId ?? null, entry.description ?? "", entry.ratio);
   }, [start]);
+
+  // Focus mode: "take a break" starts the break countdown and stops (saves)
+  // the running entry. A failed save falls into the existing pendingStopAt
+  // retry flow; the break proceeds regardless — the user is stepping away.
+  const handleTakeBreak = useCallback(() => {
+    focusMode.beginBreak();
+    stop().catch(() => { /* toasted + retryable via the timer bar */ });
+  }, [focusMode, stop]);
+
+  const handleResumeFocus = useCallback(() => {
+    const last = lastEntryRef.current;
+    focusMode.dismissResume();
+    if (last) continueEntry(last);
+  }, [focusMode, continueEntry]);
 
   const lastActivity = useActivityTracker();
 
@@ -310,6 +334,15 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
           currentTaskId={timer.taskId}
           description={timer.description}
           ratio={timer.ratio}
+          focus={{
+            enabled: focusMode.enabled,
+            phase: focusMode.phase,
+            remainingSeconds: focusMode.remainingSeconds,
+            settings: focusMode.settings,
+            sessionsToday: focusMode.sessionsToday,
+            onToggle: focusMode.toggleEnabled,
+            onUpdateSettings: focusMode.updateSettings,
+          }}
           onStart={start}
           onStop={stop}
           onRetryStop={stopAt}
@@ -353,6 +386,27 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
           onTrim={handleIdleTrim}
           onKeep={handleIdleKeep}
           onDiscard={handleIdleDiscard}
+        />
+      )}
+
+      {/* Focus-mode boundary prompts. The idle modal wins if both are up —
+          idle means the block's countdown was ticking against an empty
+          chair, so that conflict needs resolving first. */}
+      {!idleAlert && focusMode.phase === "prompt-break" && (
+        <FocusModal
+          kind="break"
+          sessionsToday={focusMode.sessionsToday}
+          breakMinutes={focusMode.settings.breakMinutes}
+          onTakeBreak={handleTakeBreak}
+          onKeepGoing={focusMode.keepGoing}
+        />
+      )}
+      {!idleAlert && focusMode.phase === "prompt-resume" && (
+        <FocusModal
+          kind="resume"
+          canContinue={!!lastEntryRef.current && !timer.isRunning && !timer.pendingStopAt}
+          onContinue={handleResumeFocus}
+          onDismiss={focusMode.dismissResume}
         />
       )}
     </div>
