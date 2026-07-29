@@ -8,7 +8,8 @@ import { localDateStr } from "../utils/dates";
 const TIMER_KEY_PREFIX = "tt_active_timer:";
 
 const RESET_TIMER: TimerState = {
-  isRunning: false, startTime: null, projectId: null, taskId: null, description: "", ratio: undefined,
+  isRunning: false, startTime: null, projectId: null, taskId: null, description: "",
+  ratio: undefined, jiraTicket: undefined,
 };
 
 export function useTimer(onStop: (entry: TimeEntry) => void) {
@@ -126,6 +127,7 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
         taskId: open.taskId ?? null,
         description: open.description ?? "",
         ratio: open.ratio,
+        jiraTicket: open.jiraTicket,
         draftEntryId: open.id,
       };
       applyTimer(restored);
@@ -159,7 +161,13 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [timer.isRunning, timer.startTime]);
 
-  const start = useCallback((projectId: string, taskId: string | null, description: string, ratio?: number) => {
+  const start = useCallback((
+    projectId: string,
+    taskId: string | null,
+    description: string,
+    ratio?: number,
+    jiraTicket?: string,
+  ) => {
     if (!projectId) {
       toast("Pick a project before starting the timer.", "error");
       return;
@@ -175,6 +183,7 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       taskId,
       description,
       ratio,
+      jiraTicket,
     };
     applyTimer(newTimer);
     persistTimer(newTimer);
@@ -186,6 +195,7 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       startTime: newTimer.startTime!,
       date: localDateStr(new Date(newTimer.startTime!)),
       ratio,
+      jiraTicket,
     }).then((draftEntryId) => {
       // Null means the row may exist but we couldn't establish its id (dropped
       // response body, and the read-back didn't resolve it either). Storing it
@@ -238,6 +248,7 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       endTime: endIso,
       durationMinutes,
       ratio: activeTimer.ratio,
+      jiraTicket: activeTimer.jiraTicket,
       date: localDateStr(new Date(activeTimer.startTime)),
       userId: user.id,
       userDisplayName: user.displayName,
@@ -252,6 +263,7 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
             durationMinutes,
             description: activeTimer.description,
             ratio: activeTimer.ratio,
+            jiraTicket: activeTimer.jiraTicket,
             taskId: activeTimer.taskId || undefined,
           });
         } catch (err) {

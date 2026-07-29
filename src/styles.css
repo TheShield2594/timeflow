@@ -294,6 +294,14 @@ input, select { font-family: inherit; }
   box-shadow: var(--shadow-sm);
 }
 
+/* "The timer is on" needs to be readable from across the room, not inferred
+   from a 3px pulse bar. Layered so the tint composes over the surface colour
+   in either theme rather than letting the page background through. */
+.timer-bar--running {
+  background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--surface);
+  border-bottom-color: var(--ev-green);
+}
+
 .timer-bar__inner {
   display: flex; align-items: center; gap: 12px;
   padding: 12px 24px; height: var(--timer-h);
@@ -313,7 +321,51 @@ input, select { font-family: inherit; }
 .timer-bar__desc:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--ev-green-soft); }
 .timer-bar__desc::placeholder { color: var(--text-faint); }
 
-.timer-bar__ratio-group { display: flex; align-items: center; gap: 6px; flex: none; }
+/* Ratio + ticket, revealed by the disclosure in the main row. */
+.timer-bar__extras {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 24px 12px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--surface-2);
+}
+.timer-bar__extras-label {
+  font-size: 11px; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.7px;
+}
+.timer-bar__extras-label:not(:first-child) { margin-left: 10px; }
+.timer-bar__extras-toggle {
+  flex: none;
+  padding: 7px 12px;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12.5px; font-weight: 600;
+  cursor: pointer; white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s;
+}
+.timer-bar__extras-toggle:hover { border-color: var(--ev-green); color: var(--ev-green-dark); }
+/* Solid once it carries a value, so a set ratio isn't hidden behind a "+". */
+.timer-bar__extras-toggle--set {
+  border-style: solid; border-color: var(--ev-green);
+  background: var(--accent-soft); color: var(--ev-green-dark);
+  font-family: var(--mono); font-size: 12px;
+}
+
+.timer-bar__ticket {
+  width: 130px;
+  flex: none;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
+  color: var(--text);
+  font-family: var(--mono); font-size: 13px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  outline: none;
+}
+.timer-bar__ticket:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--ev-green-soft); }
+.timer-bar__ticket::placeholder { color: var(--text-faint); font-family: var(--font); }
 
 .timer-bar__ratio {
   width: 90px;
@@ -330,7 +382,11 @@ input, select { font-family: inherit; }
 .timer-bar__ratio:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--ev-green-soft); }
 .timer-bar__ratio::placeholder { color: var(--text-faint); }
 
-.timer-bar__selectors { display: flex; gap: 8px; }
+.timer-bar__selectors { display: flex; gap: 8px; flex: none; }
+/* The one required field on the bar gets a width that says so. */
+.timer-bar__project-field { display: flex; }
+.combobox--project { width: 210px; }
+.combobox--task { width: 150px; }
 
 .timer-bar__select {
   background: var(--surface-2);
@@ -345,6 +401,61 @@ input, select { font-family: inherit; }
   max-width: 165px;
 }
 .timer-bar__select:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--ev-green-soft); }
+
+/* ---------- Combobox (type-ahead single select) ---------- */
+.combobox { position: relative; display: flex; align-items: center; }
+.combobox__input {
+  width: 100%;
+  background: var(--surface-2);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 7px 24px 7px 10px;
+  font-size: 13px; font-weight: 600;
+  outline: none; cursor: pointer;
+  text-overflow: ellipsis;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.combobox__input--dotted { padding-left: 24px; }
+.combobox__input:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--ev-green-soft); cursor: text; }
+.combobox__input::placeholder { color: var(--text-faint); font-weight: 500; }
+.combobox__dot {
+  position: absolute; left: 10px;
+  width: 8px; height: 8px; border-radius: 50%;
+  pointer-events: none; flex-shrink: 0;
+}
+.combobox__dot--inline { position: static; margin-right: 7px; }
+.combobox__caret {
+  position: absolute; right: 9px;
+  font-size: 10px; color: var(--text-muted);
+  pointer-events: none;
+}
+.combobox__list {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+  z-index: 60;
+  max-height: 260px; overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 4px;
+  list-style: none;
+}
+.combobox__option {
+  display: flex; align-items: center;
+  padding: 7px 9px;
+  border-radius: 4px;
+  font-size: 13px; color: var(--text);
+  cursor: pointer;
+}
+.combobox__option--active { background: var(--accent-soft); }
+.combobox__option[aria-selected="true"] { font-weight: 700; }
+.combobox__option--action {
+  color: var(--ev-green-dark); font-weight: 600;
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 4px; padding-top: 9px; border-radius: 0 0 4px 4px;
+}
+.combobox__empty { padding: 9px; font-size: 12.5px; color: var(--text-faint); text-align: center; }
 
 .timer-bar__new-task { display: flex; align-items: center; gap: 4px; }
 .timer-bar__new-task-input {
@@ -373,12 +484,14 @@ input, select { font-family: inherit; }
 
 .timer-bar__controls { display: flex; align-items: center; gap: 14px; }
 
+/* Sits inside the Stop button while running. tabular-nums keeps the width
+   steady so the button doesn't twitch on every tick. */
 .timer-bar__elapsed {
   font-family: var(--mono);
-  font-size: 20px; font-weight: 500;
-  color: var(--ev-green-dark); /* 20px/500 sits under the large-text bold threshold */
-  letter-spacing: 1px;
-  min-width: 84px; text-align: right;
+  font-size: 18px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+  margin-left: 4px;
 }
 
 .timer-bar__btn {
@@ -387,9 +500,10 @@ input, select { font-family: inherit; }
   font-size: 13px; font-weight: 700; letter-spacing: 0.2px;
   transition: all 0.2s var(--ease); white-space: nowrap;
 }
+/* Never faded: Start stays a solid primary button with nothing selected and
+   sends you to the project picker instead of going dead. */
 .timer-bar__btn--start { background: var(--ev-green); color: #fff; }
 .timer-bar__btn--start:hover { background: var(--ev-green-dark); }
-.timer-bar__btn--start:disabled { opacity: 0.35; cursor: not-allowed; }
 .timer-bar__btn--stop {
   background: var(--danger-soft);
   color: var(--ev-pumpkin-text);
@@ -405,6 +519,17 @@ input, select { font-family: inherit; }
   opacity: 0.85;
 }
 .timer-bar__btn--stop .timer-bar__shortcut-hint { background: var(--danger-soft); }
+
+/* Flashed under the bar when Start is pressed with no project chosen. */
+.timer-bar__hint {
+  padding: 6px 24px 8px;
+  font-size: 12.5px; font-weight: 600;
+  color: var(--ev-pumpkin-text);
+  background: var(--danger-soft);
+  border-top: 1px solid var(--danger-border);
+  animation: timer-hint-in 0.2s var(--ease);
+}
+@keyframes timer-hint-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
 
 .timer-bar__pulse-bar { height: 3px; background: var(--border-subtle); overflow: hidden; }
 .timer-bar__pulse-inner {
@@ -437,8 +562,18 @@ input, select { font-family: inherit; }
 .timesheet__day-total { font-size: 12px; font-weight: 700; color: var(--text-muted); font-family: var(--mono); }
 .timesheet__entries { display: flex; flex-direction: column; gap: 6px; }
 
+/* One grid, five tracks: the 4px accent stripe, then what it was / when /
+   how long / actions. The duration gets a column of its own so a day's
+   entries can be scanned vertically, which they couldn't when it sat under
+   the buttons. */
 .entry-row {
-  display: flex; align-items: stretch;
+  display: grid;
+  /* 54px is a floor, not a cap: it holds the numeric column steady while
+     still letting the wider "Running…" indicator through uncropped. */
+  grid-template-columns: 4px minmax(0, 1fr) max-content minmax(54px, max-content) auto;
+  align-items: center;
+  gap: 0 14px;
+  padding-right: 12px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -447,17 +582,60 @@ input, select { font-family: inherit; }
   box-shadow: var(--shadow-sm);
 }
 .entry-row:hover { box-shadow: var(--shadow); }
-.entry-row__accent { width: 4px; flex-shrink: 0; }
-.entry-row__body { flex: 1; padding: 10px 16px; min-width: 0; }
-.entry-row__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
-.entry-row__desc { font-size: 13.5px; font-weight: 600; color: var(--text); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.entry-row__accent { align-self: stretch; }
+.entry-row__main { display: flex; flex-direction: column; gap: 1px; min-width: 0; padding: 7px 0 7px 14px; }
+.entry-row__desc { font-size: 13.5px; font-weight: 600; line-height: 1.4; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .entry-row__no-desc { color: var(--text-faint); font-style: italic; font-weight: 400; }
-.entry-row__badges { display: flex; gap: 5px; flex-shrink: 0; }
-.entry-row__bottom { display: flex; justify-content: space-between; align-items: center; }
-.entry-row__times { font-size: 12px; color: var(--text-muted); font-family: var(--mono); }
-.entry-row__duration { font-size: 12px; font-weight: 700; color: var(--ev-green-dark); font-family: var(--mono); }
-.entry-row__delete { padding: 0 14px; color: var(--text-faint); font-size: 20px; transition: color 0.15s; flex-shrink: 0; line-height: 1; }
-.entry-row__delete:hover { color: var(--ev-pumpkin-text); }
+
+.entry-row__meta {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 11.5px; line-height: 1.35; color: var(--text-muted);
+  min-width: 0; white-space: nowrap; overflow: hidden;
+}
+/* Separators as pseudo-elements, so the markup stays a plain list of facts.
+   The space is a margin, not a trailing space in `content` — that collapses. */
+.entry-row__meta > * + *::before { content: "·"; margin-right: 5px; color: var(--text-faint); }
+.entry-row__project { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; }
+.entry-row__dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.entry-row__ticket { font-family: var(--mono); font-size: 11px; }
+.entry-row__ratio { color: var(--text-faint); }
+
+.entry-row__times {
+  font-size: 12px; color: var(--text-muted);
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.entry-row__duration {
+  font-size: 13px; font-weight: 700;
+  color: var(--ev-green-dark);
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* Actions stay out of the way until the row is pointed at or focused. Three
+   permanently-visible buttons per row turned a rare action into the loudest
+   repeated element on the page. Opacity rather than display, so they keep
+   their place in the tab order and :focus-within can reveal them. */
+.entry-row__actions { display: flex; align-items: center; gap: 2px; opacity: 0; transition: opacity 0.12s; }
+.entry-row:hover .entry-row__actions,
+.entry-row:focus-within .entry-row__actions { opacity: 1; }
+/* Touch devices have no hover to reveal them with. */
+@media (hover: none) { .entry-row__actions { opacity: 1; } }
+
+.entry-row__action {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.entry-row__action:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.entry-row__action:disabled { opacity: 0.35; cursor: not-allowed; }
+.entry-row__continue:hover:not(:disabled) { color: var(--ev-green-dark); border-color: var(--ev-green); }
+.entry-row__delete:hover { color: var(--ev-pumpkin-text); border-color: var(--danger-border); }
 
 .badge { padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .badge--task { background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border); }
@@ -571,6 +749,7 @@ input, select { font-family: inherit; }
 /* 24px/700 qualifies as large text — raw brand green passes at 3:1 */
 .kpi-card__value { font-size: 24px; font-weight: 700; font-family: var(--mono); letter-spacing: -0.5px; color: var(--ev-green); }
 .kpi-card__target { font-size: 15px; font-weight: 600; color: var(--text-muted); }
+.kpi-card__note { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
 .kpi-card__flame { color: var(--ev-pumpkin); vertical-align: -2px; margin-right: 3px; }
 
 .reports__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -598,7 +777,12 @@ input, select { font-family: inherit; }
   grid-template-columns: repeat(var(--ah-cols), 14px);
   height: 14px;
 }
-.activity-heatmap__month { font-size: 10px; color: var(--text-faint); font-weight: 600; }
+/* Left border ticks each label to the first column of its month, so labels
+   read as anchored to the grid instead of floating above it. */
+.activity-heatmap__month {
+  font-size: 10px; color: var(--text-faint); font-weight: 600;
+  border-left: 1px solid var(--border); padding-left: 4px; line-height: 13px;
+}
 .activity-heatmap__grid {
   display: grid;
   grid-template-columns: repeat(var(--ah-cols), 11px);
@@ -634,6 +818,18 @@ input, select { font-family: inherit; }
 .bar-chart__label { font-size: 10px; color: var(--text-faint); margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; text-align: center; }
 
 .svg-bar-chart { position: relative; width: 100%; }
+.svg-bar-chart__empty-pill {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  pointer-events: none;
+}
 .svg-bar-chart__tooltip {
   position: absolute;
   transform: translate(-50%, -100%);
@@ -650,7 +846,24 @@ input, select { font-family: inherit; }
   box-shadow: 0 2px 8px rgba(0,0,0,0.18);
 }
 
-.reports__empty { padding: 32px 0; text-align: center; color: var(--text-faint); font-size: 14px; }
+.reports__empty {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 64px 20px; text-align: center;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow-sm);
+}
+.reports__empty-icon { color: var(--ev-green); opacity: 0.35; }
+.reports__empty-title { font-size: 15px; font-weight: 600; color: var(--text); }
+.reports__empty-hint { font-size: 13px; color: var(--text-muted); }
+/* The way out of the empty range, so it reads as an offer rather than a
+   restatement of the bad news above it. */
+.reports__empty-action {
+  font-size: 13px; font-weight: 600; color: var(--ev-green-dark);
+  background: var(--accent-soft); border: 1px solid var(--ev-green);
+  border-radius: var(--radius-sm); padding: 8px 14px; cursor: pointer;
+  transition: background 0.15s var(--ease);
+}
+.reports__empty-action:hover { background: var(--ev-green-mid); }
 
 .project-breakdown { display: flex; flex-direction: column; gap: 14px; }
 .project-breakdown__meta { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
@@ -884,15 +1097,7 @@ input, select { font-family: inherit; }
 /* =====================================================================
    ENTRY EDIT FORM (inline in Timesheet)
    ===================================================================== */
-.entry-row__edit {
-  padding: 0 10px;
-  color: var(--text-faint);
-  font-size: 16px;
-  transition: color 0.15s;
-  flex-shrink: 0;
-  line-height: 1;
-}
-.entry-row__edit:hover { color: var(--ev-green-dark); }
+.entry-row__edit:hover { color: var(--ev-green-dark); border-color: var(--ev-green); }
 
 .entry-row__running {
   display: inline-flex;
@@ -1409,8 +1614,6 @@ input, select { font-family: inherit; }
 .cal-modal__close { display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 4px; }
 .cal-modal__close:hover { background: var(--surface-2); }
 
-/* Row action buttons host SVGs */
-.entry-row__edit, .entry-row__delete { display: flex; align-items: center; }
 
 /* =====================================================================
    RESPONSIVE — collapse sidebar to an icon rail, relax grids
@@ -1584,28 +1787,6 @@ input, select { font-family: inherit; }
 .sidebar__theme-toggle:hover { background: rgba(255,255,255,0.06); color: var(--sidebar-text); }
 /* When the running indicator is present it already claims the auto margin. */
 .sidebar__running + .sidebar__theme-toggle { margin-top: 10px; }
-
-/* =====================================================================
-   CONTINUE BUTTON (timesheet rows)
-   ===================================================================== */
-.entry-row__continue {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  align-self: center;
-  padding: 4px 10px;
-  margin-left: 6px;
-  border-radius: 20px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--ev-green-dark);
-  background: var(--ev-green-soft);
-  border: 1px solid rgba(113,149,0,0.3);
-  flex-shrink: 0;
-  transition: background 0.15s, opacity 0.15s;
-}
-.entry-row__continue:hover:not(:disabled) { background: var(--ev-green-mid); }
-.entry-row__continue:disabled { opacity: 0.35; cursor: not-allowed; }
 
 /* =====================================================================
    WEEKLY TARGET — calendar header progress + timesheet chip
@@ -1887,28 +2068,81 @@ input, select { font-family: inherit; }
    full-width and deliberately muted — they're context to categorize, not
    records. Clicking one opens the Log Time modal prefilled.
    ═══════════════════════════════════════════════════════════════════════ */
+/* Flat tint and a dashed LEFT EDGE only — no hatch, no full border. With
+   twenty-plus ghosts a week the hatch texture became the page itself, and an
+   untracked week read as fully booked. Tracked entries keep their saturated
+   fill and solid accent, so they stay the only high-contrast objects here. */
 .cal-ghost {
   position: absolute; left: 2px; right: 2px;
-  border-radius: 5px; padding: 3px 7px; overflow: hidden;
+  border-radius: 0 4px 4px 0; padding: 3px 7px; overflow: hidden;
   z-index: 1; cursor: pointer; pointer-events: auto;
-  background: repeating-linear-gradient(
-    -45deg,
-    var(--surface-2), var(--surface-2) 6px,
-    transparent 6px, transparent 12px
-  );
-  border: 1.5px dashed var(--border);
-  transition: border-color 0.15s, box-shadow 0.15s;
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  border: none;
+  border-left: 2px dashed var(--border);
+  transition: background 0.15s, border-color 0.15s;
 }
-.cal-ghost:hover, .cal-ghost:focus-visible {
-  border-color: var(--ev-green);
-  box-shadow: var(--shadow-sm);
+.cal-ghost:hover, .cal-ghost:focus-within {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  border-left-color: var(--ev-green);
 }
-.cal-ghost--logged { opacity: 0.55; }
+.cal-ghost--logged { opacity: 0.5; }
+/* Fills the block so the whole meeting is the hit target. */
+.cal-ghost__log {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: flex-start;
+  padding: 3px 7px;
+  background: none; border: none; cursor: pointer;
+  text-align: left; overflow: hidden;
+  font: inherit;
+}
 .cal-ghost__name {
-  font-size: 11px; font-weight: 600; color: var(--text-muted);
+  font-size: 11px; font-weight: 600; color: var(--text-faint);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3;
   display: flex; align-items: center; gap: 3px;
 }
+
+/* "+ Log" and the mute control, revealed on hover/focus — the block used to
+   rely on a bare click that nothing announced. */
+.cal-ghost__actions {
+  position: absolute; top: 2px; right: 3px; z-index: 1;
+  display: flex; align-items: center; gap: 3px;
+  opacity: 0; transition: opacity 0.12s;
+}
+.cal-ghost:hover .cal-ghost__actions,
+.cal-ghost:focus-within .cal-ghost__actions { opacity: 1; }
+@media (hover: none) { .cal-ghost__actions { opacity: 1; } }
+.cal-ghost__cta {
+  font-size: 10px; font-weight: 700; color: var(--ev-green-dark);
+  background: var(--surface); border: 1px solid var(--ev-green);
+  border-radius: 20px; padding: 0 6px; line-height: 15px;
+}
+.cal-ghost__mute {
+  display: flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; padding: 0;
+  border: 1px solid var(--border); border-radius: 4px;
+  background: var(--surface); color: var(--text-muted); cursor: pointer;
+}
+.cal-ghost__mute:hover { color: var(--ev-pumpkin-text); border-color: var(--danger-border); }
+
+/* "Faded" mode: still there, still clickable, a fraction of the weight.
+   Hovering one brings it back so it can be read and logged. */
+.calendar--outlook-faded .cal-ghost { opacity: 0.4; }
+.calendar--outlook-faded .cal-ghost:hover,
+.calendar--outlook-faded .cal-ghost:focus-visible,
+.calendar--outlook-faded .cal-ghost:focus-within { opacity: 1; }
+
+/* Per-day "Log N" in the column header. */
+.cal-day-log-all {
+  margin-top: 2px;
+  font-size: 10px; font-weight: 700;
+  color: var(--ev-green-dark);
+  background: var(--accent-soft);
+  border: 1px solid var(--ev-green);
+  border-radius: 20px; padding: 1px 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.cal-day-log-all:hover { background: var(--ev-green-mid); }
 .cal-ghost__check { color: var(--ev-green-dark); flex-shrink: 0; }
 .cal-ghost__time { font-size: 10px; color: var(--text-faint); font-family: var(--mono); margin-top: 2px; }
 

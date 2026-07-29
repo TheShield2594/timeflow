@@ -79,12 +79,15 @@ describe("ReportsPage KPI strip", () => {
     expect(kpi("Projects active")).toBe("2");
   });
 
-  it("shows zeroes rather than NaN when the range is empty", () => {
+  it("replaces the whole grid with one empty state rather than a strip of 0m cards", () => {
     renderReports([]);
-    expect(kpi("Total tracked")).toBe("0m");
-    expect(kpi("Avg per active day")).toBe("0m");
-    expect(kpi("Sessions logged")).toBe("0");
-    expect(screen.getByText("No data to report. Track some time first.")).not.toBeNull();
+    // The four KPI cards, the chart and the per-card "no data" strings all
+    // restated the same fact; one statement replaces the lot.
+    expect(screen.queryByText("Total tracked")).toBeNull();
+    expect(screen.queryByText("Avg per active day")).toBeNull();
+    expect(screen.queryByText("No data for this period.")).toBeNull();
+    expect(screen.queryByText("No tasks logged.")).toBeNull();
+    expect(screen.getByText("Nothing tracked in last 7 days.")).not.toBeNull();
   });
 
   it("never multiplies hours by the billing ratio (#71)", () => {
@@ -153,10 +156,34 @@ describe("ReportsPage breakdowns", () => {
   });
 });
 
-describe("ReportsPage export controls", () => {
-  it("disables the export button until there is something to export", () => {
+describe("ReportsPage empty range recovery", () => {
+  it("names a range that does have data, and switches to it when clicked", () => {
+    // Nothing in the last 7 days, but 10h sitting 20 days back. Which preset
+    // gets offered depends on today's date (on the 21st, "this month" is
+    // narrower than "last 30 days"), so assert on the amount and the recovery
+    // rather than the preset's name — findNarrowestRangeWithData covers the
+    // choice itself on fixed dates.
+    renderReports([entry(addDaysStr(today, -20), 600)]);
+
+    const recover = screen.getByRole("button", { name: /You logged 10h in / });
+    fireEvent.click(recover);
+
+    // The click is the way out: the grid comes back on the wider preset.
+    expect(kpi("Total tracked")).toBe("10h");
+    expect(screen.queryByText(/Nothing tracked in/)).toBeNull();
+  });
+
+  it("does not dangle a recovery offer when no range has data", () => {
     renderReports([]);
-    expect(screen.getByRole("button", { name: /Export CSV/ }).hasAttribute("disabled")).toBe(true);
+    expect(screen.queryByRole("button", { name: /You logged/ })).toBeNull();
+    expect(screen.getByText("Start the timer and your report will fill in here.")).not.toBeNull();
+  });
+});
+
+describe("ReportsPage export controls", () => {
+  it("hides the export row entirely when there is nothing to export", () => {
+    renderReports([]);
+    expect(screen.queryByRole("button", { name: /Export CSV/ })).toBeNull();
     cleanup();
 
     renderReports([entry(today, 60)]);

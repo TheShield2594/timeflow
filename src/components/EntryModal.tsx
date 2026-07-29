@@ -36,6 +36,14 @@ interface Props {
   projects: Project[];
   tasks: Task[];
   onSave: (data: EntrySaveData) => Promise<unknown>;
+  /**
+   * Fired once the entry is *completely* saved, just before onClose.
+   *
+   * Distinct from onSave because the overnight-split path calls onSave twice,
+   * one half at a time. A caller that treats a single onSave resolving as
+   * "done" would act on a half-saved entry if the second call then failed.
+   */
+  onSaved?: () => void;
   onDelete?: () => void;
   onClose: () => void;
   onLoadTasksForProject?: (projectId: string) => void;
@@ -46,7 +54,7 @@ function timeToMinutes(hhmm: string): number {
   return h * 60 + m;
 }
 
-export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, onSave, onDelete, onClose, onLoadTasksForProject }) => {
+export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, onSave, onSaved, onDelete, onClose, onLoadTasksForProject }) => {
   const [draft, setDraft] = useState<EntryDraft>(initial);
   const [saving, setSaving] = useState(false);
   const modalRef = useFocusTrap<HTMLDivElement>();
@@ -176,6 +184,9 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
           durationMinutes: durationMinutes!,
         });
       }
+      // Both halves are in by here, so this is the only place that can honestly
+      // claim the entry was saved.
+      onSaved?.();
       onClose();
     } catch {
       // The data hooks already toast the failure; keep the modal open for retry.
