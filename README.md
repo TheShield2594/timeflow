@@ -183,10 +183,11 @@ loosened read filter, so the per-user isolation above is untouched:
   page's cross-user rows never flow through `useTimeEntries`).
 
 Environment setup (details in `Brandon To Do.md`): set the **Manager** field
-on user records (the Entra ID manager does *not* sync into Dataverse by
-itself), then enable **Hierarchy security** with the Manager hierarchy and
-include `ever_timeentries` in its table list. In local dev, preview the page
-with `localStorage.setItem("tt_mock_team", "1")`.
+on each Power Apps user profile — that field (`parentsystemuserid`) is the
+only thing the app reads; the M365/Entra org chart is not consulted and does
+not sync into it. Then enable **Hierarchy security** with the Manager
+hierarchy and include `ever_timeentries` in its table list. In local dev,
+preview the page with `localStorage.setItem("tt_mock_team", "1")`.
 
 **Runtime detection (UAT sign-off check):** as defense in depth, on the first
 entries refresh `useTimeEntries` calls `hasForeignUserEntries()` to check

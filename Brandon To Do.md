@@ -36,13 +36,14 @@ The app-side code is done. To make real meetings appear:
 The app shows a **Team** page only to users who have direct reports in
 Dataverse. Two pieces of admin setup:
 
-- [ ] **Set managers on Dataverse user records**: Power Platform admin center
-      → Environments → (env) → Settings → Users → open each report's user →
-      set **Manager** to their manager.
-      *Note:* the Entra ID / M365 manager field does **not** sync into
-      Dataverse by itself. Set it here manually, or build a small Power
-      Automate flow to copy Entra manager → Dataverse user Manager if you
-      want it automatic.
+- [ ] **Set managers on the Power Apps user profiles**: Power Platform admin
+      center → Environments → (env) → Settings → Users → open each report's
+      user → set **Manager**. This is the field the app reads
+      (`systemuser.parentsystemuserid`) — setting it right here is the whole
+      step, nothing else feeds it.
+      *(FYI only: the M365/Entra org-chart manager does not sync into this
+      field on its own, so people added later also need their Manager set on
+      the profile — one field per new hire.)*
 - [ ] **Turn on Hierarchy security** for the environment: (env) → Settings →
       Users + permissions → Hierarchy security →
       - Enable Hierarchy Modeling: **On**
