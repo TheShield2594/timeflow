@@ -140,6 +140,7 @@ export const OverviewPage: React.FC<Props> = ({ entries, projects, tasks, timerB
             maxBar={weekChartMax}
             shortDate={(d) => shortDate(d)}
             formatMinutes={formatMinutes}
+            emptyLabel="No time logged this week"
           />
         </div>
 

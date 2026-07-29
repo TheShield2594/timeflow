@@ -598,7 +598,12 @@ input, select { font-family: inherit; }
   grid-template-columns: repeat(var(--ah-cols), 14px);
   height: 14px;
 }
-.activity-heatmap__month { font-size: 10px; color: var(--text-faint); font-weight: 600; }
+/* Left border ticks each label to the first column of its month, so labels
+   read as anchored to the grid instead of floating above it. */
+.activity-heatmap__month {
+  font-size: 10px; color: var(--text-faint); font-weight: 600;
+  border-left: 1px solid var(--border); padding-left: 4px; line-height: 13px;
+}
 .activity-heatmap__grid {
   display: grid;
   grid-template-columns: repeat(var(--ah-cols), 11px);
@@ -634,6 +639,18 @@ input, select { font-family: inherit; }
 .bar-chart__label { font-size: 10px; color: var(--text-faint); margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; text-align: center; }
 
 .svg-bar-chart { position: relative; width: 100%; }
+.svg-bar-chart__empty-pill {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  pointer-events: none;
+}
 .svg-bar-chart__tooltip {
   position: absolute;
   transform: translate(-50%, -100%);
