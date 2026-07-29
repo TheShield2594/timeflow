@@ -161,6 +161,7 @@ export const OverviewPage: React.FC<Props> = ({
         <TodayStrip
           entries={todayEntries}
           projects={projects}
+          date={today}
           nowMinutes={nowMinutes}
           onLogGap={handleLogGap}
         />

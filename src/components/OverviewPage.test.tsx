@@ -158,9 +158,20 @@ describe("OverviewPage quick starts", () => {
 });
 
 describe("OverviewPage today strip", () => {
-  const today = localDateStr();
+  // The strip caps its gap search at the current minute, so the wall clock
+  // would otherwise decide how many gaps a fixture produces. Freeze it at
+  // 17:00 — after the working day's entries, before its 18:00 close.
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 5, 15, 17, 0, 0));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
   function timed(id: string, startHM: string, endHM: string, minutes: number): TimeEntry {
+    const today = localDateStr();
     return {
       id,
       projectId: PROJECT.id,
@@ -174,23 +185,38 @@ describe("OverviewPage today strip", () => {
     };
   }
 
-  it("offers each untracked gap between today's blocks as a log target", () => {
-    // 09:00–10:00, then a 90-minute hole, then 11:30–12:30.
+  /** Every gap the strip is currently offering, as its aria-label. */
+  function gapLabels(container: HTMLElement): string[] {
+    return Array.from(container.querySelectorAll(".today-strip__gap"))
+      .map((el) => el.getAttribute("aria-label") ?? "");
+  }
+
+  it("offers each untracked stretch of the working day as a log target", () => {
+    // 09:00–10:00, a 90-minute hole, 11:30–12:30 — plus the untracked time
+    // before the first block (08:00) and after the last one (up to now).
     const { container } = renderOverview([timed("a", "09:00", "10:00", 60), timed("b", "11:30", "12:30", 60)]);
 
-    const gaps = container.querySelectorAll(".today-strip__gap");
-    expect(gaps).toHaveLength(1);
-    expect(gaps[0].getAttribute("aria-label")).toContain("10 AM to 11:30 AM");
+    const labels = gapLabels(container);
+    expect(labels).toHaveLength(3);
+    expect(labels[0]).toContain("8 AM to 9 AM");
+    expect(labels[1]).toContain("10 AM to 11:30 AM");
+    expect(labels[2]).toContain("12:30 PM to 5 PM");
   });
 
   it("ignores sub-15-minute slivers between back-to-back blocks", () => {
-    const { container } = renderOverview([timed("a", "09:00", "10:00", 60), timed("b", "10:05", "11:00", 55)]);
-    expect(container.querySelectorAll(".today-strip__gap")).toHaveLength(0);
+    const { container } = renderOverview([timed("a", "08:00", "10:00", 120), timed("b", "10:05", "17:00", 415)]);
+    expect(gapLabels(container)).toEqual([]);
   });
 
   it("does not treat overlapping entries as a gap", () => {
-    const { container } = renderOverview([timed("a", "09:00", "12:00", 180), timed("b", "10:00", "11:00", 60)]);
-    expect(container.querySelectorAll(".today-strip__gap")).toHaveLength(0);
+    const { container } = renderOverview([timed("a", "08:00", "17:00", 540), timed("b", "10:00", "11:00", 60)]);
+    expect(gapLabels(container)).toEqual([]);
+  });
+
+  it("does not offer the rest of the day before it has happened", () => {
+    // 08:00–17:00 is fully covered, and 17:00–18:00 hasn't arrived yet.
+    const { container } = renderOverview([timed("a", "08:00", "17:00", 540)]);
+    expect(gapLabels(container)).toEqual([]);
   });
 
   it("opens a prefilled entry form when a gap is clicked", () => {
@@ -200,7 +226,8 @@ describe("OverviewPage today strip", () => {
       { onCreate: vi.fn(), onLoadTasksForProject: vi.fn() }
     );
 
-    fireEvent.click(container.querySelector(".today-strip__gap") as HTMLButtonElement);
+    // The middle gap — the 10:00–11:30 hole between the two blocks.
+    fireEvent.click(container.querySelectorAll(".today-strip__gap")[1] as HTMLButtonElement);
 
     expect(screen.getByRole("dialog", { name: "Log untracked time" })).not.toBeNull();
     expect((screen.getByLabelText("Start") as HTMLInputElement).value).toBe("10:00");

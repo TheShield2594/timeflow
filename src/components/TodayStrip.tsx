@@ -2,14 +2,7 @@ import React, { useMemo } from "react";
 import type { TimeEntry, Project } from "../types";
 import { formatMinutes } from "../hooks";
 import { minutesOfDay } from "../utils/dates";
-
-/** Gaps shorter than this are noise between back-to-back blocks, not time
- *  anybody forgot to log — they stay part of the empty track. */
-const MIN_GAP_MINUTES = 15;
-/** The strip always covers at least a normal working day, so an hour logged
- *  at 9am doesn't stretch to fill the whole width. */
-const DEFAULT_WINDOW_START = 8 * 60;
-const DEFAULT_WINDOW_END = 17 * 60;
+import { WORK_DAY_START_MIN, WORK_DAY_END_MIN, findUntrackedGaps } from "../utils/gaps";
 
 interface Block {
   start: number;
@@ -18,15 +11,12 @@ interface Block {
   label: string;
 }
 
-interface Gap {
-  start: number;
-  end: number;
-}
-
 interface Props {
   /** Entries already filtered to today. */
   entries: TimeEntry[];
   projects: Project[];
+  /** Today, as local YYYY-MM-DD. */
+  date: string;
   /** Minutes since midnight, used to close out a still-running entry. */
   nowMinutes: number;
   /** Called with the gap's start/end minutes-of-day when a gap is clicked. */
@@ -45,7 +35,7 @@ export function formatClock(minutes: number): string {
 /** Today at a glance: logged blocks laid out on a clock, with every untracked
  *  gap between them offered as a one-click "log this" target. The landing
  *  screen's one actionable element — the rest of Overview reports history. */
-export const TodayStrip: React.FC<Props> = ({ entries, projects, nowMinutes, onLogGap }) => {
+export const TodayStrip: React.FC<Props> = ({ entries, projects, date, nowMinutes, onLogGap }) => {
   const { blocks, gaps, windowStart, windowEnd, trackedMinutes } = useMemo(() => {
     const raw: Block[] = entries
       .map((e) => {
@@ -64,21 +54,16 @@ export const TodayStrip: React.FC<Props> = ({ entries, projects, nowMinutes, onL
       })
       .sort((a, b) => a.start - b.start);
 
-    // Overlapping entries would otherwise render a gap of negative width, so
-    // walk the sorted list keeping a high-water mark of the covered time.
-    const foundGaps: Gap[] = [];
-    let covered = raw.length > 0 ? raw[0].end : 0;
-    for (let i = 1; i < raw.length; i += 1) {
-      if (raw[i].start - covered >= MIN_GAP_MINUTES) {
-        foundGaps.push({ start: covered, end: raw[i].start });
-      }
-      covered = Math.max(covered, raw[i].end);
-    }
+    // Same detector the Calendar draws its gap slots from, capped at now so
+    // the rest of today isn't offered before it has happened.
+    const foundGaps = findUntrackedGaps({ entries, date, nowMinutes, upperBoundMin: nowMinutes });
 
-    const earliest = raw.length > 0 ? Math.min(...raw.map((b) => b.start)) : DEFAULT_WINDOW_START;
-    const latest = raw.length > 0 ? Math.max(...raw.map((b) => b.end)) : DEFAULT_WINDOW_END;
-    const start = Math.min(DEFAULT_WINDOW_START, Math.floor(earliest / 60) * 60);
-    const end = Math.max(DEFAULT_WINDOW_END, Math.ceil(latest / 60) * 60);
+    // The strip always spans at least the working day, and stretches to fit
+    // anything logged outside it.
+    const earliest = raw.length > 0 ? Math.min(...raw.map((b) => b.start)) : WORK_DAY_START_MIN;
+    const latest = raw.length > 0 ? Math.max(...raw.map((b) => b.end)) : WORK_DAY_END_MIN;
+    const start = Math.min(WORK_DAY_START_MIN, Math.floor(earliest / 60) * 60);
+    const end = Math.max(WORK_DAY_END_MIN, Math.ceil(latest / 60) * 60);
 
     return {
       blocks: raw,
@@ -87,7 +72,7 @@ export const TodayStrip: React.FC<Props> = ({ entries, projects, nowMinutes, onL
       windowEnd: end,
       trackedMinutes: entries.reduce((s, e) => s + (e.durationMinutes || 0), 0),
     };
-  }, [entries, projects, nowMinutes]);
+  }, [entries, projects, date, nowMinutes]);
 
   const span = Math.max(1, windowEnd - windowStart);
   const pct = (minutes: number) => `${((minutes / span) * 100).toFixed(3)}%`;
@@ -122,15 +107,15 @@ export const TodayStrip: React.FC<Props> = ({ entries, projects, nowMinutes, onL
         ))}
         {gaps.map((g) => (
           <button
-            key={`gap-${g.start}`}
+            key={`gap-${g.startMin}`}
             type="button"
             className="today-strip__gap"
-            style={{ left: offset(g.start), width: pct(g.end - g.start) }}
-            onClick={() => onLogGap(g.start, g.end)}
-            title={`Log the ${formatMinutes(g.end - g.start)} between ${formatClock(g.start)} and ${formatClock(g.end)}`}
-            aria-label={`Log the untracked ${formatMinutes(g.end - g.start)} from ${formatClock(g.start)} to ${formatClock(g.end)}`}
+            style={{ left: offset(g.startMin), width: pct(g.endMin - g.startMin) }}
+            onClick={() => onLogGap(g.startMin, g.endMin)}
+            title={`${formatMinutes(g.endMin - g.startMin)} untracked between ${formatClock(g.startMin)} and ${formatClock(g.endMin)} — click to fill it in`}
+            aria-label={`Log the untracked ${formatMinutes(g.endMin - g.startMin)} from ${formatClock(g.startMin)} to ${formatClock(g.endMin)}`}
           >
-            <span className="today-strip__gap-label">{formatMinutes(g.end - g.start)} +</span>
+            <span className="today-strip__gap-label">+ {formatMinutes(g.endMin - g.startMin)}</span>
           </button>
         ))}
       </div>

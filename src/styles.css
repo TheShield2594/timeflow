@@ -2330,3 +2330,66 @@ input, select { font-family: inherit; }
   .today-strip { flex-basis: 100%; }
   .quick-starts { grid-template-columns: 1fr; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   UNTRACKED GAPS (P2-15)
+   A stretch of the working day nothing was logged against, offered as a
+   click-to-fill slot on both the Calendar grid and the Overview strip
+   (.today-strip__gap above shares the hatch and the dashed edge). Drawn
+   behind everything — z-index 0, under the Outlook ghosts at 1 and the
+   tracked entries at 2 — because a gap is the absence of those, not a
+   record competing with them. Deliberately faint at rest: on a thin week
+   these are numerous, and they must never out-shout real entries.
+   ═══════════════════════════════════════════════════════════════════════ */
+/* The slot is inert so drag-to-create still works across it — only the
+   label below is a button. */
+.cal-gap {
+  position: absolute; left: 2px; right: 2px;
+  z-index: 0;
+  display: flex; align-items: flex-start;
+  padding: 1px 3px;
+  border: 1px dashed var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0.7;
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--surface-2), var(--surface-2) 5px,
+    transparent 5px, transparent 10px
+  );
+  transition: opacity 0.15s, border-color 0.15s;
+}
+.cal-gap__fill {
+  pointer-events: auto;
+  max-width: 100%;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10px; font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: color 0.15s, background 0.15s;
+}
+.cal-gap__fill:hover, .cal-gap__fill:focus-visible {
+  color: var(--text);
+  background: var(--surface);
+}
+/* Light up the whole slot when its label is the hover target, so the click
+   reads as "fill this span", not "fill this text". */
+.cal-gap:has(.cal-gap__fill:hover),
+.cal-gap:has(.cal-gap__fill:focus-visible) {
+  opacity: 1;
+  border-color: var(--ev-green);
+}
+
+.cal-mobile-gap {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 8px 10px; margin-bottom: 6px; text-align: left;
+  border: 1.5px dashed var(--border); border-radius: var(--radius-sm);
+  background: transparent;
+  transition: border-color 0.15s;
+}
+.cal-mobile-gap:hover { border-color: var(--ev-green); }
+.cal-mobile-gap__info { flex: 1; min-width: 0; }
+.cal-mobile-gap__name { display: block; font-size: 13px; font-weight: 600; color: var(--text-muted); }
