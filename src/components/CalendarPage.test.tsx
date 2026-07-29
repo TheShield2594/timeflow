@@ -523,3 +523,90 @@ describe("CalendarPage totals include the running session (#74)", () => {
     expect(screen.getByText("1h this week")).not.toBeNull();
   });
 });
+
+describe("CalendarPage untracked gaps (P2-15)", () => {
+  /** Freeze the clock inside the working day so "the rest of today" is a
+   *  fixed span rather than whatever time the suite happens to run at. */
+  function freezeAt(hour: number): string {
+    const ds = todayStr();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(`${ds}T${String(hour).padStart(2, "0")}:00:00`));
+    return ds;
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function logged(ds: string, id: string, startHM: string, endHM: string, minutes: number) {
+    return {
+      id, projectId: "p1", description: id,
+      startTime: `${ds}T${startHM}:00`, endTime: `${ds}T${endHM}:00`,
+      durationMinutes: minutes, date: ds, userId: "u1", userDisplayName: "U",
+    };
+  }
+
+  function gapButtons(): HTMLElement[] {
+    return screen.queryAllByRole("button", { name: /Log the untracked/ });
+  }
+
+  it("draws a slot over each untracked stretch of the working day", () => {
+    const ds = freezeAt(17);
+    renderCalendarWith([
+      logged(ds, "morning", "09:00", "10:00", 60),
+      logged(ds, "afternoon", "11:30", "12:30", 60),
+    ]);
+
+    // 08:00→09:00, 10:00→11:30, and 12:30→now.
+    expect(gapButtons()).toHaveLength(3);
+    expect(gapButtons()[1].getAttribute("aria-label")).toContain("1h 30m");
+  });
+
+  it("shows the gap's length on the block", () => {
+    const ds = freezeAt(17);
+    renderCalendarWith([
+      logged(ds, "a", "08:00", "10:00", 120),
+      logged(ds, "b", "11:00", "17:00", 360),
+    ]);
+
+    expect(screen.getByText("+ 1h untracked")).not.toBeNull();
+  });
+
+  it("leaves a fully-tracked day alone", () => {
+    const ds = freezeAt(17);
+    renderCalendarWith([logged(ds, "all-day", "08:00", "17:00", 540)]);
+    expect(gapButtons()).toHaveLength(0);
+  });
+
+  it("does not flag a day with nothing logged on it", () => {
+    freezeAt(17);
+    renderCalendarWith([]);
+    expect(gapButtons()).toHaveLength(0);
+  });
+
+  it("opens the log modal spanning the gap when one is clicked", () => {
+    const ds = freezeAt(17);
+    renderCalendarWith([
+      logged(ds, "morning", "09:00", "10:00", 60),
+      logged(ds, "afternoon", "11:30", "12:30", 60),
+    ]);
+
+    fireEvent.click(gapButtons()[1]);
+
+    expect(screen.getByRole("dialog")).not.toBeNull();
+    expect((screen.getByLabelText("Start") as HTMLInputElement).value).toBe("10:00");
+    expect((screen.getByLabelText("End") as HTMLInputElement).value).toBe("11:30");
+  });
+
+  it("does not offer gaps on a day that hasn't happened yet", () => {
+    const ds = freezeAt(17);
+    // Tomorrow is in the same rendered week for six days out of seven; on the
+    // seventh the entry simply isn't in view, and no gaps is still correct.
+    const d = new Date(`${ds}T12:00:00`);
+    d.setDate(d.getDate() + 1);
+    const tomorrow = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+    renderCalendarWith([logged(tomorrow, "ahead", "09:00", "10:00", 60)]);
+    expect(gapButtons()).toHaveLength(0);
+  });
+});

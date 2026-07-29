@@ -1,17 +1,49 @@
-import React, { useEffect, useMemo, useState } from "react";
-import type { Project, Task } from "../types";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import type { Project, Task, TimeEntry } from "../types";
 import { formatMinutes, parseRatioInput } from "../hooks";
+import { useToday } from "../hooks/useToday";
+import { addDaysStr } from "../utils/dates";
 import { HelpTip } from "./HelpTip";
-import { IconArchive, IconCheck, IconPlus, IconUndo, IconX } from "./Icons";
+import { Sparkline } from "./Sparkline";
+import { IconArchive, IconCheck, IconPencil, IconPlus, IconUndo, IconX } from "./Icons";
 
 function isValidHex(hex: string): boolean {
   return /^#[0-9A-Fa-f]{6}$/.test(hex);
 }
 
+/** Window the card totals are scoped to. The loaded entry range is a moving
+ *  window (see DataRangeContext), so an unlabelled "total" silently meant
+ *  "however much history happens to be loaded" — this fixes it to a span the
+ *  label can actually name. */
+const TOTAL_WINDOW_DAYS = 30;
+const SPARK_DAYS = 7;
+
+interface ProjectActivity {
+  windowMinutes: number;
+  lastTracked: string | null;
+  spark: number[];
+}
+
+const NO_ACTIVITY: ProjectActivity = { windowMinutes: 0, lastTracked: null, spark: Array(SPARK_DAYS).fill(0) };
+
+/** "today" / "yesterday" / "3d ago" / "5w ago" — a card footer has room for a
+ *  relative age, not a date. */
+function relativeDay(dateStr: string, today: string): string {
+  // A future-dated entry (they're allowed) still reads as current work.
+  if (dateStr >= today) return "today";
+  if (dateStr === addDaysStr(today, -1)) return "yesterday";
+  const days = Math.round(
+    (new Date(today + "T00:00:00").getTime() - new Date(dateStr + "T00:00:00").getTime()) / 86400000
+  );
+  if (days < 7) return `${days}d ago`;
+  if (days < 60) return `${Math.floor(days / 7)}w ago`;
+  return `${Math.floor(days / 30)}mo ago`;
+}
+
 interface Props {
   projects: Project[];
   tasks: Task[];
-  totalMinutesByProject: Map<string, number>;
+  entries: TimeEntry[];
   onAddProject: (data: Omit<Project, "id" | "createdAt">) => Promise<Project>;
   onEditProject: (id: string, data: Partial<Project>) => Promise<Project>;
   onArchiveProject: (project: Project) => void;
@@ -55,8 +87,71 @@ const EMPTY_DRAFT: FormDraft = {
   jiraTicket: "",
 };
 
+/** Edit/Archive live behind one ⋯ menu — as two differently-styled
+ *  micro-buttons in the card corner they competed with the project name for
+ *  attention and neither won. */
+const CardMenu: React.FC<{ project: Project; onEdit: () => void; onArchive: () => void }> = ({
+  project, onEdit, onArchive,
+}) => {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const pending = project.id.startsWith("temp-");
+
+  return (
+    <div className="card-menu" ref={wrapRef}>
+      <button
+        type="button"
+        className="card-menu__btn"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Actions for ${project.name}`}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span aria-hidden="true">⋯</span>
+      </button>
+      {open && (
+        <div className="card-menu__list" role="menu">
+          <button
+            type="button"
+            role="menuitem"
+            className="card-menu__item"
+            onClick={() => { setOpen(false); onEdit(); }}
+          >
+            <IconPencil size={13} /> Edit
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="card-menu__item card-menu__item--danger"
+            disabled={pending}
+            title={pending ? "Project is saving…" : "Removes it from pickers, keeps its history"}
+            onClick={() => { setOpen(false); onArchive(); }}
+          >
+            <IconArchive size={13} /> Archive
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const ProjectsPage: React.FC<Props> = ({
-  projects, tasks, totalMinutesByProject, onAddProject, onEditProject,
+  projects, tasks, entries, onAddProject, onEditProject,
   onArchiveProject, onRestoreProject, onAddTask, onDeleteTask, onRenameTask, onLoadTasksForProject,
 }) => {
   const [draft, setDraft] = useState<FormDraft | null>(null);
@@ -65,8 +160,45 @@ export const ProjectsPage: React.FC<Props> = ({
   const [newTaskName, setNewTaskName] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [renamingTask, setRenamingTask] = useState<{ id: string; name: string } | null>(null);
+  const today = useToday();
 
-  const activeProjects = useMemo(() => projects.filter((p) => p.isActive), [projects]);
+  // One pass over the entries for every per-card number: the window total,
+  // when the project was last tracked, and the footer sparkline.
+  const activity = useMemo(() => {
+    const windowStart = addDaysStr(today, -(TOTAL_WINDOW_DAYS - 1));
+    const sparkStart = addDaysStr(today, -(SPARK_DAYS - 1));
+    const map = new Map<string, ProjectActivity>();
+    entries.forEach((e) => {
+      const cur = map.get(e.projectId) ?? {
+        windowMinutes: 0, lastTracked: null, spark: Array(SPARK_DAYS).fill(0) as number[],
+      };
+      const minutes = e.durationMinutes || 0;
+      if (e.date >= windowStart && e.date <= today) cur.windowMinutes += minutes;
+      if (!cur.lastTracked || e.date > cur.lastTracked) cur.lastTracked = e.date;
+      if (e.date >= sparkStart && e.date <= today) {
+        const idx = Math.round(
+          (new Date(e.date + "T00:00:00").getTime() - new Date(sparkStart + "T00:00:00").getTime()) / 86400000
+        );
+        if (idx >= 0 && idx < SPARK_DAYS) cur.spark[idx] += minutes;
+      }
+      map.set(e.projectId, cur);
+    });
+    return map;
+  }, [entries, today]);
+
+  // Most recently worked first, so the projects in play sit at the top
+  // instead of wherever creation order happened to put them.
+  const activeProjects = useMemo(
+    () => projects
+      .filter((p) => p.isActive)
+      .sort((a, b) => {
+        const la = activity.get(a.id)?.lastTracked ?? "";
+        const lb = activity.get(b.id)?.lastTracked ?? "";
+        if (la !== lb) return lb.localeCompare(la);
+        return a.name.localeCompare(b.name);
+      }),
+    [projects, activity]
+  );
   const archivedProjects = useMemo(() => projects.filter((p) => !p.isActive), [projects]);
 
   const commitRename = async (task: Task) => {
@@ -239,44 +371,44 @@ export const ProjectsPage: React.FC<Props> = ({
       <div className="project-cards">
         {activeProjects.map((project) => {
           const projectTasks = tasks.filter((t) => t.projectId === project.id && t.isActive);
-          const totalMins = totalMinutesByProject.get(project.id) || 0;
+          const stats = activity.get(project.id) ?? NO_ACTIVITY;
 
           return (
             <div key={project.id} className="project-card">
               <div className="project-card__stripe" style={{ background: project.color }} />
               <div className="project-card__body">
                 <div className="project-card__top">
-                  <div>
+                  <span className="project-card__dot" style={{ background: project.color }} aria-hidden="true" />
+                  <div className="project-card__heading">
                     <div className="project-card__name">{project.name}</div>
                     {project.description && (
                       <div className="project-card__desc">{project.description}</div>
                     )}
-                    {project.ratio !== undefined && (
-                      <div className="project-card__ratio">Ratio: {project.ratio}</div>
-                    )}
-                    {project.jiraTicket && (
-                      <div className="project-card__jira">Jira: {project.jiraTicket}</div>
-                    )}
+                    {/* Ticket then ratio, worded as the timesheet row words
+                        them — the same two facts shouldn't read differently
+                        depending on which screen you're looking at. */}
+                    <div className="project-card__attrs">
+                      {project.jiraTicket && (
+                        <span className="chip-ticket" title={`Jira ticket ${project.jiraTicket}`}>
+                          {project.jiraTicket}
+                        </span>
+                      )}
+                      {project.ratio !== undefined && (
+                        <span className="chip-ratio" title={`Default billing ratio for new entries`}>
+                          Ratio {project.ratio}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div className="project-card__top-right">
-                    <div className="project-card__total">{formatMinutes(totalMins)}</div>
-                    <button
-                      className="project-card__edit"
-                      onClick={() => startEdit(project)}
-                      title="Edit project"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      className="project-card__archive"
-                      onClick={() => onArchiveProject(project)}
-                      disabled={project.id.startsWith("temp-")}
-                      title="Archive project — removes it from pickers, keeps its history"
-                      aria-label={`Archive project ${project.name}`}
-                    >
-                      <IconArchive size={13} /> Archive
-                    </button>
+                  <div className="project-card__total-group">
+                    <div className="project-card__total num-card">{formatMinutes(stats.windowMinutes)}</div>
+                    <div className="project-card__total-label">last {TOTAL_WINDOW_DAYS} days</div>
                   </div>
+                  <CardMenu
+                    project={project}
+                    onEdit={() => startEdit(project)}
+                    onArchive={() => onArchiveProject(project)}
+                  />
                 </div>
 
                 <div className="project-card__tasks">
@@ -307,6 +439,8 @@ export const ProjectsPage: React.FC<Props> = ({
                         >
                           {t.name}
                         </button>
+                        {/* Revealed on hover/focus only — a permanent × on every
+                            chip put delete one slip away, dozens of times over. */}
                         <button
                           className="task-chip__delete"
                           onClick={() => onDeleteTask(t)}
@@ -343,6 +477,19 @@ export const ProjectsPage: React.FC<Props> = ({
                     </button>
                   )}
                 </div>
+
+                <div className="project-card__footer">
+                  <span className="project-card__last">
+                    {stats.lastTracked
+                      ? `Last tracked ${relativeDay(stats.lastTracked, today)}`
+                      : "Never tracked"}
+                  </span>
+                  <Sparkline
+                    values={stats.spark}
+                    color={project.color}
+                    label={`Last ${SPARK_DAYS} days: ${formatMinutes(stats.spark.reduce((s, v) => s + v, 0))}`}
+                  />
+                </div>
               </div>
             </div>
           );
@@ -366,23 +513,27 @@ export const ProjectsPage: React.FC<Props> = ({
                   <div className="project-card__stripe" style={{ background: project.color }} />
                   <div className="project-card__body">
                     <div className="project-card__top">
-                      <div>
+                      <span className="project-card__dot" style={{ background: project.color }} aria-hidden="true" />
+                      <div className="project-card__heading">
                         <div className="project-card__name">{project.name}</div>
                         {project.description && (
                           <div className="project-card__desc">{project.description}</div>
                         )}
                       </div>
-                      <div className="project-card__top-right">
-                        <div className="project-card__total">{formatMinutes(totalMinutesByProject.get(project.id) || 0)}</div>
-                        <button
-                          className="project-card__edit"
-                          onClick={() => { onRestoreProject(project).catch(() => { /* toasted by hook */ }); }}
-                          title="Restore project to the active list"
-                          aria-label={`Restore project ${project.name}`}
-                        >
-                          <IconUndo size={12} /> Restore
-                        </button>
+                      <div className="project-card__total-group">
+                        <div className="project-card__total num-card">
+                          {formatMinutes((activity.get(project.id) ?? NO_ACTIVITY).windowMinutes)}
+                        </div>
+                        <div className="project-card__total-label">last {TOTAL_WINDOW_DAYS} days</div>
                       </div>
+                      <button
+                        className="project-card__restore"
+                        onClick={() => { onRestoreProject(project).catch(() => { /* toasted by hook */ }); }}
+                        title="Restore project to the active list"
+                        aria-label={`Restore project ${project.name}`}
+                      >
+                        <IconUndo size={12} /> Restore
+                      </button>
                     </div>
                   </div>
                 </div>

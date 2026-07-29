@@ -46,7 +46,6 @@ interface Props {
   entries: TimeEntry[];
   projects: Project[];
   tasks: Task[];
-  totalMinutesByProject: Map<string, number>;
   timerBusy: boolean;
   onDelete: (id: string) => void;
   onEdit: (id: string, data: Partial<TimeEntry>) => Promise<TimeEntry>;
@@ -66,7 +65,7 @@ interface Props {
 }
 
 export const PageRouter: React.FC<Props> = ({
-  page, loading, rangeLoading, entries, projects, tasks, totalMinutesByProject, timerBusy,
+  page, loading, rangeLoading, entries, projects, tasks, timerBusy,
   onDelete, onEdit, onCreate, onContinue, onAddProject, onEditProject,
   onArchiveProject, onRestoreProject, onAddTask, onDeleteTask, onRenameTask, onLoadTasksForProject, onGoToProjects,
   teamContext,
@@ -83,6 +82,8 @@ export const PageRouter: React.FC<Props> = ({
         tasks={tasks}
         timerBusy={timerBusy}
         onContinue={onContinue}
+        onCreate={onCreate}
+        onLoadTasksForProject={onLoadTasksForProject}
         onGoToProjects={onGoToProjects}
       />
     );
@@ -144,7 +145,7 @@ export const PageRouter: React.FC<Props> = ({
       <ProjectsPage
         projects={projects}
         tasks={tasks}
-        totalMinutesByProject={totalMinutesByProject}
+        entries={entries}
         onAddProject={onAddProject}
         onEditProject={onEditProject}
         onArchiveProject={onArchiveProject}

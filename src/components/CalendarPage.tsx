@@ -7,6 +7,7 @@ import {
 } from "../services/outlookService";
 import { useOutlookEvents } from "../hooks/useOutlookEvents";
 import { addDaysStr, localDateStr, minutesOfDay, toTimeInput } from "../utils/dates";
+import { Gap, findUntrackedGaps } from "../utils/gaps";
 import {
   ColumnRect,
   MINUTES_PER_DAY,
@@ -337,13 +338,13 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
         height: `${height}px`,
         left: `calc(${col * widthPct}% + 2px)`,
         width: `calc(${widthPct}% - 4px)`,
-        background: color + "22",
         borderLeft: `3px solid ${color}`,
         // Project accent colors include dark swatches (navy, forest) picked to
         // read fine on light theme's white cards; on dark theme's near-black
         // cards that same dark hex is barely distinguishable from the
-        // background. --pc feeds .cal-entry__name/__handle, which lighten it
-        // via color-mix in dark theme (see styles.css) instead of using it raw.
+        // background. --pc feeds .cal-entry's own background plus
+        // .cal-entry__name/__handle, all of which mix it against the current
+        // surface in CSS (see styles.css) instead of using it raw.
         "--pc": color,
       } as React.CSSProperties}
       onPointerDown={handlePointerDown}
@@ -461,6 +462,49 @@ const OutlookGhostBlock = React.memo<GhostBlockProps>(({ event, startMin, endMin
   );
 });
 OutlookGhostBlock.displayName = "OutlookGhostBlock";
+
+interface GapBlockProps {
+  startMin: number;
+  endMin: number;
+  rowTopMin: number;
+  dayLabel: string;
+  onFill: (startMin: number, endMin: number) => void;
+}
+
+/**
+ * A stretch of the working day nothing was logged against (P2-15), drawn as
+ * a faint hatched slot behind everything else.
+ *
+ * The slot itself is inert (pointer-events: none) and only its label is a
+ * button. A gap routinely spans hours, and swallowing pointer events across
+ * all of it would take drag-to-create away exactly where it's most useful —
+ * on the empty parts of a thin day. So: drag anywhere to log a span you
+ * choose, or click the label to fill the whole gap in one go.
+ */
+const UntrackedGapBlock = React.memo<GapBlockProps>(({ startMin, endMin, rowTopMin, dayLabel, onFill }) => {
+  const top = (startMin - rowTopMin) * PX_PER_MIN;
+  const height = Math.max((endMin - startMin) * PX_PER_MIN - 2, MIN_ENTRY_PX);
+  const duration = formatMinutes(endMin - startMin);
+  const timeLabel = `${clockLabel(startMin)} – ${clockLabel(endMin)}`;
+  return (
+    // No aria-hidden on the wrapper: it would take the button inside it out of
+    // the accessibility tree too, and that button is the whole feature.
+    <div className="cal-gap" style={{ top: `${top}px`, height: `${height}px` }}>
+      <button
+        type="button"
+        className="cal-gap__fill"
+        aria-label={`Log the untracked ${duration} on ${dayLabel}, ${timeLabel}`}
+        title={`${duration} untracked, ${timeLabel} — click to fill it in`}
+        // Stop the cell's drag-to-create from also arming on this press.
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => { e.stopPropagation(); onFill(startMin, endMin); }}
+      >
+        + {duration} untracked
+      </button>
+    </div>
+  );
+});
+UntrackedGapBlock.displayName = "UntrackedGapBlock";
 
 export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeLoading, onCreateEntry, onEdit, onDelete, onLoadTasksForProject }) => {
   const [anchor, setAnchor] = useState(() => new Date());
@@ -1063,6 +1107,36 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     return m;
   }, [positionedByDate]);
 
+  // Untracked gaps (P2-15), grouped into slot cells the same way. Computed
+  // per visible day from entries already in memory — no extra fetch. `tick`
+  // is a dependency so today's trailing gap keeps pace with the clock rather
+  // than freezing at whatever minute the week was rendered.
+  const gapsByCell = useMemo(() => {
+    const m = new Map<string, Gap[]>();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    weekDays.forEach((day) => {
+      const date = localDateStr(day);
+      // Future days have nothing to be missing yet; today stops at now.
+      if (date > today) return;
+      const gaps = findUntrackedGaps({
+        entries,
+        date,
+        nowMinutes,
+        upperBoundMin: date === today ? nowMinutes : undefined,
+      });
+      gaps.forEach((gap) => {
+        const row = Math.max(0, Math.min(Math.floor(gap.startMin / 30), TOTAL_SLOTS - 1));
+        const key = `${date}-${row}`;
+        const list = m.get(key);
+        if (list) list.push(gap);
+        else m.set(key, [gap]);
+      });
+    });
+    return m;
+  // `now` is derived from tick; listing tick keeps the dependency honest.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries, weekDays, today, tick]);
+
   // Escape drops an in-progress drag-create, drag-resize or drag-move
   // instead of letting the eventual pointerup commit a change the user
   // regrets. The stray pointerup that follows is harmless: every handler
@@ -1404,8 +1478,33 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
         const dayGhosts = outlookEvents
           .filter((ev) => localDateStr(new Date(ev.startTime)) === ds)
           .sort((a, b) => a.startTime.localeCompare(b.startTime));
+        const nowMins = now.getHours() * 60 + now.getMinutes();
+        const dayGaps = ds > today ? [] : findUntrackedGaps({
+          entries,
+          date: ds,
+          nowMinutes: nowMins,
+          upperBoundMin: ds === today ? nowMins : undefined,
+        });
         return (
           <div className="cal-mobile-list">
+            {dayGaps.map((gap) => (
+              <button
+                key={`gap-${gap.startMin}`}
+                type="button"
+                className="cal-mobile-gap"
+                onClick={() => openCreate(ds, gap.startMin, gap.endMin)}
+              >
+                <span className="cal-mobile-gap__info">
+                  <span className="cal-mobile-gap__name">
+                    + {formatMinutes(gap.endMin - gap.startMin)} untracked
+                  </span>
+                  <span className="cal-mobile-entry__time">
+                    {clockLabel(gap.startMin)} – {clockLabel(gap.endMin)}
+                  </span>
+                </span>
+                <span className="cal-mobile-ghost__cta">Fill</span>
+              </button>
+            ))}
             {dayGhosts.map((event) => (
               <div
                 key={event.id}
@@ -1587,6 +1686,18 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
                     onKeyDown={(e) => handleCellKeyDown(e, row, col, ds)}
                     onFocus={() => setFocusedCell({ row, col })}
                   >
+                    {/* Untracked gaps sit furthest back — they're the absence
+                        of everything else drawn on top of them. */}
+                    {gapsByCell.get(`${ds}-${row}`)?.map((gap) => (
+                      <UntrackedGapBlock
+                        key={`gap-${gap.startMin}`}
+                        startMin={gap.startMin}
+                        endMin={gap.endMin}
+                        rowTopMin={row * 30}
+                        dayLabel={day.toLocaleDateString("en", { weekday: "long", month: "long", day: "numeric" })}
+                        onFill={(startMin, endMin) => openCreate(ds, startMin, endMin)}
+                      />
+                    ))}
                     {/* Ghosts render before (so behind) the tracked entries. */}
                     {ghostsByCell.get(`${ds}-${row}`)?.map(({ event, startMin, endMin }) => (
                       <OutlookGhostBlock
