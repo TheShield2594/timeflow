@@ -3,6 +3,7 @@ import type { Project, Task } from "../types";
 import type { FocusPhase, FocusSettings } from "../hooks/useFocusMode";
 import { formatElapsed, parseRatioInput } from "../hooks";
 import { HelpTip } from "./HelpTip";
+import { Combobox } from "./Combobox";
 import { IconCheck, IconPencil, IconPlay, IconStop, IconX } from "./Icons";
 
 const NEW_TASK_OPTION = "__new_task__";
@@ -33,11 +34,18 @@ interface Props {
   currentTaskId: string | null;
   description: string;
   ratio?: number;
+  jiraTicket?: string;
   focus?: FocusControlState;
-  onStart: (projectId: string, taskId: string | null, description: string, ratio?: number) => void;
+  onStart: (
+    projectId: string,
+    taskId: string | null,
+    description: string,
+    ratio?: number,
+    jiraTicket?: string,
+  ) => void;
   onStop: () => void;
   onRetryStop?: (endIso: string) => void;
-  onUpdate: (patch: { description?: string; taskId?: string | null; ratio?: number }) => void;
+  onUpdate: (patch: { description?: string; taskId?: string | null; ratio?: number; jiraTicket?: string }) => void;
   onAddTask: (data: Omit<Task, "id">) => Promise<Task>;
   onLoadTasksForProject: (projectId: string) => void;
 }
@@ -136,21 +144,26 @@ const FocusControl: React.FC<{ focus: FocusControlState }> = ({ focus }) => {
 
 export const TimerBar: React.FC<Props> = ({
   projects, tasks, isRunning, pendingStopAt, elapsed,
-  currentProjectId, currentTaskId, description, ratio, focus,
+  currentProjectId, currentTaskId, description, ratio, jiraTicket, focus,
   onStart, onStop, onRetryStop, onUpdate, onAddTask, onLoadTasksForProject,
 }) => {
   const [selectedProject, setSelectedProject] = useState(currentProjectId || "");
   const [selectedTask, setSelectedTask] = useState(currentTaskId || "");
   const [desc, setDesc] = useState(description);
   const [ratioInput, setRatioInput] = useState(ratio !== undefined ? String(ratio) : "");
+  const [ticketInput, setTicketInput] = useState(jiraTicket ?? "");
   const [newTaskName, setNewTaskName] = useState("");
   const [addingNewTask, setAddingNewTask] = useState(false);
   const [savingTask, setSavingTask] = useState(false);
+  // Ratio and Ticket are optional on the large majority of entries; folding
+  // them behind a disclosure keeps the required Project field from being the
+  // narrowest thing in the bar.
+  const [extrasOpen, setExtrasOpen] = useState(false);
   // Set when Start is pressed with no project chosen. Inline and transient
   // rather than a toast: the thing to fix is two inches away, so the message
   // belongs next to it.
   const [needsProject, setNeedsProject] = useState(false);
-  const projectSelectRef = useRef<HTMLSelectElement>(null);
+  const projectFieldRef = useRef<HTMLDivElement>(null);
   const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => () => {
@@ -184,7 +197,9 @@ export const TimerBar: React.FC<Props> = ({
     if (wasRunning.current && !isRunning) {
       setDesc("");
       setRatioInput("");
+      setTicketInput("");
       setSelectedTask("");
+      setExtrasOpen(false);
     }
     wasRunning.current = isRunning;
   }, [isRunning]);
@@ -197,14 +212,14 @@ export const TimerBar: React.FC<Props> = ({
   // rather than as a dead end. Clicking does the same thing.
   const handleStart = () => {
     if (!selectedProject) {
-      projectSelectRef.current?.focus();
+      projectFieldRef.current?.querySelector("input")?.focus();
       setNeedsProject(true);
       if (hintTimerRef.current !== null) clearTimeout(hintTimerRef.current);
       hintTimerRef.current = setTimeout(() => setNeedsProject(false), 4000);
       return;
     }
     setNeedsProject(false);
-    onStart(selectedProject, selectedTask || null, desc, parseRatio(ratioInput));
+    onStart(selectedProject, selectedTask || null, desc, parseRatio(ratioInput), ticketInput.trim() || undefined);
   };
 
   const handleCreateTask = async () => {
@@ -256,86 +271,67 @@ export const TimerBar: React.FC<Props> = ({
   // here instead, so the shortcut always starts with the current form values
   // without re-binding the listener on each keystroke.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isRunning, pendingStopAt, selectedProject, selectedTask, desc, ratioInput, onStart, onStop, onRetryStop]);
+  }, [isRunning, pendingStopAt, selectedProject, selectedTask, desc, ratioInput, ticketInput, onStart, onStop, onRetryStop]);
 
+  // Collapsed, the disclosure still has to show what's set — otherwise a
+  // ratio typed before Start would vanish behind a "+" the moment it closed.
+  const shownRatio = isRunning ? (ratio !== undefined ? String(ratio) : "") : ratioInput;
+  const shownTicket = isRunning ? (jiraTicket ?? "") : ticketInput;
+  const extrasSummary = [
+    shownRatio.trim() ? `Ratio ${shownRatio.trim()}` : null,
+    shownTicket.trim() || null,
+  ].filter(Boolean).join(" · ") || null;
+
+  // Reading order follows what the action actually requires: the one field
+  // that gates Start comes first and widest, and the optional ones fold away
+  // behind a disclosure. Before this, the required Project select was the
+  // narrowest control on the bar and the last one you reached.
   return (
-    <div className="timer-bar">
+    <div className={`timer-bar ${isRunning ? "timer-bar--running" : ""}`}>
       <div className="timer-bar__inner">
-        {/* Description input */}
-        <input
-          className="timer-bar__desc"
-          placeholder="What are you working on?"
-          aria-label="What are you working on?"
-          value={isRunning ? description : desc}
-          onChange={(e) => {
-            if (isRunning) onUpdate({ description: e.target.value });
-            else setDesc(e.target.value);
-          }}
-        />
-
-        {/* Ratio input */}
-        <div className="timer-bar__ratio-group">
-          <input
-            className="timer-bar__ratio"
-            type="number"
-            step="1"
-            min="0"
-            placeholder="Ratio"
-            aria-label="Billing ratio — identifies which account this entry's time is billed to"
-            value={isRunning ? (ratio !== undefined ? String(ratio) : "") : ratioInput}
-            onChange={(e) => {
-              if (isRunning) onUpdate({ ratio: parseRatio(e.target.value) });
-              else setRatioInput(e.target.value);
-            }}
-          />
-          <HelpTip label="What is Ratio?" text="Billing ratio — the account/rate code this entry's time is billed to. It's a label, not a multiplier: reports never multiply your hours by it. Leave blank if not applicable." />
-        </div>
-
-        {/* Project selector */}
+        {/* Project + task */}
         <div className="timer-bar__selectors">
           {!isRunning ? (
             <>
-              <select
-                ref={projectSelectRef}
-                className="timer-bar__select"
-                aria-label="Project"
-                value={selectedProject}
-                onChange={(e) => {
-                  const pid = e.target.value;
-                  setSelectedProject(pid);
-                  setSelectedTask("");
-                  setAddingNewTask(false);
-                  setNewTaskName("");
-                  setNeedsProject(false);
-                  if (pid) onLoadTasksForProject(pid);
-                }}
-              >
-                <option value="">Select project…</option>
-                {/* Archived projects resolve names elsewhere but can't take new time. */}
-                {projects.filter((p) => p.isActive).map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
+              <div ref={projectFieldRef} className="timer-bar__project-field">
+                <Combobox
+                  className="combobox--project"
+                  ariaLabel="Project"
+                  placeholder="Select project…"
+                  value={selectedProject}
+                  // Archived projects resolve names elsewhere but can't take new time.
+                  options={projects.filter((p) => p.isActive).map((p) => ({
+                    value: p.id, label: p.name, color: p.color,
+                  }))}
+                  onChange={(pid) => {
+                    setSelectedProject(pid);
+                    setSelectedTask("");
+                    setAddingNewTask(false);
+                    setNewTaskName("");
+                    setNeedsProject(false);
+                    if (pid) onLoadTasksForProject(pid);
+                  }}
+                />
+              </div>
               {selectedProject && !addingNewTask && (
-                <select
-                  className="timer-bar__select"
-                  aria-label="Task"
+                <Combobox
+                  className="combobox--task"
+                  ariaLabel="Task"
+                  placeholder="No task"
                   value={selectedTask}
-                  onChange={(e) => {
-                    if (e.target.value === NEW_TASK_OPTION) {
+                  options={[
+                    ...projectTasks.map((t) => ({ value: t.id, label: t.name })),
+                    { value: NEW_TASK_OPTION, label: "+ New task…", isAction: true },
+                  ]}
+                  onChange={(v) => {
+                    if (v === NEW_TASK_OPTION) {
                       setAddingNewTask(true);
                       setNewTaskName("");
                     } else {
-                      setSelectedTask(e.target.value);
+                      setSelectedTask(v);
                     }
                   }}
-                >
-                  <option value="">No task</option>
-                  {projectTasks.map((t) => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
-                  ))}
-                  <option value={NEW_TASK_OPTION}>+ New task…</option>
-                </select>
+                />
               )}
               {selectedProject && addingNewTask && (
                 <div className="timer-bar__new-task">
@@ -382,7 +378,30 @@ export const TimerBar: React.FC<Props> = ({
           )}
         </div>
 
-        {/* Elapsed + button */}
+        {/* Description — takes the slack, since it's free text with no natural width */}
+        <input
+          className="timer-bar__desc"
+          placeholder="What are you working on?"
+          aria-label="What are you working on?"
+          value={isRunning ? description : desc}
+          onChange={(e) => {
+            if (isRunning) onUpdate({ description: e.target.value });
+            else setDesc(e.target.value);
+          }}
+        />
+
+        {/* Ratio + ticket, folded away until asked for */}
+        <button
+          type="button"
+          className={`timer-bar__extras-toggle ${extrasSummary ? "timer-bar__extras-toggle--set" : ""}`}
+          onClick={() => setExtrasOpen((v) => !v)}
+          aria-expanded={extrasOpen}
+          aria-controls="timer-bar-extras"
+          title="Billing ratio and ticket reference (optional)"
+        >
+          {extrasSummary ?? "+ Ratio · Ticket"}
+        </button>
+
         <div className="timer-bar__controls">
           {focus && <FocusControl focus={focus} />}
           {pendingStopAt ? (
@@ -411,6 +430,39 @@ export const TimerBar: React.FC<Props> = ({
           )}
         </div>
       </div>
+
+      {extrasOpen && (
+        <div className="timer-bar__extras" id="timer-bar-extras">
+          <label className="timer-bar__extras-label" htmlFor="timer-ratio">Ratio</label>
+          <input
+            id="timer-ratio"
+            className="timer-bar__ratio"
+            type="number"
+            step="1"
+            min="0"
+            placeholder="e.g. 1"
+            aria-label="Billing ratio — identifies which account this entry's time is billed to"
+            value={isRunning ? (ratio !== undefined ? String(ratio) : "") : ratioInput}
+            onChange={(e) => {
+              if (isRunning) onUpdate({ ratio: parseRatio(e.target.value) });
+              else setRatioInput(e.target.value);
+            }}
+          />
+          <HelpTip label="What is Ratio?" text="Billing ratio — the account/rate code this entry's time is billed to. It's a label, not a multiplier: reports never multiply your hours by it. Leave blank if not applicable." />
+          <label className="timer-bar__extras-label" htmlFor="timer-ticket">Ticket</label>
+          <input
+            id="timer-ticket"
+            className="timer-bar__ticket"
+            placeholder="e.g. PROJ-123"
+            aria-label="Ticket reference for this entry"
+            value={isRunning ? (jiraTicket ?? "") : ticketInput}
+            onChange={(e) => {
+              if (isRunning) onUpdate({ jiraTicket: e.target.value });
+              else setTicketInput(e.target.value);
+            }}
+          />
+        </div>
+      )}
 
       {/* role="status" so the same nudge reaches a screen reader, which never
           sees the focus ring the sighted path relies on. */}

@@ -41,6 +41,13 @@ function renderBar(overrides: Partial<React.ComponentProps<typeof TimerBar>> = {
 
 const startButton = () => screen.getByRole("button", { name: "Start timer" });
 
+/** Drive the type-ahead the way a user does: open it, then pick a row. */
+function pickFromCombobox(ariaLabel: string, optionName: string) {
+  const input = screen.getByRole("combobox", { name: ariaLabel });
+  fireEvent.mouseDown(input);
+  fireEvent.mouseDown(screen.getByRole("option", { name: optionName }));
+}
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -67,7 +74,7 @@ describe("TimerBar Start button", () => {
   it("drops the hint once a project is chosen", () => {
     renderBar();
     fireEvent.click(startButton());
-    fireEvent.change(screen.getByLabelText("Project"), { target: { value: "p1" } });
+    pickFromCombobox("Project", "Alpha");
     expect(screen.queryByText("Pick a project first")).toBeNull();
   });
 
@@ -83,13 +90,13 @@ describe("TimerBar Start button", () => {
 
   it("starts normally once a project is selected", () => {
     const { onStart } = renderBar();
-    fireEvent.change(screen.getByLabelText("Project"), { target: { value: "p1" } });
+    pickFromCombobox("Project", "Alpha");
     fireEvent.change(screen.getByLabelText("What are you working on?"), {
       target: { value: "Fixing the timer" },
     });
     fireEvent.click(startButton());
 
-    expect(onStart).toHaveBeenCalledWith("p1", null, "Fixing the timer", undefined);
+    expect(onStart).toHaveBeenCalledWith("p1", null, "Fixing the timer", undefined, undefined);
     expect(screen.queryByText("Pick a project first")).toBeNull();
   });
 
@@ -97,5 +104,104 @@ describe("TimerBar Start button", () => {
     renderBar({ isRunning: true, elapsed: 4521, currentProjectId: "p1" });
     const stop = screen.getByRole("button", { name: "Stop timer" });
     expect(stop.textContent).toContain("01:15:21");
+  });
+});
+
+describe("TimerBar layout", () => {
+  it("puts the required project field first, ahead of the optional ones", () => {
+    renderBar();
+    const bar = document.querySelector(".timer-bar__inner")!;
+    const order = [...bar.querySelectorAll(".combobox__input, .timer-bar__desc, .timer-bar__extras-toggle")]
+      .map((el) => el.getAttribute("aria-label") ?? el.textContent);
+
+    // Project gates the action, so it reads first; ratio/ticket are folded
+    // away at the end.
+    expect(order[0]).toBe("Project");
+    expect(order[1]).toBe("What are you working on?");
+    expect(order[2]).toBe("+ Ratio · Ticket");
+  });
+
+  it("marks the bar as running so the state is visible at a glance", () => {
+    const { container } = renderBar({ isRunning: true, currentProjectId: "p1" });
+    expect(container.querySelector(".timer-bar--running")).not.toBeNull();
+  });
+});
+
+describe("TimerBar project combobox", () => {
+  it("filters projects as you type instead of making you scan the whole list", () => {
+    renderBar({ projects: [...projects, { id: "p2", name: "Beta", color: "#222", isActive: true, createdAt: "" }] });
+    const input = screen.getByRole("combobox", { name: "Project" });
+    fireEvent.mouseDown(input);
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["Alpha", "Beta"]);
+
+    fireEvent.change(input, { target: { value: "bet" } });
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["Beta"]);
+  });
+
+  it("commits the highlighted option on Enter", () => {
+    const { onStart } = renderBar();
+    const input = screen.getByRole("combobox", { name: "Project" });
+    fireEvent.mouseDown(input);
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    fireEvent.click(startButton());
+    expect(onStart).toHaveBeenCalledWith("p1", null, "", undefined, undefined);
+  });
+
+  it("leaves the selection alone on Escape", () => {
+    renderBar();
+    const input = screen.getByRole("combobox", { name: "Project" });
+    fireEvent.mouseDown(input);
+    fireEvent.keyDown(input, { key: "Escape" });
+
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Task" })).toBeNull();
+  });
+
+  it("keeps the new-task action reachable when the search matches nothing", () => {
+    renderBar();
+    pickFromCombobox("Project", "Alpha");
+    const taskInput = screen.getByRole("combobox", { name: "Task" });
+    fireEvent.mouseDown(taskInput);
+    fireEvent.change(taskInput, { target: { value: "zzzz" } });
+
+    // Coming up empty is exactly when creating one is the obvious next move.
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["+ New task…"]);
+  });
+});
+
+describe("TimerBar ratio/ticket disclosure", () => {
+  it("keeps ratio and ticket out of the way until asked for", () => {
+    renderBar();
+    expect(screen.queryByLabelText(/Billing ratio/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "+ Ratio · Ticket" }));
+    expect(screen.getByLabelText(/Billing ratio/)).not.toBeNull();
+    expect(screen.getByLabelText("Ticket reference for this entry")).not.toBeNull();
+  });
+
+  it("summarises what is set so a collapsed value is never invisible", () => {
+    renderBar();
+    fireEvent.click(screen.getByRole("button", { name: "+ Ratio · Ticket" }));
+    fireEvent.change(screen.getByLabelText(/Billing ratio/), { target: { value: "2" } });
+    fireEvent.change(screen.getByLabelText("Ticket reference for this entry"), {
+      target: { value: "PROJ-123" },
+    });
+    // Collapse it again — the values have to still be visible on the chip.
+    fireEvent.click(screen.getByRole("button", { name: /Ratio 2/ }));
+    expect(screen.getByRole("button", { name: "Ratio 2 · PROJ-123" })).not.toBeNull();
+  });
+
+  it("carries the ticket through to onStart", () => {
+    const { onStart } = renderBar();
+    pickFromCombobox("Project", "Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "+ Ratio · Ticket" }));
+    fireEvent.change(screen.getByLabelText("Ticket reference for this entry"), {
+      target: { value: "PROJ-9" },
+    });
+    fireEvent.click(startButton());
+
+    expect(onStart).toHaveBeenCalledWith("p1", null, "", undefined, "PROJ-9");
   });
 });

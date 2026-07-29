@@ -294,6 +294,14 @@ input, select { font-family: inherit; }
   box-shadow: var(--shadow-sm);
 }
 
+/* "The timer is on" needs to be readable from across the room, not inferred
+   from a 3px pulse bar. Layered so the tint composes over the surface colour
+   in either theme rather than letting the page background through. */
+.timer-bar--running {
+  background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--surface);
+  border-bottom-color: var(--ev-green);
+}
+
 .timer-bar__inner {
   display: flex; align-items: center; gap: 12px;
   padding: 12px 24px; height: var(--timer-h);
@@ -313,7 +321,51 @@ input, select { font-family: inherit; }
 .timer-bar__desc:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--ev-green-soft); }
 .timer-bar__desc::placeholder { color: var(--text-faint); }
 
-.timer-bar__ratio-group { display: flex; align-items: center; gap: 6px; flex: none; }
+/* Ratio + ticket, revealed by the disclosure in the main row. */
+.timer-bar__extras {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 24px 12px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--surface-2);
+}
+.timer-bar__extras-label {
+  font-size: 11px; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.7px;
+}
+.timer-bar__extras-label:not(:first-child) { margin-left: 10px; }
+.timer-bar__extras-toggle {
+  flex: none;
+  padding: 7px 12px;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12.5px; font-weight: 600;
+  cursor: pointer; white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s;
+}
+.timer-bar__extras-toggle:hover { border-color: var(--ev-green); color: var(--ev-green-dark); }
+/* Solid once it carries a value, so a set ratio isn't hidden behind a "+". */
+.timer-bar__extras-toggle--set {
+  border-style: solid; border-color: var(--ev-green);
+  background: var(--accent-soft); color: var(--ev-green-dark);
+  font-family: var(--mono); font-size: 12px;
+}
+
+.timer-bar__ticket {
+  width: 130px;
+  flex: none;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
+  color: var(--text);
+  font-family: var(--mono); font-size: 13px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  outline: none;
+}
+.timer-bar__ticket:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--ev-green-soft); }
+.timer-bar__ticket::placeholder { color: var(--text-faint); font-family: var(--font); }
 
 .timer-bar__ratio {
   width: 90px;
@@ -330,7 +382,11 @@ input, select { font-family: inherit; }
 .timer-bar__ratio:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--ev-green-soft); }
 .timer-bar__ratio::placeholder { color: var(--text-faint); }
 
-.timer-bar__selectors { display: flex; gap: 8px; }
+.timer-bar__selectors { display: flex; gap: 8px; flex: none; }
+/* The one required field on the bar gets a width that says so. */
+.timer-bar__project-field { display: flex; }
+.combobox--project { width: 210px; }
+.combobox--task { width: 150px; }
 
 .timer-bar__select {
   background: var(--surface-2);
@@ -345,6 +401,61 @@ input, select { font-family: inherit; }
   max-width: 165px;
 }
 .timer-bar__select:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--ev-green-soft); }
+
+/* ---------- Combobox (type-ahead single select) ---------- */
+.combobox { position: relative; display: flex; align-items: center; }
+.combobox__input {
+  width: 100%;
+  background: var(--surface-2);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 7px 24px 7px 10px;
+  font-size: 13px; font-weight: 600;
+  outline: none; cursor: pointer;
+  text-overflow: ellipsis;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.combobox__input--dotted { padding-left: 24px; }
+.combobox__input:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--ev-green-soft); cursor: text; }
+.combobox__input::placeholder { color: var(--text-faint); font-weight: 500; }
+.combobox__dot {
+  position: absolute; left: 10px;
+  width: 8px; height: 8px; border-radius: 50%;
+  pointer-events: none; flex-shrink: 0;
+}
+.combobox__dot--inline { position: static; margin-right: 7px; }
+.combobox__caret {
+  position: absolute; right: 9px;
+  font-size: 10px; color: var(--text-muted);
+  pointer-events: none;
+}
+.combobox__list {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+  z-index: 60;
+  max-height: 260px; overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 4px;
+  list-style: none;
+}
+.combobox__option {
+  display: flex; align-items: center;
+  padding: 7px 9px;
+  border-radius: 4px;
+  font-size: 13px; color: var(--text);
+  cursor: pointer;
+}
+.combobox__option--active { background: var(--accent-soft); }
+.combobox__option[aria-selected="true"] { font-weight: 700; }
+.combobox__option--action {
+  color: var(--ev-green-dark); font-weight: 600;
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 4px; padding-top: 9px; border-radius: 0 0 4px 4px;
+}
+.combobox__empty { padding: 9px; font-size: 12.5px; color: var(--text-faint); text-align: center; }
 
 .timer-bar__new-task { display: flex; align-items: center; gap: 4px; }
 .timer-bar__new-task-input {

@@ -335,6 +335,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
           currentTaskId={timer.taskId}
           description={timer.description}
           ratio={timer.ratio}
+          jiraTicket={timer.jiraTicket}
           focus={{
             enabled: focusMode.enabled,
             phase: focusMode.phase,

@@ -839,6 +839,7 @@ export async function createDraftTimerEntry(data: {
   startTime: string;
   date: string;
   ratio?: number;
+  jiraTicket?: string;
 }): Promise<string | null> {
   const user = getCurrentUser();
   if (!isPowerAppsHost()) {
@@ -864,6 +865,7 @@ export async function createDraftTimerEntry(data: {
   };
   if (data.description) raw.ever_description = data.description;
   if (data.ratio !== undefined) raw.ever_ratio = data.ratio;
+  if (data.jiraTicket) raw.ever_jiraticket = data.jiraTicket;
   if (data.taskId) raw[`ever_workitem@odata.bind`] = `/${SETS.tasks}(${data.taskId})`;
   const result = await retryWithBackoff(() => MicrosoftDataverseService.CreateRecordWithOrganization(
     PREFER_RETURN, ACCEPT, orgUrl(), SETS.entries, raw,

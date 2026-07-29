@@ -51,6 +51,7 @@ export interface TimerState {
   taskId: string | null;
   description: string;
   ratio?: number;
+  jiraTicket?: string;
   /** Dataverse record ID of the draft entry written on timer start (#15). */
   draftEntryId?: string;
   /** ISO timestamp recorded when a stop attempt fails, enabling retry (#32). */
