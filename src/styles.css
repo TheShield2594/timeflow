@@ -562,8 +562,17 @@ input, select { font-family: inherit; }
 .timesheet__day-total { font-size: 12px; font-weight: 700; color: var(--text-muted); font-family: var(--mono); }
 .timesheet__entries { display: flex; flex-direction: column; gap: 6px; }
 
+/* One grid, four columns: what it was / when / how long / actions. The
+   duration gets a column of its own so a day's entries can be scanned
+   vertically, which they couldn't when it sat under the buttons. */
 .entry-row {
-  display: flex; align-items: stretch;
+  display: grid;
+  /* 54px is a floor, not a cap: it holds the numeric column steady while
+     still letting the wider "Running…" indicator through uncropped. */
+  grid-template-columns: 4px minmax(0, 1fr) max-content minmax(54px, max-content) auto;
+  align-items: center;
+  gap: 0 14px;
+  padding-right: 12px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -572,17 +581,60 @@ input, select { font-family: inherit; }
   box-shadow: var(--shadow-sm);
 }
 .entry-row:hover { box-shadow: var(--shadow); }
-.entry-row__accent { width: 4px; flex-shrink: 0; }
-.entry-row__body { flex: 1; padding: 10px 16px; min-width: 0; }
-.entry-row__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
-.entry-row__desc { font-size: 13.5px; font-weight: 600; color: var(--text); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.entry-row__accent { align-self: stretch; }
+.entry-row__main { display: flex; flex-direction: column; gap: 1px; min-width: 0; padding: 7px 0 7px 14px; }
+.entry-row__desc { font-size: 13.5px; font-weight: 600; line-height: 1.4; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .entry-row__no-desc { color: var(--text-faint); font-style: italic; font-weight: 400; }
-.entry-row__badges { display: flex; gap: 5px; flex-shrink: 0; }
-.entry-row__bottom { display: flex; justify-content: space-between; align-items: center; }
-.entry-row__times { font-size: 12px; color: var(--text-muted); font-family: var(--mono); }
-.entry-row__duration { font-size: 12px; font-weight: 700; color: var(--ev-green-dark); font-family: var(--mono); }
-.entry-row__delete { padding: 0 14px; color: var(--text-faint); font-size: 20px; transition: color 0.15s; flex-shrink: 0; line-height: 1; }
-.entry-row__delete:hover { color: var(--ev-pumpkin-text); }
+
+.entry-row__meta {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 11.5px; line-height: 1.35; color: var(--text-muted);
+  min-width: 0; white-space: nowrap; overflow: hidden;
+}
+/* Separators as pseudo-elements, so the markup stays a plain list of facts.
+   The space is a margin, not a trailing space in `content` — that collapses. */
+.entry-row__meta > * + *::before { content: "·"; margin-right: 5px; color: var(--text-faint); }
+.entry-row__project { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; }
+.entry-row__dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.entry-row__ticket { font-family: var(--mono); font-size: 11px; }
+.entry-row__ratio { color: var(--text-faint); }
+
+.entry-row__times {
+  font-size: 12px; color: var(--text-muted);
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.entry-row__duration {
+  font-size: 13px; font-weight: 700;
+  color: var(--ev-green-dark);
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* Actions stay out of the way until the row is pointed at or focused. Three
+   permanently-visible buttons per row turned a rare action into the loudest
+   repeated element on the page. Opacity rather than display, so they keep
+   their place in the tab order and :focus-within can reveal them. */
+.entry-row__actions { display: flex; align-items: center; gap: 2px; opacity: 0; transition: opacity 0.12s; }
+.entry-row:hover .entry-row__actions,
+.entry-row:focus-within .entry-row__actions { opacity: 1; }
+/* Touch devices have no hover to reveal them with. */
+@media (hover: none) { .entry-row__actions { opacity: 1; } }
+
+.entry-row__action {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.entry-row__action:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.entry-row__action:disabled { opacity: 0.35; cursor: not-allowed; }
+.entry-row__continue:hover:not(:disabled) { color: var(--ev-green-dark); border-color: var(--ev-green); }
+.entry-row__delete:hover { color: var(--ev-pumpkin-text); border-color: var(--danger-border); }
 
 .badge { padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .badge--task { background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border); }
@@ -1044,15 +1096,7 @@ input, select { font-family: inherit; }
 /* =====================================================================
    ENTRY EDIT FORM (inline in Timesheet)
    ===================================================================== */
-.entry-row__edit {
-  padding: 0 10px;
-  color: var(--text-faint);
-  font-size: 16px;
-  transition: color 0.15s;
-  flex-shrink: 0;
-  line-height: 1;
-}
-.entry-row__edit:hover { color: var(--ev-green-dark); }
+.entry-row__edit:hover { color: var(--ev-green-dark); border-color: var(--ev-green); }
 
 .entry-row__running {
   display: inline-flex;
@@ -1569,8 +1613,6 @@ input, select { font-family: inherit; }
 .cal-modal__close { display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 4px; }
 .cal-modal__close:hover { background: var(--surface-2); }
 
-/* Row action buttons host SVGs */
-.entry-row__edit, .entry-row__delete { display: flex; align-items: center; }
 
 /* =====================================================================
    RESPONSIVE — collapse sidebar to an icon rail, relax grids
@@ -1744,28 +1786,6 @@ input, select { font-family: inherit; }
 .sidebar__theme-toggle:hover { background: rgba(255,255,255,0.06); color: var(--sidebar-text); }
 /* When the running indicator is present it already claims the auto margin. */
 .sidebar__running + .sidebar__theme-toggle { margin-top: 10px; }
-
-/* =====================================================================
-   CONTINUE BUTTON (timesheet rows)
-   ===================================================================== */
-.entry-row__continue {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  align-self: center;
-  padding: 4px 10px;
-  margin-left: 6px;
-  border-radius: 20px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--ev-green-dark);
-  background: var(--ev-green-soft);
-  border: 1px solid rgba(113,149,0,0.3);
-  flex-shrink: 0;
-  transition: background 0.15s, opacity 0.15s;
-}
-.entry-row__continue:hover:not(:disabled) { background: var(--ev-green-mid); }
-.entry-row__continue:disabled { opacity: 0.35; cursor: not-allowed; }
 
 /* =====================================================================
    WEEKLY TARGET — calendar header progress + timesheet chip
