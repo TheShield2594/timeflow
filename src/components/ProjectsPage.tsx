@@ -384,16 +384,18 @@ export const ProjectsPage: React.FC<Props> = ({
                     {project.description && (
                       <div className="project-card__desc">{project.description}</div>
                     )}
+                    {/* Ticket then ratio, worded as the timesheet row words
+                        them — the same two facts shouldn't read differently
+                        depending on which screen you're looking at. */}
                     <div className="project-card__attrs">
-                      {project.ratio !== undefined && (
-                        <span className="chip-ratio" title={`Default billing ratio ${project.ratio}`}>
-                          <span aria-hidden="true">r{project.ratio}</span>
-                          <span className="sr-only">Default billing ratio {project.ratio}</span>
-                        </span>
-                      )}
                       {project.jiraTicket && (
                         <span className="chip-ticket" title={`Jira ticket ${project.jiraTicket}`}>
                           {project.jiraTicket}
+                        </span>
+                      )}
+                      {project.ratio !== undefined && (
+                        <span className="chip-ratio" title={`Default billing ratio for new entries`}>
+                          Ratio {project.ratio}
                         </span>
                       )}
                     </div>
