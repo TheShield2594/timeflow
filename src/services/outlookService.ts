@@ -202,11 +202,17 @@ async function getDefaultCalendarId(): Promise<string> {
   if (cachedCalendarId) return cachedCalendarId;
   const data = await callOutlook<Record<string, never>, unknown>("CalendarGetTables_V2", {});
   const tables = unwrapItems(data);
-  // Prefer the mailbox's primary calendar; older tenants name it "Calendar",
-  // localized tenants don't, so fall back to the first calendar returned.
+  // Prefer the mailbox's default calendar, which Graph marks explicitly;
+  // older/localized connector responses may lack that flag, so fall back to
+  // one literally named "Calendar", then to the first calendar returned.
   const primary =
-    tables.find((t) => pickStr(t, "displayName", "DisplayName") === "Calendar") ?? tables[0];
-  const id = primary ? pickStr(primary, "name", "Name", "id", "Id") : undefined;
+    tables.find((t) => pick(t, "isDefaultCalendar", "IsDefaultCalendar") === true) ??
+    tables.find((t) => pickStr(t, "name", "Name") === "Calendar") ??
+    tables[0];
+  // `id` is the calendar's unique identifier that GetEventsCalendarViewV3
+  // expects as calendarId. `name` is only the human-readable label ("Calendar")
+  // — sending it as the id produces Graph's "Id is malformed" (400).
+  const id = primary ? pickStr(primary, "id", "Id") : undefined;
   if (!id) throw new OutlookNotConnectedError("No Outlook calendars were returned for this account.");
   cachedCalendarId = id;
   return id;

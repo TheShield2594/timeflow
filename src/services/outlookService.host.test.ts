@@ -33,7 +33,7 @@ type ExecuteRequest = {
 function workingClient(executeAsync = vi.fn()) {
   executeAsync.mockImplementation(async (req: ExecuteRequest) => {
     if (req.connectorOperation.operationName === "CalendarGetTables_V2") {
-      return { success: true, data: { value: [{ Name: "cal-1", DisplayName: "Calendar" }] } };
+      return { success: true, data: { value: [{ Id: "cal-1", Name: "Calendar", IsDefaultCalendar: true }] } };
     }
     return {
       success: true,
