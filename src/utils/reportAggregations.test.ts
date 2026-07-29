@@ -9,6 +9,7 @@ import {
   buildTaskBreakdown,
   countActiveDays,
   filterEntriesForRange,
+  findNarrowestRangeWithData,
   getDaysInRange,
   pickBucket,
   resolveEffectiveRange,
@@ -141,6 +142,40 @@ describe("resolveEffectiveRange", () => {
   it("falls back to today when there is no data at all", () => {
     expect(resolveEffectiveRange("all", [], "1970-01-01", "9999-12-31", "2026-03-07"))
       .toEqual({ effFrom: "2026-03-07", effTo: "2026-03-07" });
+  });
+});
+
+describe("findNarrowestRangeWithData", () => {
+  // Fixed candidate ranges so the assertions don't move with the calendar.
+  const week = { preset: "7d", label: "Last 7 days", from: "2024-05-15", to: "2024-05-21" };
+  const month = { preset: "30d", label: "Last 30 days", from: "2024-04-22", to: "2024-05-21" };
+  const all = { preset: "all", label: "All time", from: "1970-01-01", to: "9999-12-31" };
+
+  it("returns the narrowest range holding time, with its total", () => {
+    // Present in both 30d and all time; 30d is the smaller jump from an empty
+    // 7-day view, so that's what gets offered.
+    const found = findNarrowestRangeWithData([entry("2024-05-02", 90)], [month, all]);
+    expect(found?.preset).toBe("30d");
+    expect(found?.minutes).toBe(90);
+  });
+
+  it("sums every entry inside a candidate, and only those", () => {
+    const found = findNarrowestRangeWithData(
+      [entry("2024-05-02", 90), entry("2024-05-03", 30), entry("2020-01-01", 600)],
+      [month],
+    );
+    expect(found?.minutes).toBe(120);
+  });
+
+  it("skips candidates that are empty even when they are narrower", () => {
+    const found = findNarrowestRangeWithData([entry("2024-05-02", 90)], [week, month]);
+    expect(found?.preset).toBe("30d");
+  });
+
+  it("returns null when nothing anywhere has time, so no dead offer is made", () => {
+    expect(findNarrowestRangeWithData([], [week, month, all])).toBeNull();
+    // Zero-duration entries are not data to go and look at.
+    expect(findNarrowestRangeWithData([entry("2024-05-02", 0)], [month, all])).toBeNull();
   });
 });
 

@@ -16,7 +16,7 @@ export const DEFAULT_RANGE: DateRangeState = {
   customTo: "",
 };
 
-const PRESET_LABEL: Record<DateRangePreset, string> = {
+export const PRESET_LABEL: Record<DateRangePreset, string> = {
   "7d": "Last 7 days",
   "30d": "Last 30 days",
   "90d": "Last 90 days",

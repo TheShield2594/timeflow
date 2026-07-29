@@ -97,6 +97,50 @@ export function resolveEffectiveRange(
   return { effFrom: lower, effTo: upper >= lower ? upper : lower };
 }
 
+export interface RangeCandidate {
+  /** Opaque to this module — handed back so the caller can switch to it. */
+  preset: string;
+  label: string;
+  from: string;
+  to: string;
+}
+
+export interface RangeWithData extends RangeCandidate {
+  minutes: number;
+}
+
+/** Whole days from `from` to `to`. Computed by subtraction rather than by
+ *  walking the calendar, because "all time" spans 1970→9999. */
+function spanDays(range: { from: string; to: string }): number {
+  const ms = new Date(range.to + "T00:00:00").getTime() - new Date(range.from + "T00:00:00").getTime();
+  return Math.round(ms / 86_400_000);
+}
+
+/**
+ * The narrowest candidate range that actually holds logged time — what to
+ * offer someone looking at an empty report so the page is a recovery rather
+ * than a dead end.
+ *
+ * Narrowest rather than widest deliberately: it stays closest to the range
+ * they asked for, so the jump out of the empty state is the smallest one that
+ * shows them something.
+ */
+export function findNarrowestRangeWithData(
+  entries: TimeEntry[],
+  candidates: RangeCandidate[],
+): RangeWithData | null {
+  const totals: RangeWithData[] = candidates.map((c) => ({ ...c, minutes: 0 }));
+  for (const e of entries) {
+    if (!e.date || !e.durationMinutes) continue;
+    for (const c of totals) {
+      if (e.date >= c.from && e.date <= c.to) c.minutes += e.durationMinutes;
+    }
+  }
+  const withData = totals.filter((c) => c.minutes > 0);
+  if (withData.length === 0) return null;
+  return withData.reduce((best, c) => (spanDays(c) < spanDays(best) ? c : best));
+}
+
 export interface ProjectBreakdownRow {
   project: Project;
   minutes: number;

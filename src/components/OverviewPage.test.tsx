@@ -79,6 +79,23 @@ describe("OverviewPage", () => {
     expect(kpiValue("Today")).toBe("1h 30m");
   });
 
+  it("names the last day with time on it instead of reporting a bare 0m today", () => {
+    // "0m today" beside a populated heatmap reads like a page that failed to
+    // load; the date says the same thing unambiguously.
+    const entries = [makeEntry(3, 60)];
+    renderOverview(entries);
+    expect(kpiValue("Today")).toBe("—");
+    const expected = new Date(addDaysStr(localDateStr(), -3) + "T00:00:00").toLocaleDateString("en", {
+      weekday: "short", month: "short", day: "numeric",
+    });
+    expect(screen.getByText(`Last logged ${expected}`)).not.toBeNull();
+  });
+
+  it("drops the last-logged note once something is tracked today", () => {
+    renderOverview([makeEntry(0, 90), makeEntry(3, 60)]);
+    expect(screen.queryByText(/Last logged/)).toBeNull();
+  });
+
   it("sums the current calendar week into the This Week KPI", () => {
     // Today always falls inside its own calendar week, so with only one
     // entry (today's), Today and This Week show the same total.

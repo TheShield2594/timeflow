@@ -571,6 +571,7 @@ input, select { font-family: inherit; }
 /* 24px/700 qualifies as large text — raw brand green passes at 3:1 */
 .kpi-card__value { font-size: 24px; font-weight: 700; font-family: var(--mono); letter-spacing: -0.5px; color: var(--ev-green); }
 .kpi-card__target { font-size: 15px; font-weight: 600; color: var(--text-muted); }
+.kpi-card__note { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
 .kpi-card__flame { color: var(--ev-pumpkin); vertical-align: -2px; margin-right: 3px; }
 
 .reports__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -667,7 +668,24 @@ input, select { font-family: inherit; }
   box-shadow: 0 2px 8px rgba(0,0,0,0.18);
 }
 
-.reports__empty { padding: 32px 0; text-align: center; color: var(--text-faint); font-size: 14px; }
+.reports__empty {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 64px 20px; text-align: center;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow-sm);
+}
+.reports__empty-icon { color: var(--ev-green); opacity: 0.35; }
+.reports__empty-title { font-size: 15px; font-weight: 600; color: var(--text); }
+.reports__empty-hint { font-size: 13px; color: var(--text-muted); }
+/* The way out of the empty range, so it reads as an offer rather than a
+   restatement of the bad news above it. */
+.reports__empty-action {
+  font-size: 13px; font-weight: 600; color: var(--ev-green-dark);
+  background: var(--accent-soft); border: 1px solid var(--ev-green);
+  border-radius: var(--radius-sm); padding: 8px 14px; cursor: pointer;
+  transition: background 0.15s var(--ease);
+}
+.reports__empty-action:hover { background: var(--ev-green-mid); }
 
 .project-breakdown { display: flex; flex-direction: column; gap: 14px; }
 .project-breakdown__meta { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
