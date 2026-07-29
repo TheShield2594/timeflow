@@ -109,6 +109,24 @@ export function useFocusMode(isRunning: boolean, elapsed: number): {
 
   const { enabled, focusMinutes, breakMinutes } = stored;
 
+  // Persistence happens in effects keyed on the settled state, never inside
+  // setState updater functions — React may replay updaters (StrictMode,
+  // concurrent renders), which would duplicate the side effect.
+  useEffect(() => {
+    persistSettings(stored);
+  }, [stored]);
+
+  useEffect(() => {
+    if (sessionsToday > 0) persistSessionsToday(sessionsToday);
+  }, [sessionsToday]);
+
+  // Each new running session starts its focus countdown from zero elapsed.
+  // (Ref write lives here, not in a setPhase updater, for the same
+  // replay-safety reason as the persistence effects above.)
+  useEffect(() => {
+    if (isRunning) anchorRef.current = 0;
+  }, [isRunning]);
+
   // Enter/leave the focus phase as the timer starts/stops. A manual stop
   // mid-block (or disabling the mode) drops any pending prompt — the user
   // has already decided what happens next.
@@ -119,11 +137,7 @@ export function useFocusMode(isRunning: boolean, elapsed: number): {
       return;
     }
     if (isRunning) {
-      setPhase((p) => {
-        if (p === "focus" || p === "prompt-break") return p;
-        anchorRef.current = 0;
-        return "focus";
-      });
+      setPhase((p) => (p === "focus" || p === "prompt-break" ? p : "focus"));
       setBreakEndsAt(null);
     } else {
       setPhase((p) => (p === "focus" || p === "prompt-break" ? "off" : p));
@@ -136,11 +150,7 @@ export function useFocusMode(isRunning: boolean, elapsed: number): {
     if (phase !== "focus" || !isRunning) return;
     if (focusRemaining > 0) return;
     setPhase("prompt-break");
-    setSessionsToday((prev) => {
-      const next = prev + 1;
-      persistSessionsToday(next);
-      return next;
-    });
+    setSessionsToday((prev) => prev + 1);
   }, [phase, isRunning, focusRemaining]);
 
   // Break countdown.
@@ -162,23 +172,15 @@ export function useFocusMode(isRunning: boolean, elapsed: number): {
   }, [phase, breakEndsAt, breakRemaining]);
 
   const toggleEnabled = useCallback(() => {
-    setStored((prev) => {
-      const next = { ...prev, enabled: !prev.enabled };
-      persistSettings(next);
-      return next;
-    });
+    setStored((prev) => ({ ...prev, enabled: !prev.enabled }));
   }, []);
 
   const updateSettings = useCallback((patch: Partial<FocusSettings>) => {
-    setStored((prev) => {
-      const next: StoredSettings = {
-        enabled: prev.enabled,
-        focusMinutes: clampMinutes(patch.focusMinutes ?? prev.focusMinutes, prev.focusMinutes),
-        breakMinutes: clampMinutes(patch.breakMinutes ?? prev.breakMinutes, prev.breakMinutes),
-      };
-      persistSettings(next);
-      return next;
-    });
+    setStored((prev) => ({
+      enabled: prev.enabled,
+      focusMinutes: clampMinutes(patch.focusMinutes ?? prev.focusMinutes, prev.focusMinutes),
+      breakMinutes: clampMinutes(patch.breakMinutes ?? prev.breakMinutes, prev.breakMinutes),
+    }));
   }, []);
 
   const keepGoing = useCallback(() => {

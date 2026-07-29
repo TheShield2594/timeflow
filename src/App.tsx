@@ -118,7 +118,8 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
   const navItems = useMemo(() => {
     if (!isManager) return NAV_ITEMS;
     const items = [...NAV_ITEMS];
-    items.splice(4, 0, TEAM_NAV_ITEM); // after Reports, before Projects
+    const afterReports = items.findIndex((i) => i.key === "reports") + 1;
+    items.splice(afterReports || items.length, 0, TEAM_NAV_ITEM);
     return items;
   }, [isManager]);
 

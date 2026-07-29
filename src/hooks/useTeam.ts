@@ -12,10 +12,12 @@ export function useTeamContext(): { teamContext: TeamContext | null } {
 
   useEffect(() => {
     let alive = true;
-    team.getTeamContext().then((ctx) => {
-      if (alive) setTeamContext(ctx);
-    });
-    // getTeamContext never rejects (see teamService), so no catch branch.
+    team.getTeamContext()
+      .then((ctx) => { if (alive) setTeamContext(ctx); })
+      // getTeamContext is documented never to reject; guard anyway so a
+      // regression there surfaces as "no team" rather than an unhandled
+      // rejection at bootstrap.
+      .catch(() => { if (alive) setTeamContext({ myUserId: null, reports: [] }); });
     return () => { alive = false; };
   }, []);
 

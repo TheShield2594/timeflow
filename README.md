@@ -276,10 +276,12 @@ the page shows an "Outlook: not connected" chip and everything else works
 normally. To enable it:
 
 1. Add the data source (once, from a dev machine authenticated with `pac`):
+
    ```bash
    pac connection list                     # find/create an Office 365 Outlook connection id
    pac code add-data-source -a shared_office365 -c <connectionId>
    ```
+
    This regenerates `.power/schemas/appschemas/dataSourcesInfo` with an
    `office365` entry and registers the connection reference in
    `power.config.json`. Until that file carries an `office365` entry, the app

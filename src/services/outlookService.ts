@@ -88,8 +88,20 @@ function outlookClient(): Promise<PowerClient> {
       ? dataSourcesInfo
       : { ...dataSourcesInfo, [OUTLOOK_SOURCE]: OUTLOOK_FALLBACK_SOURCE };
     return (getClient as unknown as (info: unknown) => PowerClient)(sources);
-  })();
+  })().catch((err) => {
+    // Never cache a rejected bootstrap: the next call (week nav, the UI's
+    // Retry button) must be able to try the import/getClient again instead
+    // of replaying this rejection for the rest of the session.
+    clientPromise = null;
+    throw err;
+  });
   return clientPromise;
+}
+
+/** Test hook: clear the memoized SDK client and default-calendar id. */
+export function resetOutlookCache(): void {
+  clientPromise = null;
+  cachedCalendarId = null;
 }
 
 async function callOutlook<TIn, TOut>(operationName: string, parameters: TIn): Promise<TOut> {

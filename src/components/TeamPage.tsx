@@ -109,6 +109,14 @@ export const TeamPage: React.FC<Props> = ({ teamContext, projects }) => {
       .sort((a, b) => b.minutes - a.minutes);
   }, [entries, projects]);
 
+  // Bar widths scale against the rollup's own sum, not teamTotal: the two
+  // can differ (rollup counts entries whose owner id didn't resolve), and a
+  // mismatch would push a bar past 100% — or to NaN if teamTotal were 0.
+  const rollupTotal = useMemo(
+    () => projectRollup.reduce((s, p) => s + p.minutes, 0),
+    [projectRollup]
+  );
+
   const fmtDay = (ds: string) =>
     new Date(`${ds}T00:00:00`).toLocaleDateString("en", { month: "short", day: "numeric" });
   const weekLabel = `${fmtDay(weekStart)} – ${fmtDay(weekEnd)}`;
@@ -211,7 +219,7 @@ export const TeamPage: React.FC<Props> = ({ teamContext, projects }) => {
                     <span className="team__rollup-bar-track">
                       <span
                         className="team__rollup-bar"
-                        style={{ width: `${Math.max(2, Math.round((p.minutes / teamTotal) * 100))}%`, background: p.color }}
+                        style={{ width: `${Math.min(100, Math.max(2, Math.round((p.minutes / (rollupTotal || 1)) * 100)))}%`, background: p.color }}
                       />
                     </span>
                     <span className="team__rollup-minutes">{formatMinutes(p.minutes)}</span>

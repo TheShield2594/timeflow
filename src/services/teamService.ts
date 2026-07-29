@@ -63,11 +63,11 @@ function str(r: Raw, key: string): string | undefined {
   return typeof v === "string" ? v : undefined;
 }
 
-async function listRecords(entitySet: string, opts: { filter?: string; select?: string; fetchXml?: string; orderby?: string }): Promise<Raw[]> {
+async function listRecords(entitySet: string, opts: { filter?: string; select?: string; fetchXml?: string; orderby?: string; prefer?: string }): Promise<Raw[]> {
   const result = await MicrosoftDataverseService.ListRecordsWithOrganization(
     getDataverseOrgUrl(),
     entitySet,
-    undefined, // prefer
+    opts.prefer,
     ACCEPT,
     undefined, // x-ms-odata-metadata-full
     undefined, // MSCRM.IncludeMipSensitivityLabel
@@ -203,7 +203,10 @@ export async function getTeamContext(): Promise<TeamContext> {
     return cachedContext;
   } catch (err) {
     console.warn("Could not check for direct reports; hiding the Team page.", err);
-    return NO_TEAM;
+    // Memoized like the success paths, so the "stays hidden this session"
+    // contract holds without re-issuing the failing reads on every call.
+    cachedContext = NO_TEAM;
+    return cachedContext;
   }
 }
 
@@ -245,7 +248,15 @@ export async function getTeamTimeEntries(from: string, to: string): Promise<Team
         '<order attribute="ever_starttime" descending="true" />' +
       '</entity>' +
     '</fetch>';
-  const rows = await listRecords(ENTRIES_SET, { fetchXml });
+  // Without this Prefer header Dataverse returns only the owner's guid
+  // (_ownerid_value) — the FormattedValue annotation carrying the display
+  // name is opt-in, and losing it renders indirect reports / the manager's
+  // own row as "Unknown user" (direct reports get their names from the
+  // teamContext probe regardless).
+  const rows = await listRecords(ENTRIES_SET, {
+    fetchXml,
+    prefer: 'odata.include-annotations="OData.Community.Display.V1.FormattedValue"',
+  });
   return rows.map((r) => {
     const entry = mapEntry(r);
     const ownerId = str(r, "_ownerid_value") ?? "";

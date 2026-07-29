@@ -483,14 +483,15 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     refresh: refreshOutlook,
   } = useOutlookEvents(weekBounds.from, weekBounds.to, showOutlook);
 
+  // Persistence stays out of the state updater: React may replay updater
+  // functions (StrictMode, concurrent renders), and side effects inside them
+  // can run more than once.
   const toggleOutlook = () => {
-    setShowOutlook((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(showOutlookKey(), next ? "1" : "0");
-      } catch { /* storage unavailable — the preference just won't persist */ }
-      return next;
-    });
+    const next = !showOutlook;
+    setShowOutlook(next);
+    try {
+      localStorage.setItem(showOutlookKey(), next ? "1" : "0");
+    } catch { /* storage unavailable — the preference just won't persist */ }
   };
 
   // Ghosts grouped by the grid slot cell their start falls in, mirroring
