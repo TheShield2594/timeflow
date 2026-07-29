@@ -146,6 +146,16 @@ export const TimerBar: React.FC<Props> = ({
   const [newTaskName, setNewTaskName] = useState("");
   const [addingNewTask, setAddingNewTask] = useState(false);
   const [savingTask, setSavingTask] = useState(false);
+  // Set when Start is pressed with no project chosen. Inline and transient
+  // rather than a toast: the thing to fix is two inches away, so the message
+  // belongs next to it.
+  const [needsProject, setNeedsProject] = useState(false);
+  const projectSelectRef = useRef<HTMLSelectElement>(null);
+  const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (hintTimerRef.current !== null) clearTimeout(hintTimerRef.current);
+  }, []);
 
   // Inactive tasks stay in `tasks` for display-name resolution elsewhere,
   // but new work can't be tagged with them.
@@ -181,8 +191,19 @@ export const TimerBar: React.FC<Props> = ({
 
   const parseRatio = parseRatioInput;
 
+  // Start is the app's primary action and stays live even with nothing
+  // selected — a greyed-out primary button reads as a broken app, and the
+  // keyboard path (Ctrl+.) already treated "no project" as "go pick one"
+  // rather than as a dead end. Clicking does the same thing.
   const handleStart = () => {
-    if (!selectedProject) return;
+    if (!selectedProject) {
+      projectSelectRef.current?.focus();
+      setNeedsProject(true);
+      if (hintTimerRef.current !== null) clearTimeout(hintTimerRef.current);
+      hintTimerRef.current = setTimeout(() => setNeedsProject(false), 4000);
+      return;
+    }
+    setNeedsProject(false);
     onStart(selectedProject, selectedTask || null, desc, parseRatio(ratioInput));
   };
 
@@ -225,12 +246,9 @@ export const TimerBar: React.FC<Props> = ({
         onStop();
         return;
       }
-      if (selectedProject) {
-        handleStart();
-      } else {
-        const sel = document.querySelector<HTMLSelectElement>(".timer-bar__select");
-        sel?.focus();
-      }
+      // Start with no project picked focuses the selector and flashes the
+      // hint — handleStart owns that branch now, so both paths agree.
+      handleStart();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -278,6 +296,7 @@ export const TimerBar: React.FC<Props> = ({
           {!isRunning ? (
             <>
               <select
+                ref={projectSelectRef}
                 className="timer-bar__select"
                 aria-label="Project"
                 value={selectedProject}
@@ -287,6 +306,7 @@ export const TimerBar: React.FC<Props> = ({
                   setSelectedTask("");
                   setAddingNewTask(false);
                   setNewTaskName("");
+                  setNeedsProject(false);
                   if (pid) onLoadTasksForProject(pid);
                 }}
               >
@@ -365,9 +385,6 @@ export const TimerBar: React.FC<Props> = ({
         {/* Elapsed + button */}
         <div className="timer-bar__controls">
           {focus && <FocusControl focus={focus} />}
-          {isRunning && (
-            <span className="timer-bar__elapsed">{formatElapsed(elapsed)}</span>
-          )}
           {pendingStopAt ? (
             <button
               className="timer-bar__btn btn-icon timer-bar__btn--stop"
@@ -381,16 +398,25 @@ export const TimerBar: React.FC<Props> = ({
             <button
               className={`timer-bar__btn btn-icon ${isRunning ? "timer-bar__btn--stop" : "timer-bar__btn--start"}`}
               onClick={isRunning ? onStop : handleStart}
-              disabled={!isRunning && !selectedProject}
               title={isRunning ? "Stop timer (Ctrl/Cmd + .)" : "Start timer (Ctrl/Cmd + .)"}
               aria-label={isRunning ? "Stop timer" : "Start timer"}
             >
               {isRunning ? <><IconStop /> Stop</> : <><IconPlay /> Start</>}
+              {/* Elapsed time belongs to the running button, not beside it —
+                  as a separate span it competed with the Focus chip for the
+                  same corner of the bar. */}
+              {isRunning && <span className="timer-bar__elapsed">{formatElapsed(elapsed)}</span>}
               <kbd className="timer-bar__shortcut-hint" aria-hidden="true">{SHORTCUT_HINT}</kbd>
             </button>
           )}
         </div>
       </div>
+
+      {/* role="status" so the same nudge reaches a screen reader, which never
+          sees the focus ring the sighted path relies on. */}
+      {needsProject && (
+        <div className="timer-bar__hint" role="status">Pick a project first</div>
+      )}
 
       {isRunning && (
         <div className="timer-bar__pulse-bar">

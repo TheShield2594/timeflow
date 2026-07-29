@@ -373,12 +373,14 @@ input, select { font-family: inherit; }
 
 .timer-bar__controls { display: flex; align-items: center; gap: 14px; }
 
+/* Sits inside the Stop button while running. tabular-nums keeps the width
+   steady so the button doesn't twitch on every tick. */
 .timer-bar__elapsed {
   font-family: var(--mono);
-  font-size: 20px; font-weight: 500;
-  color: var(--ev-green-dark); /* 20px/500 sits under the large-text bold threshold */
-  letter-spacing: 1px;
-  min-width: 84px; text-align: right;
+  font-size: 18px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+  margin-left: 4px;
 }
 
 .timer-bar__btn {
@@ -387,9 +389,10 @@ input, select { font-family: inherit; }
   font-size: 13px; font-weight: 700; letter-spacing: 0.2px;
   transition: all 0.2s var(--ease); white-space: nowrap;
 }
+/* Never faded: Start stays a solid primary button with nothing selected and
+   sends you to the project picker instead of going dead. */
 .timer-bar__btn--start { background: var(--ev-green); color: #fff; }
 .timer-bar__btn--start:hover { background: var(--ev-green-dark); }
-.timer-bar__btn--start:disabled { opacity: 0.35; cursor: not-allowed; }
 .timer-bar__btn--stop {
   background: var(--danger-soft);
   color: var(--ev-pumpkin-text);
@@ -405,6 +408,17 @@ input, select { font-family: inherit; }
   opacity: 0.85;
 }
 .timer-bar__btn--stop .timer-bar__shortcut-hint { background: var(--danger-soft); }
+
+/* Flashed under the bar when Start is pressed with no project chosen. */
+.timer-bar__hint {
+  padding: 6px 24px 8px;
+  font-size: 12.5px; font-weight: 600;
+  color: var(--ev-pumpkin-text);
+  background: var(--danger-soft);
+  border-top: 1px solid var(--danger-border);
+  animation: timer-hint-in 0.2s var(--ease);
+}
+@keyframes timer-hint-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
 
 .timer-bar__pulse-bar { height: 3px; background: var(--border-subtle); overflow: hidden; }
 .timer-bar__pulse-inner {
