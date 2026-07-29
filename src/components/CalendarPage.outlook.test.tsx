@@ -197,6 +197,68 @@ describe("CalendarPage Outlook overlay", () => {
     expect(onCreateEntry).toHaveBeenCalledTimes(1);
   });
 
+  it("does not advance the queue, or tick the ghost off, when the save failed", async () => {
+    // A save that throws leaves the modal open for retry. If the user gives up
+    // and cancels, the run must stop there — advancing would skip past a
+    // meeting nothing was recorded for, and marking it logged would hide that.
+    const base = meetingToday();
+    getCalendarEvents.mockResolvedValue([
+      base,
+      {
+        ...base, id: "ev-2", subject: "Standup",
+        startTime: new Date(`${todayStr()}T14:00:00`).toISOString(),
+        endTime: new Date(`${todayStr()}T14:30:00`).toISOString(),
+      },
+    ]);
+    const onCreateEntry = vi.fn().mockRejectedValue(new Error("network"));
+    renderCalendar(onCreateEntry);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Log 2" }));
+    fireEvent.change(screen.getByLabelText("Project"), { target: { value: "p1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onCreateEntry).toHaveBeenCalledTimes(1));
+    // Still on the first meeting, and nothing was marked logged.
+    expect(screen.getByRole("dialog", { name: "Log Time · 1 of 2" })).toBeTruthy();
+    expect(markEventLogged).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("does not advance past a half-saved overnight split", async () => {
+    // The reported path: an overnight split calls onSave twice. If the first
+    // half lands and the second fails, the entry is only half-recorded — so
+    // cancelling from there must not advance the queue or tick the ghost off.
+    const base = meetingToday();
+    getCalendarEvents.mockResolvedValue([
+      base,
+      {
+        ...base, id: "ev-2", subject: "Standup",
+        startTime: new Date(`${todayStr()}T14:00:00`).toISOString(),
+        endTime: new Date(`${todayStr()}T14:30:00`).toISOString(),
+      },
+    ]);
+    const onCreateEntry = vi.fn()
+      .mockResolvedValueOnce({})                       // first half saves
+      .mockRejectedValue(new Error("network"));        // second half fails
+    renderCalendar(onCreateEntry);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Log 2" }));
+    fireEvent.change(screen.getByLabelText("Project"), { target: { value: "p1" } });
+    // End before start = overnight; take the split.
+    fireEvent.change(screen.getByLabelText("End"), { target: { value: "09:00" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Split at midnight" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onCreateEntry).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("dialog", { name: "Log Time · 1 of 2" })).toBeTruthy();
+    expect(markEventLogged).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("offers a retry on transient load errors", async () => {
     getCalendarEvents.mockRejectedValueOnce(new Error("503"));
     getCalendarEvents.mockResolvedValue([meetingToday()]);

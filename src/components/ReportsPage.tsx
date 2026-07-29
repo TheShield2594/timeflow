@@ -235,7 +235,9 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, rangeLo
           than filled with zeroes, and the card-level strings are left to mean
           what they say: this card is empty while the page is not. */}
       {isEmpty ? (
-        <div className="reports__empty">
+        // Switching presets swaps the whole grid for this without moving
+        // focus, so it has to announce itself.
+        <div className="reports__empty" role="status" aria-live="polite">
           <IconChart size={40} className="reports__empty-icon" />
           <p className="reports__empty-title">Nothing tracked in {rangeLabel}.</p>
           {suggestion ? (

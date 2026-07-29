@@ -155,7 +155,9 @@ export const Combobox: React.FC<Props> = ({
       <span className="combobox__caret" aria-hidden="true">▾</span>
       {open && (
         <ul className="combobox__list" id={listId} role="listbox" ref={listRef} aria-label={ariaLabel}>
-          {visible.length === 0 && <li className="combobox__empty">No matches</li>}
+          {/* role="presentation": a listbox may only own option/group
+              children, and a bare <li> gets announced as an unnamed option. */}
+          {visible.length === 0 && <li className="combobox__empty" role="presentation">No matches</li>}
           {visible.map((option, i) => (
             <li
               key={option.value}

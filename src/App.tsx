@@ -186,7 +186,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
   // task, description and ratio. start() itself guards against an
   // already-running timer (with a toast), so no re-check needed here.
   const continueEntry = useCallback((entry: TimeEntry) => {
-    start(entry.projectId, entry.taskId ?? null, entry.description ?? "", entry.ratio);
+    start(entry.projectId, entry.taskId ?? null, entry.description ?? "", entry.ratio, entry.jiraTicket);
   }, [start]);
 
   // Focus mode: "take a break" starts the break countdown and stops (saves)

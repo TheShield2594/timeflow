@@ -429,6 +429,7 @@ const OutlookGhostBlock = React.memo<GhostBlockProps>(({ event, startMin, endMin
       {/* Fills the block, so the whole meeting is the click target. A real
           button, so Enter/Space work without hand-rolled key handling. */}
       <button
+        type="button"
         className="cal-ghost__log"
         onClick={(e) => { e.stopPropagation(); onLog(event); }}
         aria-label={`Log time for Outlook meeting: ${event.subject}, ${timeLabel}${logged ? " (already logged)" : ""}`}
@@ -447,6 +448,7 @@ const OutlookGhostBlock = React.memo<GhostBlockProps>(({ event, startMin, endMin
       <div className="cal-ghost__actions">
         {!logged && <span className="cal-ghost__cta" aria-hidden="true">+ Log</span>}
         <button
+          type="button"
           className="cal-ghost__mute"
           onClick={(e) => { e.stopPropagation(); onMute(event.subject); }}
           title={`Hide every "${event.subject}" from the overlay`}
@@ -1188,17 +1190,23 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     } else {
       const user = getCurrentUser();
       await onCreateEntry({ ...data, userId: user.id, userDisplayName: user.displayName });
-      // Entry saved from an Outlook meeting: remember it so the ghost renders
-      // with a "logged" check. (An overnight split saves twice; marking twice
-      // is harmless — it's a set.)
-      if (modal?.sourceEventId) {
-        setLoggedEventIds(markEventLogged(modal.sourceEventId));
-      }
-      const [next, ...rest] = modal?.queue ?? [];
-      queueAdvanceRef.current = next && modal?.queueStep
-        ? { next, rest, step: { at: modal.queueStep.at + 1, total: modal.queueStep.total } }
-        : null;
     }
+  };
+
+  // Runs only once the entry is completely saved — including both halves of an
+  // overnight split. Doing this per-onSave instead would, if the second half
+  // failed and the user then cancelled, advance the queue past a meeting that
+  // was only half-recorded and tick its ghost off as logged.
+  const handleModalSaved = () => {
+    if (modal?.editingId) return;
+    // Remember the source meeting so its ghost renders with a "logged" check.
+    if (modal?.sourceEventId) {
+      setLoggedEventIds(markEventLogged(modal.sourceEventId));
+    }
+    const [next, ...rest] = modal?.queue ?? [];
+    queueAdvanceRef.current = next && modal?.queueStep
+      ? { next, rest, step: { at: modal.queueStep.at + 1, total: modal.queueStep.total } }
+      : null;
   };
 
   const closeModal = useCallback(() => {
@@ -1267,6 +1275,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
           projects={projects}
           tasks={tasks}
           onSave={handleModalSave}
+          onSaved={handleModalSaved}
           onDelete={modal.editingId ? () => { onDelete(modal.editingId!); setModal(null); } : undefined}
           onClose={closeModal}
           onLoadTasksForProject={onLoadTasksForProject}
@@ -1367,6 +1376,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
                     instead of hunting each ghost down individually. */}
                 {(unloggedByDate.get(ds)?.length ?? 0) > 0 && (
                   <button
+                    type="button"
                     className="cal-day-log-all"
                     onClick={() => logAllForDay(ds)}
                     title={`Log all ${unloggedByDate.get(ds)!.length} meetings on this day, one at a time`}

@@ -29,7 +29,8 @@ function durationColumn(minutes: number): string {
  * A single time-entry row. Shared by the Timesheet's day-grouped list and the
  * Overview page's recent-entries panel.
  *
- * One grid, four columns: what it was, when, how long, what you can do to it.
+ * One grid: the accent stripe, then what it was, when, how long, and what you
+ * can do to it.
  * The two-line stack this replaced put a ~900px void between the description
  * and the badges, hid the duration underneath the buttons where it couldn't be
  * scanned down the page, and kept three buttons permanently visible on every
@@ -82,6 +83,7 @@ export const EntryRow: React.FC<Props> = ({ entry, project, task, timerBusy, onC
         <>
           {onContinue && (
             <button
+              type="button"
               className="entry-row__action entry-row__continue"
               onClick={() => onContinue(entry)}
               disabled={timerBusy || !project?.isActive}
@@ -97,6 +99,7 @@ export const EntryRow: React.FC<Props> = ({ entry, project, task, timerBusy, onC
           )}
           {onEdit && (
             <button
+              type="button"
               className="entry-row__action entry-row__edit"
               onClick={() => onEdit(entry)}
               title="Edit entry"
@@ -107,6 +110,7 @@ export const EntryRow: React.FC<Props> = ({ entry, project, task, timerBusy, onC
           )}
           {onDelete && (
             <button
+              type="button"
               className="entry-row__action entry-row__delete"
               onClick={() => onDelete(entry.id)}
               title="Delete entry"

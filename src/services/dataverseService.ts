@@ -474,7 +474,10 @@ export function entryToDataverse(e: Omit<TimeEntry, "id"> | Partial<TimeEntry>):
   if (e.endTime !== undefined) out.ever_endtime = e.endTime ?? null;
   if (e.durationMinutes !== undefined) out.ever_durationminutes = e.durationMinutes ?? null;
   if (e.ratio !== undefined) out.ever_ratio = e.ratio ?? null;
-  if (e.jiraTicket !== undefined) out.ever_jiraticket = e.jiraTicket || null;
+  // Trimmed here rather than at each caller: the timer bar, the entry modal
+  // and "Continue" all feed this, and a whitespace-only ticket should land as
+  // null from every one of them.
+  if (e.jiraTicket !== undefined) out.ever_jiraticket = e.jiraTicket?.trim() || null;
   if (e.date !== undefined) out.ever_date = e.date;
   out.ever_userid = getCurrentUser().id;
   if (e.projectId !== undefined) {

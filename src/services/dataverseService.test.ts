@@ -134,6 +134,13 @@ describe("entryToDataverse", () => {
     expect(raw.ever_jiraticket).toBeNull();
   });
 
+  it("trims the jiraTicket, and treats a whitespace-only one as absent", () => {
+    // Every path into this — the timer bar, the entry modal, "Continue" —
+    // gets the same normalisation, rather than each remembering to trim.
+    expect(entryToDataverse({ jiraTicket: "  PROJ-123  " }).ever_jiraticket).toBe("PROJ-123");
+    expect(entryToDataverse({ jiraTicket: "   " }).ever_jiraticket).toBeNull();
+  });
+
   it("always stamps ever_userid from the current user, overriding any caller-supplied value", () => {
     const raw = entryToDataverse({ userId: "someone-else" } as Partial<TimeEntry>);
     expect(raw.ever_userid).toBe("user-1");

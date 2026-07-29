@@ -562,9 +562,10 @@ input, select { font-family: inherit; }
 .timesheet__day-total { font-size: 12px; font-weight: 700; color: var(--text-muted); font-family: var(--mono); }
 .timesheet__entries { display: flex; flex-direction: column; gap: 6px; }
 
-/* One grid, four columns: what it was / when / how long / actions. The
-   duration gets a column of its own so a day's entries can be scanned
-   vertically, which they couldn't when it sat under the buttons. */
+/* One grid, five tracks: the 4px accent stripe, then what it was / when /
+   how long / actions. The duration gets a column of its own so a day's
+   entries can be scanned vertically, which they couldn't when it sat under
+   the buttons. */
 .entry-row {
   display: grid;
   /* 54px is a floor, not a cap: it holds the numeric column steady while

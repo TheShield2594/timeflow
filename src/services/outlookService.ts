@@ -321,24 +321,38 @@ function loggedKey(): string {
   return `${LOGGED_KEY_PREFIX}${user.environmentId}:${user.id}`;
 }
 
-export function readLoggedEventIds(): Set<string> {
+// Both of this file's localStorage-backed sets (logged event ids, muted
+// subjects) share these two: same JSON-array encoding, same
+// insertion-order-is-eviction-order pruning, same "storage may be unavailable"
+// tolerance. Only the key and the cap differ.
+function readStringSet(key: string): Set<string> {
   try {
-    const arr = JSON.parse(localStorage.getItem(loggedKey()) || "[]");
+    const arr = JSON.parse(localStorage.getItem(key) || "[]");
     return new Set(Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string") : []);
   } catch {
     return new Set();
   }
 }
 
+/** Persists at most `max` entries, dropping the oldest first — Set iteration
+ *  is insertion order, so re-adding a key moves it to the young end. */
+function persistStringSet(key: string, keys: Set<string>, max: number): Set<string> {
+  const arr = [...keys].slice(-max);
+  try {
+    localStorage.setItem(key, JSON.stringify(arr));
+  } catch { /* storage unavailable — the hint just won't persist */ }
+  return new Set(arr);
+}
+
+export function readLoggedEventIds(): Set<string> {
+  return readStringSet(loggedKey());
+}
+
 export function markEventLogged(eventId: string): Set<string> {
   const ids = readLoggedEventIds();
   ids.delete(eventId); // re-add at the end so pruning drops the oldest first
   ids.add(eventId);
-  const arr = [...ids].slice(-LOGGED_MAX);
-  try {
-    localStorage.setItem(loggedKey(), JSON.stringify(arr));
-  } catch { /* storage unavailable — the hint just won't persist */ }
-  return new Set(arr);
+  return persistStringSet(loggedKey(), ids, LOGGED_MAX);
 }
 
 // ---------------------------------------------------------------------------
@@ -365,26 +379,13 @@ export function subjectKey(subject: string): string {
 }
 
 export function readMutedSubjects(): Set<string> {
-  try {
-    const arr = JSON.parse(localStorage.getItem(mutedKey()) || "[]");
-    return new Set(Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string") : []);
-  } catch {
-    return new Set();
-  }
-}
-
-function persistMuted(keys: Set<string>): Set<string> {
-  const arr = [...keys].slice(-MUTED_MAX);
-  try {
-    localStorage.setItem(mutedKey(), JSON.stringify(arr));
-  } catch { /* storage unavailable — the mute just won't persist */ }
-  return new Set(arr);
+  return readStringSet(mutedKey());
 }
 
 export function muteSubject(subject: string): Set<string> {
   const keys = readMutedSubjects();
   keys.add(subjectKey(subject));
-  return persistMuted(keys);
+  return persistStringSet(mutedKey(), keys, MUTED_MAX);
 }
 
 export function clearMutedSubjects(): Set<string> {
