@@ -317,13 +317,13 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
         height: `${height}px`,
         left: `calc(${col * widthPct}% + 2px)`,
         width: `calc(${widthPct}% - 4px)`,
-        background: color + "22",
         borderLeft: `3px solid ${color}`,
         // Project accent colors include dark swatches (navy, forest) picked to
         // read fine on light theme's white cards; on dark theme's near-black
         // cards that same dark hex is barely distinguishable from the
-        // background. --pc feeds .cal-entry__name/__handle, which lighten it
-        // via color-mix in dark theme (see styles.css) instead of using it raw.
+        // background. --pc feeds .cal-entry's own background plus
+        // .cal-entry__name/__handle, all of which mix it against the current
+        // surface in CSS (see styles.css) instead of using it raw.
         "--pc": color,
       } as React.CSSProperties}
       onPointerDown={handlePointerDown}
