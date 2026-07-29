@@ -4,9 +4,11 @@ import { TimesheetPage } from "./TimesheetPage";
 import { CalendarPage } from "./CalendarPage";
 import { ReportsPage } from "./ReportsPage";
 import { ProjectsPage } from "./ProjectsPage";
+import { TeamPage } from "./TeamPage";
+import type { TeamContext } from "../services/teamService";
 import type { TimeEntry, Project, Task } from "../types";
 
-export type Page = "overview" | "timesheet" | "calendar" | "reports" | "projects";
+export type Page = "overview" | "timesheet" | "calendar" | "reports" | "projects" | "team";
 
 /** Skeleton shown only on the very first data load — shaped like the timesheet. */
 export const PageSkeleton: React.FC = () => (
@@ -59,12 +61,15 @@ interface Props {
   onRenameTask: (task: Task, newName: string) => Promise<void>;
   onLoadTasksForProject: (projectId: string) => void;
   onGoToProjects?: () => void;
+  /** Non-null with reports = the user manages people; enables the Team page. */
+  teamContext?: TeamContext | null;
 }
 
 export const PageRouter: React.FC<Props> = ({
   page, loading, rangeLoading, entries, projects, tasks, totalMinutesByProject, timerBusy,
   onDelete, onEdit, onCreate, onContinue, onAddProject, onEditProject,
   onArchiveProject, onRestoreProject, onAddTask, onDeleteTask, onRenameTask, onLoadTasksForProject, onGoToProjects,
+  teamContext,
 }) => {
   if (loading) {
     return page === "reports" || page === "overview" ? <ReportsSkeleton /> : <PageSkeleton />;
@@ -125,6 +130,13 @@ export const PageRouter: React.FC<Props> = ({
         rangeLoading={rangeLoading}
       />
     );
+  }
+
+  if (page === "team") {
+    // The nav item only renders for managers, but guard anyway: without a
+    // team there is nothing to show.
+    if (!teamContext || teamContext.reports.length === 0) return null;
+    return <TeamPage teamContext={teamContext} projects={projects} />;
   }
 
   if (page === "projects") {

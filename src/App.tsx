@@ -1,9 +1,12 @@
-import React, { useState, useMemo, useCallback, useEffect, Component } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useRef, Component } from "react";
 import { TimerBar } from "./components/TimerBar";
 import { IdleModal } from "./components/IdleModal";
+import { FocusModal } from "./components/FocusModal";
+import { useFocusMode } from "./hooks/useFocusMode";
 import { PageRouter, Page } from "./components/PageRouter";
-import { IconHome, IconTimesheet, IconCalendar, IconChart, IconFolder, IconMoon, IconSun } from "./components/Icons";
+import { IconHome, IconTimesheet, IconCalendar, IconChart, IconFolder, IconMoon, IconSun, IconUsers } from "./components/Icons";
 import { useProjects, useTasks, useTimeEntries, useTimer } from "./hooks";
+import { useTeamContext } from "./hooks/useTeam";
 import { useActivityTracker, useTimerSafetyMonitor, MAX_DURATION_MS } from "./hooks/useTimerSafety";
 import { useAppBootstrap } from "./hooks/useAppBootstrap";
 import { useTheme, Theme } from "./hooks/useTheme";
@@ -67,6 +70,10 @@ const NAV_ITEMS: { key: Page; label: string; icon: React.ReactNode }[] = [
   { key: "projects", label: "Projects", icon: <IconFolder /> },
 ];
 
+// Shown after Reports, only when the signed-in user has direct reports.
+const TEAM_NAV_ITEM: { key: Page; label: string; icon: React.ReactNode } =
+  { key: "team", label: "Team", icon: <IconUsers /> };
+
 const App: React.FC = () => {
   const { user, authError } = useAppBootstrap();
   // Theme lives above sign-in so the loading screen renders in the right
@@ -105,13 +112,31 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
   const { projects, addProject, editProject, archiveProject, restoreProject } = useProjects();
   const { tasks, addTask, deleteTask, restoreTask, renameTask, loadTasksForProject } = useTasks();
   const { entries, loading, isFetching, deleteEntry, editEntry, createEntry, refresh } = useTimeEntries(from, to);
+  const { teamContext } = useTeamContext();
+  const isManager = (teamContext?.reports.length ?? 0) > 0;
+
+  const navItems = useMemo(() => {
+    if (!isManager) return NAV_ITEMS;
+    const items = [...NAV_ITEMS];
+    const afterReports = items.findIndex((i) => i.key === "reports") + 1;
+    items.splice(afterReports || items.length, 0, TEAM_NAV_ITEM);
+    return items;
+  }, [isManager]);
+
+  // Last completed entry, so the focus-mode "start next block" prompt can
+  // restart the timer on what the user was just doing.
+  const lastEntryRef = useRef<TimeEntry | null>(null);
 
   const handleNewEntry = useCallback(
-    (_entry: TimeEntry) => { refresh(); },
+    (entry: TimeEntry) => {
+      lastEntryRef.current = entry;
+      refresh();
+    },
     [refresh]
   );
 
   const { timer, elapsed, start, stop, stopAt, cancel, update } = useTimer(handleNewEntry);
+  const focusMode = useFocusMode(timer.isRunning, elapsed);
 
   const deleteWithUndo = useCallback(async (id: string) => {
     const snapshot = entries.find((e) => e.id === id);
@@ -163,6 +188,20 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
   const continueEntry = useCallback((entry: TimeEntry) => {
     start(entry.projectId, entry.taskId ?? null, entry.description ?? "", entry.ratio);
   }, [start]);
+
+  // Focus mode: "take a break" starts the break countdown and stops (saves)
+  // the running entry. A failed save falls into the existing pendingStopAt
+  // retry flow; the break proceeds regardless — the user is stepping away.
+  const handleTakeBreak = useCallback(() => {
+    focusMode.beginBreak();
+    stop().catch(() => { /* toasted + retryable via the timer bar */ });
+  }, [focusMode, stop]);
+
+  const handleResumeFocus = useCallback(() => {
+    const last = lastEntryRef.current;
+    focusMode.dismissResume();
+    if (last) continueEntry(last);
+  }, [focusMode, continueEntry]);
 
   const lastActivity = useActivityTracker();
 
@@ -255,7 +294,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
           <img src={logoUrl} alt="Everence" className="sidebar__logo-img" />
         </div>
         <nav className="sidebar__nav">
-          {NAV_ITEMS.map(({ key, label, icon }) => (
+          {navItems.map(({ key, label, icon }) => (
             <button
               key={key}
               className={`sidebar__link ${page === key ? "sidebar__link--active" : ""}`}
@@ -296,6 +335,15 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
           currentTaskId={timer.taskId}
           description={timer.description}
           ratio={timer.ratio}
+          focus={{
+            enabled: focusMode.enabled,
+            phase: focusMode.phase,
+            remainingSeconds: focusMode.remainingSeconds,
+            settings: focusMode.settings,
+            sessionsToday: focusMode.sessionsToday,
+            onToggle: focusMode.toggleEnabled,
+            onUpdateSettings: focusMode.updateSettings,
+          }}
           onStart={start}
           onStop={stop}
           onRetryStop={stopAt}
@@ -327,6 +375,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
             onRenameTask={renameTask}
             onLoadTasksForProject={loadTasksForProject}
             onGoToProjects={() => setPage("projects")}
+            teamContext={teamContext}
           />
         </div>
       </div>
@@ -338,6 +387,27 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
           onTrim={handleIdleTrim}
           onKeep={handleIdleKeep}
           onDiscard={handleIdleDiscard}
+        />
+      )}
+
+      {/* Focus-mode boundary prompts. The idle modal wins if both are up —
+          idle means the block's countdown was ticking against an empty
+          chair, so that conflict needs resolving first. */}
+      {!idleAlert && focusMode.phase === "prompt-break" && (
+        <FocusModal
+          kind="break"
+          sessionsToday={focusMode.sessionsToday}
+          breakMinutes={focusMode.settings.breakMinutes}
+          onTakeBreak={handleTakeBreak}
+          onKeepGoing={focusMode.keepGoing}
+        />
+      )}
+      {!idleAlert && focusMode.phase === "prompt-resume" && (
+        <FocusModal
+          kind="resume"
+          canContinue={!!lastEntryRef.current && !timer.isRunning && !timer.pendingStopAt}
+          onContinue={handleResumeFocus}
+          onDismiss={focusMode.dismissResume}
         />
       )}
     </div>

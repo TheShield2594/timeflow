@@ -29,6 +29,9 @@ Tracks time against projects and tasks, stores data in Microsoft Dataverse, and 
 | Reports: project × period matrix, all-time range | ✅ |
 | Light + dark theme | ✅ |
 | Dataverse backend wired (@microsoft/power-apps SDK) | ✅ |
+| Outlook meeting overlay + log-from-meeting (Office 365 connector) | ✅ (needs [connector setup](#outlook-calendar-overlay)) |
+| Manager Team view — reports' week totals, missing-day flags, project rollup | ✅ (needs [hierarchy security](#manager-team-view-hierarchy-security)) |
+| Focus mode (Pomodoro) — focus/break cadence on the timer, daily block count | ✅ |
 
 ---
 
@@ -120,9 +123,18 @@ are the only records the app hard-deletes.
 
 User preferences live in `localStorage` — Code Apps have no per-user settings
 store, and this keeps the app free of extra Dataverse tables. Weekly target
-hours and export rounding are scoped per environment + user; the theme is a
-device/browser preference stored under a flat `tt_theme` key so it applies
-before sign-in resolves (see `useTheme`).
+hours, export rounding, focus-mode settings/session counts, the Outlook
+overlay toggle and its logged-meeting checkmarks are scoped per environment +
+user; the theme is a device/browser preference stored under a flat `tt_theme`
+key so it applies before sign-in resolves (see `useTheme`).
+
+**Focus mode (Pomodoro):** the "Focus" chip in the timer bar layers a
+prescriptive cadence on the descriptive timer — after each focus block
+(default 25m, editable via the pencil) a prompt offers a break or keep-going;
+taking the break stops and saves the entry, counts the block, and counts the
+break down in the chip, then offers to restart the timer on the same work.
+Prompts only fire while the app tab is open — a Code App has no OS-level
+presence for background notifications.
 
 > **Row security matters.** Reads filter server-side via FetchXML's
 > `eq-userid` operator (Dataverse resolves this to "the calling user" itself,
@@ -151,6 +163,31 @@ Correct table-level security role configuration is required to keep each user's 
 2. Open **Settings** → **Advanced options** → confirm *Ownership* is set to **User or Team**.
 3. In your Security Role, confirm the `ever_timeentries` row is set to **User** scope for Read/Write/Create/Delete.
 4. Repeat for `ever_projects` and `ever_workitems` (Organization scope for shared data is correct).
+
+#### Manager Team view (hierarchy security)
+
+The **Team** page (issue #61) shows a manager their direct reports' week —
+per-member day/week totals, missing-weekday flags, and a project rollup. It
+is built on Dataverse **Hierarchy security (Manager hierarchy)**, not on a
+loosened read filter, so the per-user isolation above is untouched:
+
+- The nav item only appears for users who have direct reports (the app probes
+  `systemuser.parentsystemuserid`; requires org-level Read on the User table,
+  which baseline roles typically grant).
+- The Team page reads with FetchXML's `eq-useroruserhierarchy` operator,
+  which Dataverse resolves server-side to "the calling user and their
+  reports". A non-manager who somehow reached the page would get only their
+  own rows back — the client never widens anything.
+- The personal pages still read with `eq-userid`, and their
+  `hasForeignUserEntries()` isolation check stays armed unchanged (the Team
+  page's cross-user rows never flow through `useTimeEntries`).
+
+Environment setup (details in `Brandon To Do.md`): set the **Manager** field
+on each Power Apps user profile — that field (`parentsystemuserid`) is the
+only thing the app reads; the M365/Entra org chart is not consulted and does
+not sync into it. Then enable **Hierarchy security** with the Manager
+hierarchy and include `ever_timeentries` in its table list. In local dev,
+preview the page with `localStorage.setItem("tt_mock_team", "1")`.
 
 **Runtime detection (UAT sign-off check):** as defense in depth, on the first
 entries refresh `useTimeEntries` calls `hasForeignUserEntries()` to check
@@ -224,6 +261,51 @@ timer bootstrap treats that as "unknown" and keeps local state.
 
 User identity is resolved by `src/services/userService.ts` via the SDK's
 `getContext()`, with a persistent local-dev fallback for `npm run dev`.
+
+### Outlook calendar overlay
+
+The Calendar page can pull the signed-in user's Outlook meetings in as muted
+"ghost" blocks behind their tracked time; clicking a meeting opens Log Time
+prefilled with the meeting's span and subject, so categorizing a meeting into
+a project takes two clicks. Each user sees only their own calendar: the
+Office 365 Outlook connector runs on a per-user delegated connection that
+every user consents to on first launch.
+
+The connector is **optional and off until an admin wires it up** — without it
+the page shows an "Outlook: not connected" chip and everything else works
+normally. To enable it:
+
+1. Add the data source (once, from a dev machine authenticated with `pac`):
+
+   ```bash
+   pac connection list                     # find/create an Office 365 Outlook connection id
+   pac code add-data-source -a shared_office365 -c <connectionId>
+   ```
+
+   This regenerates `.power/schemas/appschemas/dataSourcesInfo` with an
+   `office365` entry and registers the connection reference in
+   `power.config.json`. Until that file carries an `office365` entry, the app
+   uses its own fallback operation schemas for the two calls it makes
+   (`CalendarGetTables_V2`, `GetEventsCalendarViewV3`) — see
+   `src/services/outlookService.ts`.
+2. Check the environment's **DLP policy**: Office 365 Outlook must sit in the
+   same data group as Microsoft Dataverse, or the platform will refuse to run
+   the app with both connectors. This is the most common "worked in dev,
+   blocked in prod" failure.
+3. `npm run build && pac code push`. Users get a one-time consent prompt for
+   the new connection on next launch.
+
+Details and caveats:
+- **All-day events are not shown** — they have no time span to lay out on the
+  hour grid (and logging one needs real times anyway).
+- Meetings that cross midnight are clamped to the day they start on, exactly
+  like entry blocks.
+- The "already logged" checkmark on a meeting is tracked in `localStorage`
+  per environment + user (there is no Dataverse column linking an entry to
+  its source meeting), so it's per-device: a meeting logged on one machine
+  shows unchecked on another. The time entries themselves are the record.
+- In local dev (`npm run dev`), deterministic mock meetings are served so the
+  overlay is demoable without Microsoft 365.
 
 ### Step 4 — Build and push
 ```bash
