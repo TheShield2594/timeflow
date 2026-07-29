@@ -75,7 +75,7 @@ describe("outlookService (Power Apps host)", () => {
       .map(([req]) => req.connectorOperation)
       .find((op) => op.operationName === "GetEventsCalendarViewV3");
     expect(view?.tableName).toBe("office365");
-    expect(view?.parameters?.table).toBe("cal-1");
+    expect(view?.parameters?.calendarId).toBe("cal-1");
   });
 
   it("surfaces a failed read as not-connected, then heals on retry instead of replaying the cached rejection", async () => {

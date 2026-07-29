@@ -47,19 +47,24 @@ const OUTLOOK_FALLBACK_SOURCE = {
   dataSourceType: "Connector",
   apis: {
     CalendarGetTables_V2: {
-      path: "/{connectionId}/datasets/calendars/v2/tables",
+      path: "/{connectionId}/codeless/v1.0/me/calendars",
       method: "GET",
       parameters: [
         { name: "connectionId", in: "path", required: true, type: "string" },
       ],
       responseInfo: { "200": { type: "object" }, default: { type: "void" } },
     },
+    // The connector takes the calendar as a `calendarId` *query* parameter —
+    // `{table}` in the URL path is a fixed literal ("items"), not a
+    // placeholder. Confirmed against the real schema pac regenerated once the
+    // shared_office365 data source was added; this fallback shape matches it
+    // so both paths behave identically.
     GetEventsCalendarViewV3: {
-      path: "/{connectionId}/datasets/calendars/v3/tables/{table}/calendarview",
+      path: "/{connectionId}/datasets/calendars/v3/tables/items/calendarview",
       method: "GET",
       parameters: [
         { name: "connectionId", in: "path", required: true, type: "string" },
-        { name: "table", in: "path", required: true, type: "string" },
+        { name: "calendarId", in: "query", required: true, type: "string" },
         { name: "startDateTimeUtc", in: "query", required: true, type: "string" },
         { name: "endDateTimeUtc", in: "query", required: true, type: "string" },
       ],
@@ -281,10 +286,10 @@ export async function getCalendarEvents(fromDate: string, toDate: string): Promi
   const endUtc = new Date(`${toDate}T00:00:00`);
   endUtc.setDate(endUtc.getDate() + 1);
   const data = await callOutlook<
-    { table: string; startDateTimeUtc: string; endDateTimeUtc: string },
+    { calendarId: string; startDateTimeUtc: string; endDateTimeUtc: string },
     unknown
   >("GetEventsCalendarViewV3", {
-    table: calendarId,
+    calendarId,
     startDateTimeUtc: startUtc,
     endDateTimeUtc: endUtc.toISOString(),
   });
