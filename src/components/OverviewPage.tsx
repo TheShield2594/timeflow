@@ -61,6 +61,19 @@ export const OverviewPage: React.FC<Props> = ({
   const now = new Date();
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
 
+  // Most recent day on or before today that carries time. "0m today" next to a
+  // populated heatmap reads as though the page failed to load its own data —
+  // naming the last day with time on it says the same thing without the
+  // ambiguity. Future-dated entries are skipped: they aren't "last logged".
+  const lastLoggedDate = useMemo(() => {
+    if (todayMinutes > 0) return null;
+    let latest: string | null = null;
+    minutesByDate.forEach((minutes, date) => {
+      if (minutes > 0 && date <= today && (latest === null || date > latest)) latest = date;
+    });
+    return latest;
+  }, [minutesByDate, today, todayMinutes]);
+
   const weekStart = useMemo(() => weekStartStr(today), [today]);
   const weekEnd = useMemo(() => addDaysStr(weekStart, 6), [weekStart]);
   const weekMinutes = useMemo(
@@ -171,7 +184,14 @@ export const OverviewPage: React.FC<Props> = ({
       <div className="reports__kpis">
         <div className="kpi-card">
           <div className="kpi-card__label">Today</div>
-          <div className="kpi-card__value num-kpi">{formatMinutes(todayMinutes)}</div>
+          <div className="kpi-card__value num-kpi">{todayMinutes > 0 ? formatMinutes(todayMinutes) : "—"}</div>
+          {lastLoggedDate && (
+            <div className="kpi-card__note">
+              Last logged {new Date(lastLoggedDate + "T00:00:00").toLocaleDateString("en", {
+                weekday: "short", month: "short", day: "numeric",
+              })}
+            </div>
+          )}
         </div>
         <div className="kpi-card">
           <div className="kpi-card__label">This week</div>

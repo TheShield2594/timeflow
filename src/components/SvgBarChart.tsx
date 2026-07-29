@@ -2,6 +2,7 @@ import React, { useLayoutEffect, useRef, useState } from "react";
 // Owned by the aggregation helpers that produce the chart's data; re-exported
 // here so chart consumers can keep importing it alongside the component.
 import type { Bucket } from "../utils/reportAggregations";
+import { localDateStr } from "../utils/dates";
 
 export type { Bucket };
 
@@ -10,18 +11,48 @@ interface SvgBarChartProps {
   maxBar: number;
   shortDate: (d: string, bucket: Bucket) => string;
   formatMinutes: (m: number) => string;
+  /** Pill shown centred in the plot when every bucket is zero. */
+  emptyLabel?: string;
 }
 
 const BAR_COLOR = "var(--ev-green)";
 const BAR_COLOR_ZERO = "var(--border)";
 const CHART_HEIGHT = 120; // px, chart plot area
 const LABEL_HEIGHT = 28;  // px, reserved below bars for labels
+const AXIS_WIDTH = 34;    // px, reserved left of the plot for y-axis tick labels
 const BAR_GAP_RATIO = 0.25; // fraction of slot width used for gap between bars
 // Caps how wide each bar's slot can grow — without this, a handful of bars
 // (e.g. a 7-day range) would stretch edge-to-edge into fat blocks.
 const MAX_SLOT_PX = 90;
+// Axis scale when the whole range is empty — a full working day, so the frame
+// still communicates the scale time would be drawn against.
+const EMPTY_AXIS_MAX = 480;
 
-export const SvgBarChart: React.FC<SvgBarChartProps> = ({ chartData, maxBar, shortDate, formatMinutes }) => {
+/** Round the data max up to an axis max whose 0 / half / max ticks all format
+ *  cleanly (whole hours, or round minutes under an hour). */
+function niceAxisMax(maxBar: number): number {
+  if (maxBar <= 0) return EMPTY_AXIS_MAX;
+  if (maxBar <= 60) return Math.max(Math.ceil(maxBar / 30) * 30, 30);
+  const hours = Math.ceil(maxBar / 60);
+  // Even hour count, so the half-way tick is also a whole hour.
+  return (hours % 2 === 0 ? hours : hours + 1) * 60;
+}
+
+function formatTick(minutes: number): string {
+  if (minutes === 0) return "0";
+  if (minutes < 60) return `${minutes}m`;
+  return minutes % 60 === 0 ? `${minutes / 60}h` : `${Math.round(minutes / 60)}h`;
+}
+
+const WEEKEND_DAYS = [0, 6]; // Sunday, Saturday per Date.getDay()
+
+export const SvgBarChart: React.FC<SvgBarChartProps> = ({
+  chartData,
+  maxBar,
+  shortDate,
+  formatMinutes,
+  emptyLabel = "No time logged in this range",
+}) => {
   const [tooltip, setTooltip] = useState<{ x: number; y: number; label: string } | null>(null);
   const svgRef = React.useRef<SVGSVGElement>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
@@ -54,9 +85,36 @@ export const SvgBarChart: React.FC<SvgBarChartProps> = ({ chartData, maxBar, sho
 
   const totalHeight = CHART_HEIGHT + LABEL_HEIGHT;
   const n = chartData.length;
-  const totalWidth = n > 0 ? Math.min(containerWidth, n * MAX_SLOT_PX) : containerWidth;
-  const slotWidth = n > 0 ? totalWidth / n : totalWidth;
+  const plotWidth = Math.max(
+    n > 0 ? Math.min(containerWidth - AXIS_WIDTH, n * MAX_SLOT_PX) : containerWidth - AXIS_WIDTH,
+    0
+  );
+  const totalWidth = AXIS_WIDTH + plotWidth;
+  const slotWidth = n > 0 ? plotWidth / n : plotWidth;
   const barWidth = Math.max(slotWidth * (1 - BAR_GAP_RATIO), 2);
+
+  const allZero = chartData.every((d) => d.minutes === 0);
+  // Bars scale against the rounded axis max (≥ maxBar), not maxBar itself,
+  // so the tallest bar lines up with a labelled tick's worth of headroom
+  // instead of always kissing the top gridline.
+  const axisMax = niceAxisMax(allZero ? 0 : maxBar);
+  const ticks = [0, axisMax / 2, axisMax];
+  const yFor = (minutes: number) => CHART_HEIGHT - (minutes / axisMax) * CHART_HEIGHT;
+
+  const activeBuckets = chartData.filter((d) => d.minutes > 0);
+  const avgMinutes =
+    activeBuckets.length >= 3
+      ? Math.round(activeBuckets.reduce((s, d) => s + d.minutes, 0) / activeBuckets.length)
+      : null;
+
+  const today = localDateStr();
+
+  const labelFontSize = n > 30 ? 7 : n > 14 ? 8 : 9;
+  // With many buckets every slot can't fit a label — draw every Nth instead,
+  // anchored to the last bucket so "today"/the most recent period always
+  // keeps its label. ~0.62em per character approximates the rendered width.
+  const maxLabelChars = n > 0 ? Math.max(...chartData.map((d) => shortDate(d.key, d.bucket).length)) : 0;
+  const labelStep = Math.max(1, Math.ceil((maxLabelChars * labelFontSize * 0.62 + 8) / Math.max(slotWidth, 1)));
 
   return (
     <div ref={containerRef} className="svg-bar-chart" style={{ position: "relative" }}>
@@ -69,11 +127,50 @@ export const SvgBarChart: React.FC<SvgBarChartProps> = ({ chartData, maxBar, sho
         aria-hidden="true"
         onMouseLeave={() => setTooltip(null)}
       >
+        {/* y-axis: solid baseline at 0, dashed gridlines at max/2 and max,
+            tick labels in --text-faint. Recessive on purpose — the grid sits
+            behind the bars and never competes with them. */}
+        {ticks.map((tick) => {
+          const y = yFor(tick);
+          return (
+            <g key={tick}>
+              <line
+                x1={AXIS_WIDTH}
+                y1={y}
+                x2={totalWidth}
+                y2={y}
+                stroke="var(--border)"
+                strokeWidth={1}
+                strokeDasharray={tick === 0 ? undefined : "3 3"}
+                opacity={tick === 0 ? 1 : 0.6}
+              />
+              <text
+                x={AXIS_WIDTH - 6}
+                y={y + 3}
+                textAnchor="end"
+                fontSize={9}
+                fill="var(--text-faint)"
+                style={{ userSelect: "none" }}
+              >
+                {formatTick(tick)}
+              </text>
+            </g>
+          );
+        })}
+
         {chartData.map(({ key, minutes, bucket }, i) => {
-          const barH = minutes > 0 ? Math.max((minutes / maxBar) * CHART_HEIGHT, 4) : 0;
-          const x = i * slotWidth + (slotWidth - barWidth) / 2;
-          const y = CHART_HEIGHT - barH;
+          const barH = minutes > 0 ? Math.max((minutes / axisMax) * CHART_HEIGHT, 4) : 0;
+          // Zero buckets keep a 2px stub on the baseline so the slot stays
+          // visible and hoverable — except when the whole range is empty,
+          // where the pill carries that message and stubs would just double
+          // the baseline.
+          const drawnH = barH > 0 ? barH : allZero ? 0 : 2;
+          const x = AXIS_WIDTH + i * slotWidth + (slotWidth - barWidth) / 2;
+          const y = CHART_HEIGHT - drawnH;
           const label = shortDate(key, bucket);
+          const isDay = bucket === "day";
+          const isToday = isDay && key === today;
+          const isWeekend = isDay && WEEKEND_DAYS.includes(new Date(key + "T00:00:00").getDay());
 
           return (
             <g key={key}>
@@ -81,9 +178,8 @@ export const SvgBarChart: React.FC<SvgBarChartProps> = ({ chartData, maxBar, sho
                 x={x}
                 y={y}
                 width={barWidth}
-                height={barH}
+                height={drawnH}
                 fill={barH > 0 ? BAR_COLOR : BAR_COLOR_ZERO}
-                opacity={barH > 0 ? 1 : 0.12}
                 rx={2}
 
                 onMouseEnter={() => {
@@ -107,20 +203,66 @@ export const SvgBarChart: React.FC<SvgBarChartProps> = ({ chartData, maxBar, sho
                 }}
                 onMouseLeave={() => setTooltip(null)}
               />
-              <text
-                x={i * slotWidth + slotWidth / 2}
-                y={CHART_HEIGHT + LABEL_HEIGHT - 6}
-                textAnchor="middle"
-                fontSize={n > 30 ? 7 : n > 14 ? 8 : 9}
-                fill="var(--text-muted)"
-                style={{ userSelect: "none" }}
-              >
-                {label}
-              </text>
+              {(n - 1 - i) % labelStep === 0 && (
+                <text
+                  x={AXIS_WIDTH + i * slotWidth + slotWidth / 2}
+                  y={CHART_HEIGHT + LABEL_HEIGHT - 6}
+                  textAnchor="middle"
+                  fontSize={labelFontSize}
+                  fontWeight={isToday ? 700 : 400}
+                  fill={isToday ? "var(--text)" : isWeekend ? "var(--text-faint)" : "var(--text-muted)"}
+                  style={{ userSelect: "none" }}
+                >
+                  {label}
+                </text>
+              )}
             </g>
           );
         })}
+
+        {/* Dotted mean-per-active-bucket line, only once ≥3 buckets have data —
+            with fewer the "average" is noise. */}
+        {avgMinutes !== null && (
+          <g>
+            <line
+              x1={AXIS_WIDTH}
+              y1={yFor(avgMinutes)}
+              x2={totalWidth}
+              y2={yFor(avgMinutes)}
+              stroke="var(--ev-green-dark)"
+              strokeWidth={1}
+              strokeDasharray="2 4"
+              opacity={0.8}
+            />
+            <text
+              x={totalWidth - 2}
+              // Flip the label under the line when it would collide with the
+              // top tick label.
+              y={yFor(avgMinutes) < 14 ? yFor(avgMinutes) + 11 : yFor(avgMinutes) - 4}
+              textAnchor="end"
+              fontSize={8}
+              fill="var(--ev-green-dark)"
+              // Halo so the label stays readable where it crosses a bar.
+              stroke="var(--surface)"
+              strokeWidth={3}
+              paintOrder="stroke"
+              style={{ userSelect: "none" }}
+            >
+              {`avg ${formatMinutes(avgMinutes)}`}
+            </text>
+          </g>
+        )}
       </svg>
+      {n > 0 && allZero && (
+        <div
+          className="svg-bar-chart__empty-pill"
+          // Centred on the plot area, not the container — the axis gutter
+          // shifts the plot's midpoint right of the container's.
+          style={{ left: `calc(50% + ${AXIS_WIDTH / 2}px)`, top: CHART_HEIGHT / 2 }}
+        >
+          {emptyLabel}
+        </div>
+      )}
       {tooltip && (
         <div
           className="svg-bar-chart__tooltip"

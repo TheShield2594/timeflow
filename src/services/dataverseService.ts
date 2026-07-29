@@ -474,7 +474,10 @@ export function entryToDataverse(e: Omit<TimeEntry, "id"> | Partial<TimeEntry>):
   if (e.endTime !== undefined) out.ever_endtime = e.endTime ?? null;
   if (e.durationMinutes !== undefined) out.ever_durationminutes = e.durationMinutes ?? null;
   if (e.ratio !== undefined) out.ever_ratio = e.ratio ?? null;
-  if (e.jiraTicket !== undefined) out.ever_jiraticket = e.jiraTicket || null;
+  // Trimmed here rather than at each caller: the timer bar, the entry modal
+  // and "Continue" all feed this, and a whitespace-only ticket should land as
+  // null from every one of them.
+  if (e.jiraTicket !== undefined) out.ever_jiraticket = e.jiraTicket?.trim() || null;
   if (e.date !== undefined) out.ever_date = e.date;
   out.ever_userid = getCurrentUser().id;
   if (e.projectId !== undefined) {
@@ -839,6 +842,7 @@ export async function createDraftTimerEntry(data: {
   startTime: string;
   date: string;
   ratio?: number;
+  jiraTicket?: string;
 }): Promise<string | null> {
   const user = getCurrentUser();
   if (!isPowerAppsHost()) {
@@ -864,6 +868,7 @@ export async function createDraftTimerEntry(data: {
   };
   if (data.description) raw.ever_description = data.description;
   if (data.ratio !== undefined) raw.ever_ratio = data.ratio;
+  if (data.jiraTicket) raw.ever_jiraticket = data.jiraTicket;
   if (data.taskId) raw[`ever_workitem@odata.bind`] = `/${SETS.tasks}(${data.taskId})`;
   const result = await retryWithBackoff(() => MicrosoftDataverseService.CreateRecordWithOrganization(
     PREFER_RETURN, ACCEPT, orgUrl(), SETS.entries, raw,

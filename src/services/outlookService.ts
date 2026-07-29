@@ -321,22 +321,76 @@ function loggedKey(): string {
   return `${LOGGED_KEY_PREFIX}${user.environmentId}:${user.id}`;
 }
 
-export function readLoggedEventIds(): Set<string> {
+// Both of this file's localStorage-backed sets (logged event ids, muted
+// subjects) share these two: same JSON-array encoding, same
+// insertion-order-is-eviction-order pruning, same "storage may be unavailable"
+// tolerance. Only the key and the cap differ.
+function readStringSet(key: string): Set<string> {
   try {
-    const arr = JSON.parse(localStorage.getItem(loggedKey()) || "[]");
+    const arr = JSON.parse(localStorage.getItem(key) || "[]");
     return new Set(Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string") : []);
   } catch {
     return new Set();
   }
 }
 
+/** Persists at most `max` entries, dropping the oldest first — Set iteration
+ *  is insertion order, so re-adding a key moves it to the young end. */
+function persistStringSet(key: string, keys: Set<string>, max: number): Set<string> {
+  const arr = [...keys].slice(-max);
+  try {
+    localStorage.setItem(key, JSON.stringify(arr));
+  } catch { /* storage unavailable — the hint just won't persist */ }
+  return new Set(arr);
+}
+
+export function readLoggedEventIds(): Set<string> {
+  return readStringSet(loggedKey());
+}
+
 export function markEventLogged(eventId: string): Set<string> {
   const ids = readLoggedEventIds();
   ids.delete(eventId); // re-add at the end so pruning drops the oldest first
   ids.add(eventId);
-  const arr = [...ids].slice(-LOGGED_MAX);
+  return persistStringSet(loggedKey(), ids, LOGGED_MAX);
+}
+
+// ---------------------------------------------------------------------------
+// Muted subjects
+// ---------------------------------------------------------------------------
+// A recurring block ("Do Not Schedule", "CRM Email Notification") repeats
+// across all seven columns and is never something anyone logs time against, so
+// it is pure noise on the overlay. Muting is by subject rather than by event
+// id: the point is to silence the whole series, including next week's
+// occurrences, which carry ids this device has never seen. Per environment +
+// user, alongside the logged-ids list above.
+const MUTED_KEY_PREFIX = "tt_outlook_muted:";
+const MUTED_MAX = 200;
+
+function mutedKey(): string {
+  const user = getCurrentUser();
+  return `${MUTED_KEY_PREFIX}${user.environmentId}:${user.id}`;
+}
+
+/** Match key for a subject — recurring occurrences come back with the same
+ *  wording but inconsistent case and stray whitespace. */
+export function subjectKey(subject: string): string {
+  return subject.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export function readMutedSubjects(): Set<string> {
+  return readStringSet(mutedKey());
+}
+
+export function muteSubject(subject: string): Set<string> {
+  const keys = readMutedSubjects();
+  keys.add(subjectKey(subject));
+  return persistStringSet(mutedKey(), keys, MUTED_MAX);
+}
+
+export function clearMutedSubjects(): Set<string> {
   try {
-    localStorage.setItem(loggedKey(), JSON.stringify(arr));
-  } catch { /* storage unavailable — the hint just won't persist */ }
-  return new Set(arr);
+    localStorage.removeItem(mutedKey());
+  } catch { /* nothing persisted anyway */ }
+  return new Set();
 }

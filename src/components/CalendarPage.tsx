@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TimeEntry, Project, Task, OutlookEvent } from "../types";
 import { getCurrentUser } from "../services/userService";
-import { markEventLogged, readLoggedEventIds } from "../services/outlookService";
+import {
+  clearMutedSubjects, markEventLogged, muteSubject,
+  readLoggedEventIds, readMutedSubjects, subjectKey,
+} from "../services/outlookService";
 import { useOutlookEvents } from "../hooks/useOutlookEvents";
 import { addDaysStr, localDateStr, minutesOfDay, toTimeInput } from "../utils/dates";
 import { Gap, findUntrackedGaps } from "../utils/gaps";
@@ -44,12 +47,25 @@ interface ModalState {
   /** Set when the modal was opened from an Outlook meeting — a successful
    *  save marks that event as logged (see outlookService). */
   sourceEventId?: string;
+  /** Meetings still to log after this one, when the modal was opened by a
+   *  day's "Log all". Saving advances; cancelling abandons the rest. */
+  queue?: OutlookEvent[];
+  /** Position in that run, for the modal title ("Log Time · 2 of 5"). */
+  queueStep?: { at: number; total: number };
 }
 
-// Whether the Outlook overlay is shown, persisted per environment + user like
-// the weekly target. Defaults to shown — the overlay is the feature's whole
-// point, and it degrades to a "not connected" hint when the connector is
-// missing rather than erroring.
+/**
+ * How loudly the Outlook overlay is drawn, persisted per environment + user
+ * like the weekly target.
+ *
+ * Three states rather than two: with twenty-plus meetings a week, "on" and
+ * "off" are both wrong most of the time — you want the meetings there as
+ * context without them dominating the page they're context *for*. "faded"
+ * keeps them present and clickable at a fraction of the weight.
+ */
+export type OutlookMode = "on" | "faded" | "off";
+
+const OUTLOOK_MODE_ORDER: OutlookMode[] = ["on", "faded", "off"];
 const SHOW_OUTLOOK_KEY_PREFIX = "tt_show_outlook:";
 
 function showOutlookKey(): string {
@@ -57,11 +73,16 @@ function showOutlookKey(): string {
   return `${SHOW_OUTLOOK_KEY_PREFIX}${user.environmentId}:${user.id}`;
 }
 
-function readShowOutlook(): boolean {
+function readOutlookMode(): OutlookMode {
   try {
-    return localStorage.getItem(showOutlookKey()) !== "0";
+    const raw = localStorage.getItem(showOutlookKey());
+    // "1"/"0" are the old boolean preference — migrate rather than reset it,
+    // so anyone who had deliberately hidden the overlay doesn't get it back.
+    if (raw === "0") return "off";
+    if (raw === "1" || raw === null) return "on";
+    return OUTLOOK_MODE_ORDER.includes(raw as OutlookMode) ? raw as OutlookMode : "on";
   } catch {
-    return true;
+    return "on";
   }
 }
 
@@ -378,43 +399,65 @@ interface GhostBlockProps {
   rowTopMin: number;
   logged: boolean;
   onLog: (event: OutlookEvent) => void;
+  onMute: (subject: string) => void;
 }
 
 /**
- * An Outlook meeting drawn as a muted, full-width block *behind* the tracked
- * entries (z-index below .cal-entry). Clicking it opens the Log Time modal
- * prefilled with the meeting's span and subject — the categorize step.
+ * An Outlook meeting drawn behind the tracked entries (z-index below
+ * .cal-entry). Clicking it opens the Log Time modal prefilled with the
+ * meeting's span and subject — the categorize step.
+ *
+ * Deliberately the quietest object on the grid: a flat tint and a dashed left
+ * edge, no hatch and no full border. Twenty-plus ghosts each carrying a
+ * diagonal hatch made the texture *be* the page, and a week with nothing
+ * tracked read as fully booked rather than fully untracked. The tracked
+ * entries this page exists to show are the only high-contrast things on it.
  */
-const OutlookGhostBlock = React.memo<GhostBlockProps>(({ event, startMin, endMin, rowTopMin, logged, onLog }) => {
+const OutlookGhostBlock = React.memo<GhostBlockProps>(({ event, startMin, endMin, rowTopMin, logged, onLog, onMute }) => {
   const top = (startMin - rowTopMin) * PX_PER_MIN;
   const height = Math.max((endMin - startMin) * PX_PER_MIN - 2, MIN_ENTRY_PX);
   const timeLabel = `${clockLabel(startMin)} – ${clockLabel(endMin)}`;
   return (
+    // A plain container holding two sibling buttons. The block used to be a
+    // role="button" div, which left nowhere valid to put the mute control —
+    // a button nested inside another button is not a thing.
     <div
       className={`cal-ghost ${logged ? "cal-ghost--logged" : ""}`}
       style={{ top: `${top}px`, height: `${height}px` }}
-      role="button"
-      tabIndex={0}
-      aria-label={`Log time for Outlook meeting: ${event.subject}, ${timeLabel}${logged ? " (already logged)" : ""}`}
-      title={logged
-        ? `${event.subject} — already logged; click to log again`
-        : `${event.subject} — click to log this meeting as a time entry`}
       // Stop the cell's drag-to-create from also arming on this press.
       onPointerDown={(e) => e.stopPropagation()}
-      onClick={(e) => { e.stopPropagation(); onLog(event); }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          e.stopPropagation();
-          onLog(event);
-        }
-      }}
     >
-      <div className="cal-ghost__name">
-        {logged && <IconCheck size={11} className="cal-ghost__check" />}
-        {event.subject}
+      {/* Fills the block, so the whole meeting is the click target. A real
+          button, so Enter/Space work without hand-rolled key handling. */}
+      <button
+        type="button"
+        className="cal-ghost__log"
+        onClick={(e) => { e.stopPropagation(); onLog(event); }}
+        aria-label={`Log time for Outlook meeting: ${event.subject}, ${timeLabel}${logged ? " (already logged)" : ""}`}
+        title={logged
+          ? `${event.subject} — already logged; click to log again`
+          : `${event.subject} — click to log this meeting as a time entry`}
+      >
+        <span className="cal-ghost__name">
+          {logged && <IconCheck size={11} className="cal-ghost__check" />}
+          {event.subject}
+        </span>
+        {height >= 42 && <span className="cal-ghost__time">{timeLabel}</span>}
+      </button>
+      {/* Spelled out on hover/focus rather than left to a bare click, which
+          nothing on the block announced. */}
+      <div className="cal-ghost__actions">
+        {!logged && <span className="cal-ghost__cta" aria-hidden="true">+ Log</span>}
+        <button
+          type="button"
+          className="cal-ghost__mute"
+          onClick={(e) => { e.stopPropagation(); onMute(event.subject); }}
+          title={`Hide every "${event.subject}" from the overlay`}
+          aria-label={`Hide all "${event.subject}" meetings from the calendar overlay`}
+        >
+          <IconX size={11} />
+        </button>
       </div>
-      {height >= 42 && <div className="cal-ghost__time">{timeLabel}</div>}
     </div>
   );
 });
@@ -519,24 +562,38 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
   useRangeRequest("calendar", weekBounds.from, weekBounds.to);
 
   // ── Outlook meeting overlay ─────────────────────────────────────────
-  const [showOutlook, setShowOutlook] = useState(readShowOutlook);
+  const [outlookMode, setOutlookMode] = useState<OutlookMode>(readOutlookMode);
   const [loggedEventIds, setLoggedEventIds] = useState<Set<string>>(() => readLoggedEventIds());
+  const [mutedSubjects, setMutedSubjects] = useState<Set<string>>(() => readMutedSubjects());
+  const showOutlook = outlookMode !== "off";
   const {
-    events: outlookEvents,
+    events: allOutlookEvents,
     status: outlookStatus,
     refresh: refreshOutlook,
   } = useOutlookEvents(weekBounds.from, weekBounds.to, showOutlook);
 
+  // A muted subject silences the whole recurring series, this week and every
+  // week after it.
+  const outlookEvents = useMemo(
+    () => allOutlookEvents.filter((e) => !mutedSubjects.has(subjectKey(e.subject))),
+    [allOutlookEvents, mutedSubjects]
+  );
+  const mutedCount = allOutlookEvents.length - outlookEvents.length;
+
   // Persistence stays out of the state updater: React may replay updater
   // functions (StrictMode, concurrent renders), and side effects inside them
   // can run more than once.
-  const toggleOutlook = () => {
-    const next = !showOutlook;
-    setShowOutlook(next);
+  const cycleOutlookMode = () => {
+    const next = OUTLOOK_MODE_ORDER[(OUTLOOK_MODE_ORDER.indexOf(outlookMode) + 1) % OUTLOOK_MODE_ORDER.length];
+    setOutlookMode(next);
     try {
-      localStorage.setItem(showOutlookKey(), next ? "1" : "0");
+      localStorage.setItem(showOutlookKey(), next);
     } catch { /* storage unavailable — the preference just won't persist */ }
   };
+
+  const handleMuteSubject = useCallback((subject: string) => {
+    setMutedSubjects(muteSubject(subject));
+  }, []);
 
   // Ghosts grouped by the grid slot cell their start falls in, mirroring
   // entriesByCell below. Full-width blocks behind the entries, so they don't
@@ -563,12 +620,18 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
 
   // Click a meeting → the normal Log Time modal, prefilled with the meeting's
   // span and subject; the user adds project/task and saves.
-  const openLogEvent = useCallback((event: OutlookEvent) => {
+  const openLogEvent = useCallback((
+    event: OutlookEvent,
+    queue: OutlookEvent[] = [],
+    queueStep?: { at: number; total: number },
+  ) => {
     const date = localDateStr(new Date(event.startTime));
     const crossesMidnight = localDateStr(new Date(event.endTime)) > date;
     setModal({
       editingId: null,
       sourceEventId: event.id,
+      queue,
+      queueStep,
       draft: {
         date,
         startTime: toTimeInput(event.startTime),
@@ -583,6 +646,29 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
       },
     });
   }, []);
+
+  // Meetings a given day still has to account for — what "Log all" walks.
+  const unloggedByDate = useMemo(() => {
+    const m = new Map<string, OutlookEvent[]>();
+    outlookEvents.forEach((event) => {
+      if (loggedEventIds.has(event.id)) return;
+      const date = localDateStr(new Date(event.startTime));
+      const list = m.get(date);
+      if (list) list.push(event);
+      else m.set(date, [event]);
+    });
+    m.forEach((list) => list.sort((a, b) => a.startTime.localeCompare(b.startTime)));
+    return m;
+  }, [outlookEvents, loggedEventIds]);
+
+  // "Log all" walks the day's meetings one modal at a time rather than
+  // creating entries in bulk: each meeting still needs a project, and they
+  // genuinely go to different ones. The queue only saves the re-clicking.
+  const logAllForDay = useCallback((date: string) => {
+    const list = unloggedByDate.get(date) ?? [];
+    if (list.length === 0) return;
+    openLogEvent(list[0], list.slice(1), { at: 1, total: list.length });
+  }, [unloggedByDate, openLogEvent]);
 
   const [modal, setModal] = useState<ModalState | null>(null);
 
@@ -1166,20 +1252,43 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     nudgeEntry(entry, delta[0], delta[1]);
   }, [handleEntryClick, nudgeEntry]);
 
+  // Set on a successful save that has more of a "Log all" run to go. The
+  // modal calls onClose itself once a save lands, so the close handler is
+  // where the next meeting gets opened — and because only a *save* arms this,
+  // cancelling or pressing Escape abandons the rest of the run, as it should.
+  const queueAdvanceRef = useRef<{ next: OutlookEvent; rest: OutlookEvent[]; step: { at: number; total: number } } | null>(null);
+
   const handleModalSave = async (data: EntrySaveData) => {
     if (modal?.editingId) {
       await onEdit(modal.editingId, data);
     } else {
       const user = getCurrentUser();
       await onCreateEntry({ ...data, userId: user.id, userDisplayName: user.displayName });
-      // Entry saved from an Outlook meeting: remember it so the ghost renders
-      // with a "logged" check. (An overnight split saves twice; marking twice
-      // is harmless — it's a set.)
-      if (modal?.sourceEventId) {
-        setLoggedEventIds(markEventLogged(modal.sourceEventId));
-      }
     }
   };
+
+  // Runs only once the entry is completely saved — including both halves of an
+  // overnight split. Doing this per-onSave instead would, if the second half
+  // failed and the user then cancelled, advance the queue past a meeting that
+  // was only half-recorded and tick its ghost off as logged.
+  const handleModalSaved = () => {
+    if (modal?.editingId) return;
+    // Remember the source meeting so its ghost renders with a "logged" check.
+    if (modal?.sourceEventId) {
+      setLoggedEventIds(markEventLogged(modal.sourceEventId));
+    }
+    const [next, ...rest] = modal?.queue ?? [];
+    queueAdvanceRef.current = next && modal?.queueStep
+      ? { next, rest, step: { at: modal.queueStep.at + 1, total: modal.queueStep.total } }
+      : null;
+  };
+
+  const closeModal = useCallback(() => {
+    const advance = queueAdvanceRef.current;
+    queueAdvanceRef.current = null;
+    if (advance) openLogEvent(advance.next, advance.rest, advance.step);
+    else setModal(null);
+  }, [openLogEvent]);
 
   // Render one positioned entry block. Called from inside the `gridcell` the
   // entry starts in, so the block is positioned relative to that cell
@@ -1222,17 +1331,27 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
   };
 
   return (
-    <div className="calendar">
+    <div className={`calendar ${outlookMode === "faded" ? "calendar--outlook-faded" : ""}`}>
 
       {modal && (
         <EntryModal
-          title={modal.editingId ? "Edit Entry" : "Log Time"}
+          // Advancing a "Log all" run swaps the draft without the modal ever
+          // unmounting, and EntryModal seeds its own state from `initial`
+          // once — without this key the next meeting would inherit the
+          // previous one's form.
+          key={modal.sourceEventId ?? modal.editingId ?? "new"}
+          title={
+            modal.editingId ? "Edit Entry"
+              : modal.queueStep ? `Log Time · ${modal.queueStep.at} of ${modal.queueStep.total}`
+              : "Log Time"
+          }
           initial={modal.draft}
           projects={projects}
           tasks={tasks}
           onSave={handleModalSave}
+          onSaved={handleModalSaved}
           onDelete={modal.editingId ? () => { onDelete(modal.editingId!); setModal(null); } : undefined}
-          onClose={() => setModal(null)}
+          onClose={closeModal}
           onLoadTasksForProject={onLoadTasksForProject}
         />
       )}
@@ -1247,9 +1366,9 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
             {(() => {
               // One chip owns show/hide; a second appears only when a shown
               // overlay failed to load and a retry makes sense.
-              if (!showOutlook) {
+              if (outlookMode === "off") {
                 return (
-                  <button className="cal-outlook-toggle" onClick={toggleOutlook} title="Show your Outlook meetings on the calendar">
+                  <button className="cal-outlook-toggle" onClick={cycleOutlookMode} title="Show your Outlook meetings on the calendar">
                     Outlook: off
                   </button>
                 );
@@ -1258,8 +1377,8 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
                 return (
                   <button
                     className="cal-outlook-toggle cal-outlook-toggle--warn"
-                    onClick={toggleOutlook}
-                    title="The Office 365 Outlook connector isn't set up for this app yet — an admin needs to add it (see the README's Outlook calendar section). Click to hide this."
+                    onClick={cycleOutlookMode}
+                    title="The Office 365 Outlook connector isn't set up for this app yet — an admin needs to add it (see the README's Outlook calendar section). Click to cycle this."
                   >
                     Outlook: not connected
                   </button>
@@ -1267,9 +1386,24 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
               }
               return (
                 <>
-                  <button className="cal-outlook-toggle cal-outlook-toggle--active" onClick={toggleOutlook} title="Hide Outlook meetings">
-                    Outlook: on
+                  <button
+                    className="cal-outlook-toggle cal-outlook-toggle--active"
+                    onClick={cycleOutlookMode}
+                    title={outlookMode === "on"
+                      ? "Outlook meetings shown. Click to fade them back."
+                      : "Outlook meetings faded. Click to hide them."}
+                  >
+                    Outlook: {outlookMode}
                   </button>
+                  {mutedCount > 0 && (
+                    <button
+                      className="cal-outlook-toggle"
+                      onClick={() => setMutedSubjects(clearMutedSubjects())}
+                      title="Show hidden meeting subjects again"
+                    >
+                      {mutedCount} hidden — undo
+                    </button>
+                  )}
                   {outlookStatus === "error" && (
                     <button className="cal-outlook-toggle cal-outlook-toggle--warn" onClick={refreshOutlook} title="Couldn't load your Outlook meetings — click to retry">
                       Retry
@@ -1312,6 +1446,18 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
                   {day.getDate()}
                 </div>
                 <div className="calendar__day-total">{total > 0 ? formatMinutes(total) : " "}</div>
+                {/* One click to walk the day's unaccounted-for meetings,
+                    instead of hunting each ghost down individually. */}
+                {(unloggedByDate.get(ds)?.length ?? 0) > 0 && (
+                  <button
+                    type="button"
+                    className="cal-day-log-all"
+                    onClick={() => logAllForDay(ds)}
+                    title={`Log all ${unloggedByDate.get(ds)!.length} meetings on this day, one at a time`}
+                  >
+                    Log {unloggedByDate.get(ds)!.length}
+                  </button>
+                )}
               </div>
             );
           })}
@@ -1562,6 +1708,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
                         rowTopMin={row * 30}
                         logged={loggedEventIds.has(event.id)}
                         onLog={openLogEvent}
+                        onMute={handleMuteSubject}
                       />
                     ))}
                     {cellEntries?.map((p) => renderEntryBlock(p, row * 30))}
