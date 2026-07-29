@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, within, fireEvent } from "@testing-library/react";
 import { TeamPage } from "./TeamPage";
 import type { TeamEntry } from "../services/teamService";
+import type { Task } from "../types";
 
 vi.mock("../services/userService", () => ({
   getCurrentUser: () => ({ id: "aad-object-id", email: "u@example.com", displayName: "User One", environmentId: "env-1" }),
@@ -53,6 +54,7 @@ function entry(overrides: Partial<TeamEntry>): TeamEntry {
 const projects = [
   { id: "p1", name: "Project One", color: "#719500", isActive: true, createdAt: "" },
 ];
+const tasks: Task[] = [];
 
 describe("TeamPage", () => {
   it("shows per-member week totals, flags missing weekdays, and rolls up projects", async () => {
@@ -60,7 +62,7 @@ describe("TeamPage", () => {
       entry({}), // Avery, Monday, 2h on Project One
       entry({ id: "te-2", ownerId: "su-me", ownerName: "User One", userId: "su-me", date: "2026-07-28", durationMinutes: 60 }),
     ]);
-    render(<TeamPage teamContext={teamContext} projects={projects} />);
+    render(<TeamPage teamContext={teamContext} projects={projects} tasks={tasks} />);
 
     const averyRow = (await screen.findByText("Avery Example")).closest("tr")!;
     // 2h logged Monday; Tue + Wed (today) are empty and already past → 2
@@ -84,7 +86,7 @@ describe("TeamPage", () => {
 
   it("keeps zero-entry reports visible instead of dropping them", async () => {
     getTeamTimeEntries.mockResolvedValue([]);
-    render(<TeamPage teamContext={teamContext} projects={projects} />);
+    render(<TeamPage teamContext={teamContext} projects={projects} tasks={tasks} />);
     expect(await screen.findByText("Avery Example")).toBeTruthy();
     expect(screen.getByText("Jordan Sample")).toBeTruthy();
   });
@@ -92,10 +94,73 @@ describe("TeamPage", () => {
   it("surfaces load failures with a retry", async () => {
     getTeamTimeEntries.mockRejectedValueOnce(new Error("hierarchy security not enabled"));
     getTeamTimeEntries.mockResolvedValue([entry({})]);
-    render(<TeamPage teamContext={teamContext} projects={projects} />);
+    render(<TeamPage teamContext={teamContext} projects={projects} tasks={tasks} />);
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("hierarchy security not enabled");
     fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
     expect((await screen.findAllByText("2h")).length).toBeGreaterThan(0);
+  });
+});
+
+describe("TeamPage export controls", () => {
+  /** Capture the exported CSV's text, same approach as csvExport.test.ts. */
+  async function captureExport(): Promise<string> {
+    let captured: Blob | undefined;
+    const createObjectURL = vi.fn((blob: Blob) => { captured = blob; return "blob:mock"; });
+    Object.defineProperty(URL, "createObjectURL", { value: createObjectURL, configurable: true });
+    Object.defineProperty(URL, "revokeObjectURL", { value: vi.fn(), configurable: true });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    fireEvent.click(screen.getByRole("button", { name: /Export CSV/ }));
+    if (!captured) return "";
+    const buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as ArrayBuffer);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsArrayBuffer(captured!);
+    });
+    return new TextDecoder("utf-8", { ignoreBOM: true }).decode(buffer);
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("disables the export button until the visible week has entries", async () => {
+    getTeamTimeEntries.mockResolvedValue([]);
+    render(<TeamPage teamContext={teamContext} projects={projects} tasks={tasks} />);
+    await screen.findByText("Avery Example");
+    expect(screen.getByRole("button", { name: /Export CSV/ }).hasAttribute("disabled")).toBe(true);
+    cleanup();
+
+    getTeamTimeEntries.mockResolvedValue([entry({})]);
+    render(<TeamPage teamContext={teamContext} projects={projects} tasks={tasks} />);
+    await screen.findAllByText("2h");
+    expect(screen.getByRole("button", { name: /Export CSV/ }).hasAttribute("disabled")).toBe(false);
+  });
+
+  it("exports every visible member's rows, labeled by owner rather than the manager's own name", async () => {
+    getTeamTimeEntries.mockResolvedValue([
+      entry({}), // Avery
+      entry({ id: "te-2", ownerId: "su-me", ownerName: "User One", userId: "su-me", date: "2026-07-28", durationMinutes: 60 }),
+    ]);
+    render(<TeamPage teamContext={teamContext} projects={projects} tasks={tasks} />);
+    await screen.findByText("Avery Example");
+
+    const csv = (await captureExport()).replace("﻿", "");
+    const rows = csv.trim().split("\n");
+    expect(rows).toHaveLength(3); // header + Avery's row + the manager's own row
+    expect(csv).toContain("Avery Example");
+    expect(csv).toContain("User One");
+  });
+
+  it("remembers the chosen rounding rule as its own device preference, separate from Reports", async () => {
+    getTeamTimeEntries.mockResolvedValue([entry({})]);
+    render(<TeamPage teamContext={teamContext} projects={projects} tasks={tasks} />);
+    await screen.findByText("Avery Example");
+    fireEvent.change(screen.getByLabelText("Duration rounding applied to the CSV export"), {
+      target: { value: "up15" },
+    });
+    expect(localStorage.getItem("tt_team_export_rounding")).toBe("up15");
+    expect(localStorage.getItem("tt_export_rounding")).toBeNull();
   });
 });

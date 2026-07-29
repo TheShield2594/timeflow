@@ -136,7 +136,7 @@ export const PageRouter: React.FC<Props> = ({
     // The nav item only renders for managers, but guard anyway: without a
     // team there is nothing to show.
     if (!teamContext || teamContext.reports.length === 0) return null;
-    return <TeamPage teamContext={teamContext} projects={projects} />;
+    return <TeamPage teamContext={teamContext} projects={projects} tasks={tasks} />;
   }
 
   if (page === "projects") {

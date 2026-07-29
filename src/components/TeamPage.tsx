@@ -1,15 +1,32 @@
 import React, { useMemo, useState } from "react";
-import type { Project } from "../types";
+import type { Project, Task } from "../types";
 import type { TeamContext, TeamEntry } from "../services/teamService";
 import { useTeamEntries } from "../hooks/useTeam";
 import { formatMinutes } from "../hooks";
 import { addDaysStr, localDateStr, weekStartStr } from "../utils/dates";
-import { IconChevronLeft, IconChevronRight } from "./Icons";
+import {
+  exportToCSV, RoundingRule, ROUNDING_LABELS,
+} from "../services/csvExport";
+import { IconChevronLeft, IconChevronRight, IconDownload } from "./Icons";
 import { RangeSpinner } from "./RangeSpinner";
 
 interface Props {
   teamContext: TeamContext;
   projects: Project[];
+  tasks: Task[];
+}
+
+// The rounding choice is a device preference, not data — persisted separately
+// from the personal Reports export so a manager can pick different rounding
+// for what they send about their team.
+const TEAM_ROUNDING_STORAGE_KEY = "tt_team_export_rounding";
+
+function readStoredRounding(): RoundingRule {
+  try {
+    const v = localStorage.getItem(TEAM_ROUNDING_STORAGE_KEY);
+    if (v && v in ROUNDING_LABELS) return v as RoundingRule;
+  } catch { /* default below */ }
+  return "exact";
 }
 
 interface MemberRow {
@@ -27,7 +44,7 @@ interface MemberRow {
  * rollup. Only rendered when the user has direct reports; the data read is
  * scoped server-side by Dataverse hierarchy security (see teamService).
  */
-export const TeamPage: React.FC<Props> = ({ teamContext, projects }) => {
+export const TeamPage: React.FC<Props> = ({ teamContext, projects, tasks }) => {
   const today = localDateStr();
   const [weekStart, setWeekStart] = useState(() => weekStartStr(today));
   const weekDays = useMemo(
@@ -35,8 +52,31 @@ export const TeamPage: React.FC<Props> = ({ teamContext, projects }) => {
     [weekStart]
   );
   const weekEnd = weekDays[6];
+  const [rounding, setRounding] = useState<RoundingRule>(readStoredRounding);
+  const [exporting, setExporting] = useState(false);
+
+  const handleRoundingChange = (rule: RoundingRule) => {
+    setRounding(rule);
+    try { localStorage.setItem(TEAM_ROUNDING_STORAGE_KEY, rule); } catch { /* in-memory only */ }
+  };
 
   const { entries, loading, error, refresh } = useTeamEntries(weekStart, weekEnd);
+
+  // Exports exactly what the table shows for the visible week (every member
+  // row, including the manager's own) so a manager can hand this straight to
+  // whoever needs the team's time instead of exporting it themselves.
+  const handleExport = () => {
+    setExporting(true);
+    try {
+      // `ownerName` (not `userDisplayName`) is the reliable per-row owner —
+      // see teamService's FormattedValue-annotation fallback — so the CSV's
+      // "User" column reflects who actually logged each row.
+      const exportEntries = entries.map((e) => ({ ...e, userDisplayName: e.ownerName }));
+      exportToCSV(exportEntries, projects, tasks, `timeflow-team-${weekStart}-to-${weekEnd}.csv`, rounding);
+    } finally {
+      setTimeout(() => setExporting(false), 800);
+    }
+  };
 
   const memberRows = useMemo<MemberRow[]>(() => {
     const byOwner = new Map<string, { name: string; entries: TeamEntry[] }>();
@@ -151,6 +191,32 @@ export const TeamPage: React.FC<Props> = ({ teamContext, projects }) => {
         {weekLabel}. You see your own time and your direct reports&rsquo; (set via the
         Manager field in Dataverse; entries stay private to everyone else).
       </p>
+
+      <div className="team__export-bar">
+        <span className="team__export-label">Export</span>
+        <div className="team__export-controls">
+          <select
+            className="rounding-select"
+            value={rounding}
+            onChange={(e) => handleRoundingChange(e.target.value as RoundingRule)}
+            aria-label="Duration rounding applied to the CSV export"
+            title="Billing-style rounding applied to the export's duration columns (stored entries are unchanged)"
+          >
+            {(Object.keys(ROUNDING_LABELS) as RoundingRule[]).map((rule) => (
+              <option key={rule} value={rule}>{ROUNDING_LABELS[rule]}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className={`export-btn btn-icon ${exporting ? "export-btn--loading" : ""}`}
+            onClick={handleExport}
+            disabled={entries.length === 0 || exporting || loading}
+            title={loading ? "Waiting for this week's entries to load…" : "Export the team's week to CSV"}
+          >
+            <IconDownload /> {exporting ? "Exporting…" : "Export CSV"}
+          </button>
+        </div>
+      </div>
 
       {error ? (
         <div className="team__error" role="alert">

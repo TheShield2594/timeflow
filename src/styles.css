@@ -1708,16 +1708,16 @@ input, select { font-family: inherit; }
 /* =====================================================================
    REPORTS — export rounding + project × period matrix
    ===================================================================== */
-.reports__export-bar {
+.reports__export-bar, .team__export-bar {
   display: flex; align-items: center; gap: 10px; justify-content: flex-end;
   padding: 10px 0; margin-bottom: 16px;
   border-top: 1px solid var(--border-subtle);
 }
-.reports__export-label {
+.reports__export-label, .team__export-label {
   font-size: 11px; font-weight: 700; color: var(--text-faint);
   text-transform: uppercase; letter-spacing: 0.7px; margin-right: auto;
 }
-.reports__export-controls { display: flex; align-items: center; gap: 8px; }
+.reports__export-controls, .team__export-controls { display: flex; align-items: center; gap: 8px; }
 .rounding-select {
   background: var(--surface);
   border: 1.5px solid var(--border);
