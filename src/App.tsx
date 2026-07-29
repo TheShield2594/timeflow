@@ -279,14 +279,6 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
     }
   }, [cancel, refresh, toast]);
 
-  const totalMinutesByProject = useMemo(() => {
-    const map = new Map<string, number>();
-    entries.forEach((e) => {
-      map.set(e.projectId, (map.get(e.projectId) || 0) + (e.durationMinutes || 0));
-    });
-    return map;
-  }, [entries]);
-
   return (
     <div className="app">
       <aside className="sidebar">
@@ -360,7 +352,6 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
             entries={entries}
             projects={projects}
             tasks={tasks}
-            totalMinutesByProject={totalMinutesByProject}
             timerBusy={timer.isRunning || !!timer.pendingStopAt}
             onDelete={deleteWithUndo}
             onEdit={editEntry}

@@ -206,7 +206,7 @@ export const TimesheetPage: React.FC<Props> = ({
             <option key={p.id} value={p.id}>{p.name}{p.isActive ? "" : " (archived)"}</option>
           ))}
         </select>
-        <span className="timesheet__toolbar-total">{formatMinutes(totalMinutes)} total</span>
+        <span className="timesheet__toolbar-total num-row">{formatMinutes(totalMinutes)} total</span>
         {targetHours > 0 && (
           <span
             className="week-target-chip"
@@ -274,7 +274,7 @@ export const TimesheetPage: React.FC<Props> = ({
             <div key={date} className="timesheet__day">
               <div className="timesheet__day-header">
                 <span className="timesheet__day-label">{friendlyDate(date)}</span>
-                <span className="timesheet__day-total">{formatMinutes(dayTotal)}</span>
+                <span className="timesheet__day-total num-row">{formatMinutes(dayTotal)}</span>
               </div>
 
               <div className="timesheet__entries">

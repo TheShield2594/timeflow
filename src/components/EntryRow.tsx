@@ -17,10 +17,10 @@ function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" });
 }
 
-/** A single time-entry row — project accent stripe, description, badges,
- *  times/duration, and (when the caller wires them up) continue/edit/delete
- *  actions. Shared by the Timesheet's day-grouped list and the Overview
- *  page's recent-entries panel. */
+/** A single time-entry row — project accent stripe, description, work/ticket/
+ *  ratio chips, times/duration, and (when the caller wires them up)
+ *  continue/edit/delete actions. Shared by the Timesheet's day-grouped list
+ *  and the Overview page's recent-entries panel. */
 export const EntryRow: React.FC<Props> = ({ entry, project, task, timerBusy, onContinue, onEdit, onDelete }) => (
   <div className="entry-row">
     <div
@@ -32,32 +32,42 @@ export const EntryRow: React.FC<Props> = ({ entry, project, task, timerBusy, onC
         <span className="entry-row__desc">
           {entry.description || <em className="entry-row__no-desc">No description</em>}
         </span>
-        <div className="entry-row__badges">
-          {project && (
+        {/* Four different kinds of data used to render as four identical
+            pills, so "PTO · Vacation" read as two unrelated tags rather than
+            project ▸ task. One composite chip carries the work identity (the
+            project's colour is the only cue it needs); the ticket and the
+            billing ratio get their own quieter forms. */}
+        <div className="entry-row__meta">
+          {(project || task) && (
             <span
-              className="badge badge--project"
-              style={{ "--pc": project.color } as React.CSSProperties}
+              className="chip-work"
+              style={{ "--pc": project?.color } as React.CSSProperties}
             >
-              {project.name}
+              {project && <span className="chip-work__dot" aria-hidden="true" />}
+              {project && <span className="chip-work__project">{project.name}</span>}
+              {project && task && <span className="chip-work__sep" aria-hidden="true">▸</span>}
+              {task && <span className="chip-work__task">{task.name}</span>}
             </span>
           )}
-          {task && (
-            <span className="badge badge--task">{task.name}</span>
-          )}
           {entry.jiraTicket && (
-            <span className="badge badge--task">{entry.jiraTicket}</span>
+            <span className="chip-ticket" title={`Jira ticket ${entry.jiraTicket}`}>
+              {entry.jiraTicket}
+            </span>
           )}
           {entry.ratio !== undefined && (
-            <span className="badge badge--task">Ratio: {entry.ratio}</span>
+            <span className="chip-ratio" title={`Billing ratio ${entry.ratio}`}>
+              <span aria-hidden="true">r{entry.ratio}</span>
+              <span className="sr-only">Billing ratio {entry.ratio}</span>
+            </span>
           )}
         </div>
       </div>
       <div className="entry-row__bottom">
-        <span className="entry-row__times">
+        <span className="entry-row__times num-row">
           {formatTime(entry.startTime)}
           {entry.endTime && <> – {formatTime(entry.endTime)}</>}
         </span>
-        <span className="entry-row__duration">
+        <span className="entry-row__duration num-row">
           {entry.endTime
             ? formatMinutes(entry.durationMinutes ?? 0)
             : <span className="entry-row__running">Running…</span>

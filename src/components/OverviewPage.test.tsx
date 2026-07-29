@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, within } from "@testing-library/react";
+import { render, screen, cleanup, within, fireEvent } from "@testing-library/react";
 import { OverviewPage } from "./OverviewPage";
 import { DataRangeProvider } from "../contexts/DataRangeContext";
 import { addDaysStr, localDateStr } from "../utils/dates";
@@ -12,16 +12,6 @@ vi.mock("../services/userService", () => ({
 // page only needs formatMinutes from it, so stub the rest (same approach as
 // CalendarPage.test.tsx) to avoid loading the SDK's broken transitive deps.
 vi.mock("../generated", () => ({ MicrosoftDataverseService: {} }));
-
-beforeEach(() => {
-  // jsdom has no ResizeObserver — SvgBarChart (used by the "Last 7 Days"
-  // panel) needs one to exist, even if it never actually fires.
-  (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  };
-});
 
 afterEach(() => {
   cleanup();
@@ -49,18 +39,31 @@ function makeEntry(daysAgo: number, minutes: number, overrides: Partial<TimeEntr
   };
 }
 
-function renderOverview(entries: TimeEntry[], projects: Project[] = [PROJECT]) {
+function renderOverview(
+  entries: TimeEntry[],
+  projects: Project[] = [PROJECT],
+  overrides: Partial<React.ComponentProps<typeof OverviewPage>> = {}
+) {
   return render(
     <DataRangeProvider>
-      <OverviewPage entries={entries} projects={projects} tasks={[]} onContinue={vi.fn()} onGoToProjects={vi.fn()} />
+      <OverviewPage
+        entries={entries}
+        projects={projects}
+        tasks={[]}
+        onContinue={vi.fn()}
+        onGoToProjects={vi.fn()}
+        {...overrides}
+      />
     </DataRangeProvider>
   );
 }
 
-/** A KPI card's value, found via its label — scoped this way because the
- *  same duration string can also appear in the Recent entries list below. */
+/** A KPI card's value, found via its label. Scoped to .kpi-card because both
+ *  the duration strings and the word "Today" also appear in the today strip
+ *  and the Recent entries list. */
 function kpiValue(label: string): string | null {
-  return screen.getByText(label).closest(".kpi-card")?.querySelector(".kpi-card__value")?.textContent ?? null;
+  const card = screen.getAllByText(label).map((el) => el.closest(".kpi-card")).find(Boolean);
+  return card?.querySelector(".kpi-card__value")?.textContent ?? null;
 }
 
 describe("OverviewPage", () => {
@@ -109,17 +112,119 @@ describe("OverviewPage", () => {
 
   it("lists recent entries most-recent-first", () => {
     const entries = [makeEntry(2, 45), makeEntry(0, 90), makeEntry(1, 60)];
-    renderOverview(entries);
-    const descs = screen.getAllByText(/^Work \d$/).map((el) => el.textContent);
+    const { container } = renderOverview(entries);
+    const recent = container.querySelector(".quick-starts__recent") as HTMLElement;
+    const descs = within(recent).getAllByText(/^Work \d$/).map((el) => el.textContent);
     expect(descs).toEqual(["Work 0", "Work 1", "Work 2"]);
   });
 
-  it("renders the Last 7 Days chart and Activity heatmap panels", () => {
+  it("keeps the heatmap but drops the 7-day chart Reports already owns", () => {
     renderOverview([makeEntry(0, 90)]);
-    expect(screen.getByText("Last 7 Days")).not.toBeNull();
+    expect(screen.queryByText("Last 7 Days")).toBeNull();
     expect(screen.getByText("Activity")).not.toBeNull();
     expect(screen.getByText("Less")).not.toBeNull();
     expect(screen.getByText("More")).not.toBeNull();
+  });
+});
+
+describe("OverviewPage quick starts", () => {
+  it("offers the most recent distinct piece of work, deduped", () => {
+    // Two entries on the same project/description collapse to one button.
+    const entries = [makeEntry(0, 90), makeEntry(1, 60, { description: "Work 0" }), makeEntry(2, 45)];
+    const { container } = renderOverview(entries);
+
+    const labels = Array.from(container.querySelectorAll(".quick-start__desc")).map((el) => el.textContent);
+    expect(labels).toEqual(["Work 0", "Work 2"]);
+  });
+
+  it("starts the timer on the entry behind the button", () => {
+    const onContinue = vi.fn();
+    const entry = makeEntry(0, 90);
+    const { container } = renderOverview([entry], [PROJECT], { onContinue });
+
+    fireEvent.click(container.querySelector(".quick-start") as HTMLButtonElement);
+    expect(onContinue).toHaveBeenCalledWith(entry);
+  });
+
+  it("leaves out work whose project has since been archived", () => {
+    const { container } = renderOverview([makeEntry(0, 90)], [{ ...PROJECT, isActive: false }]);
+    expect(container.querySelectorAll(".quick-start")).toHaveLength(0);
+  });
+
+  it("disables the buttons while a timer is already running", () => {
+    const { container } = renderOverview([makeEntry(0, 90)], [PROJECT], { timerBusy: true });
+    expect((container.querySelector(".quick-start") as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe("OverviewPage today strip", () => {
+  const today = localDateStr();
+
+  function timed(id: string, startHM: string, endHM: string, minutes: number): TimeEntry {
+    return {
+      id,
+      projectId: PROJECT.id,
+      description: id,
+      startTime: `${today}T${startHM}:00`,
+      endTime: `${today}T${endHM}:00`,
+      durationMinutes: minutes,
+      date: today,
+      userId: "user-1",
+      userDisplayName: "User One",
+    };
+  }
+
+  it("offers each untracked gap between today's blocks as a log target", () => {
+    // 09:00–10:00, then a 90-minute hole, then 11:30–12:30.
+    const { container } = renderOverview([timed("a", "09:00", "10:00", 60), timed("b", "11:30", "12:30", 60)]);
+
+    const gaps = container.querySelectorAll(".today-strip__gap");
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0].getAttribute("aria-label")).toContain("10 AM to 11:30 AM");
+  });
+
+  it("ignores sub-15-minute slivers between back-to-back blocks", () => {
+    const { container } = renderOverview([timed("a", "09:00", "10:00", 60), timed("b", "10:05", "11:00", 55)]);
+    expect(container.querySelectorAll(".today-strip__gap")).toHaveLength(0);
+  });
+
+  it("does not treat overlapping entries as a gap", () => {
+    const { container } = renderOverview([timed("a", "09:00", "12:00", 180), timed("b", "10:00", "11:00", 60)]);
+    expect(container.querySelectorAll(".today-strip__gap")).toHaveLength(0);
+  });
+
+  it("opens a prefilled entry form when a gap is clicked", () => {
+    const { container } = renderOverview(
+      [timed("a", "09:00", "10:00", 60), timed("b", "11:30", "12:30", 60)],
+      [PROJECT],
+      { onCreate: vi.fn(), onLoadTasksForProject: vi.fn() }
+    );
+
+    fireEvent.click(container.querySelector(".today-strip__gap") as HTMLButtonElement);
+
+    expect(screen.getByRole("dialog", { name: "Log untracked time" })).not.toBeNull();
+    expect((screen.getByLabelText("Start") as HTMLInputElement).value).toBe("10:00");
+    expect((screen.getByLabelText("End") as HTMLInputElement).value).toBe("11:30");
+  });
+
+  it("only counts today toward the strip's tracked total", () => {
+    const { container } = renderOverview([timed("a", "09:00", "10:00", 60), makeEntry(3, 120)]);
+    expect(container.querySelector(".today-strip__tracked")?.textContent).toBe("1h");
+  });
+});
+
+describe("OverviewPage weekly target ring", () => {
+  it("offers to set a target when none exists", () => {
+    renderOverview([makeEntry(0, 90)]);
+    expect(screen.getByText("Set a weekly target")).not.toBeNull();
+  });
+
+  it("shows progress toward a target that is set", () => {
+    localStorage.setItem("tt_weekly_target:env-1:user-1", "10");
+    const { container } = renderOverview([makeEntry(0, 300)]);
+
+    expect(container.querySelector(".target-ring__pct")?.textContent).toBe("50%");
+    expect(container.querySelector(".target-ring__value")?.textContent).toBe("5h / 10h");
   });
 });
 

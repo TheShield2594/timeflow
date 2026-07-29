@@ -1,4 +1,20 @@
 /* =====================================================================
+   REVISION NOTES (design review pass — colour, type, chips, cards)
+   ─ Green was doing every job at once: labels, totals, day headings, card
+     titles, quiet buttons. It now marks five things only — active nav, the
+     primary button, the running timer, chart bars, the heatmap — and every
+     number moved onto one three-step mono ramp (see NUMERIC TYPE RAMP).
+     Micro-labels are --text-muted, numbers are --text.
+   ─ .badge/.badge--project/.badge--task are gone: project, task, Jira
+     ticket and ratio wore one identical pill each, so "PTO · Vacation"
+     read as two unrelated tags. Replaced by .chip-work (composite
+     project ▸ task with a coloured project dot), .chip-ticket (mono
+     hairline box) and .chip-ratio (quiet suffix, label in the tooltip).
+   ─ Project cards: header / tasks / footer instead of a uniform-height
+     box; Edit + Archive behind one .card-menu; task delete revealed on
+     hover/focus; totals explicitly scoped to a window they can name.
+   ─ Overview leads with .today-strip + .target-ring — see that section.
+
    REVISION NOTES (July 2026 pass)
    ─ Dark mode "dark box" fixes:
      • Shadows re-tuned for dark surfaces (near-black shadows on near-black
@@ -178,6 +194,28 @@ input, select { font-family: inherit; }
 /* Buttons that carry an inline SVG icon next to their label */
 .btn-icon { display: inline-flex; align-items: center; gap: 6px; }
 .btn-icon svg { flex-shrink: 0; }
+
+/* =====================================================================
+   NUMERIC TYPE RAMP
+   Every number the app prints sits on one of three steps — KPI, card,
+   row — in the mono face with tabular figures, so digits keep their
+   column as values tick over. Numbers are --text; the label beside them
+   carries the meaning and stays --text-muted. Green is not a text colour
+   here: it's reserved for active nav, the primary button, the running
+   timer, chart bars and the heatmap.
+
+   Declared early on purpose: a component rule further down the file may
+   still override the colour (muted start/end times, for instance) without
+   having to restate the family, size or figure style.
+   ===================================================================== */
+.num-kpi, .num-card, .num-row {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.num-kpi  { font-size: 30px; font-weight: 700; letter-spacing: -0.6px; line-height: 1.15; }
+.num-card { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; line-height: 1.2; }
+.num-row  { font-size: 14.5px; font-weight: 600; }
 
 /* Tactile press feedback on every primary interactive control */
 .btn-primary:active, .btn-ghost:active, .timer-bar__btn:active:not(:disabled),
@@ -423,7 +461,7 @@ input, select { font-family: inherit; }
   display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 12px; padding: 80px 0; color: var(--text-muted);
 }
-.timesheet__empty-icon { color: var(--ev-green); opacity: 0.35; }
+.timesheet__empty-icon { color: var(--text-faint); opacity: 0.55; }
 .timesheet__day { margin-bottom: 28px; }
 .timesheet__day-header {
   display: flex; justify-content: space-between; align-items: center;
@@ -432,9 +470,9 @@ input, select { font-family: inherit; }
 }
 .timesheet__day-label {
   font-size: 11px; font-weight: 700;
-  color: var(--ev-green-dark); text-transform: uppercase; letter-spacing: 1px;
+  color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;
 }
-.timesheet__day-total { font-size: 12px; font-weight: 700; color: var(--text-muted); font-family: var(--mono); }
+.timesheet__day-total { font-weight: 700; }
 .timesheet__entries { display: flex; flex-direction: column; gap: 6px; }
 
 .entry-row {
@@ -452,25 +490,60 @@ input, select { font-family: inherit; }
 .entry-row__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
 .entry-row__desc { font-size: 13.5px; font-weight: 600; color: var(--text); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .entry-row__no-desc { color: var(--text-faint); font-style: italic; font-weight: 400; }
-.entry-row__badges { display: flex; gap: 5px; flex-shrink: 0; }
+.entry-row__meta { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .entry-row__bottom { display: flex; justify-content: space-between; align-items: center; }
-.entry-row__times { font-size: 12px; color: var(--text-muted); font-family: var(--mono); }
-.entry-row__duration { font-size: 12px; font-weight: 700; color: var(--ev-green-dark); font-family: var(--mono); }
+.entry-row__times { color: var(--text-muted); font-weight: 500; }
+.entry-row__duration { font-weight: 700; }
 .entry-row__delete { padding: 0 14px; color: var(--text-faint); font-size: 20px; transition: color 0.15s; flex-shrink: 0; line-height: 1; }
 .entry-row__delete:hover { color: var(--ev-pumpkin-text); }
 
-.badge { padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; }
-.badge--task { background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border); }
-/* Project accent color (--pc), set inline per entry, tints the background
-   and border only. --pc is an arbitrary user-picked hex (the project color
-   picker takes free-form hex input), so a color-mix of --pc can't guarantee
-   AA contrast for every possible value — text uses the standard --text
-   token instead, same as .badge--task, so legibility never depends on
-   which color a project happens to use. */
-.badge--project {
-  background: color-mix(in srgb, var(--pc) 13%, transparent);
+/* =====================================================================
+   WORK / TICKET / RATIO CHIPS
+   Project, task, Jira ticket and billing ratio are four different kinds of
+   data and used to wear one identical pill each, so "PTO · Vacation" read
+   as two unrelated tags and "Lunch · Lunch" read as a bug. Now: one
+   composite chip for project ▸ task (the coloured dot is the project cue,
+   so the text needs no tint of its own — --pc is arbitrary user-picked hex
+   and can't be trusted to hit AA), a mono hairline box for the ticket, and
+   a quiet suffix for the ratio with the full label in its tooltip.
+   ===================================================================== */
+.chip-work {
+  display: inline-flex; align-items: center; gap: 5px;
+  max-width: 260px;
+  padding: 2px 9px 2px 7px;
+  border-radius: 20px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 11.5px; font-weight: 600;
   color: var(--text);
-  border: 1px solid color-mix(in srgb, var(--pc) 27%, transparent);
+  white-space: nowrap; overflow: hidden;
+}
+.chip-work__dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--pc, var(--text-faint));
+  flex-shrink: 0;
+}
+.chip-work__project { flex-shrink: 0; }
+.chip-work__sep { color: var(--text-faint); font-weight: 400; flex-shrink: 0; }
+.chip-work__task { color: var(--text-muted); font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+
+.chip-ticket {
+  font-family: var(--mono);
+  font-size: 10.5px; font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+
+.chip-ratio {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  cursor: help;
 }
 
 /* =====================================================================
@@ -506,7 +579,7 @@ input, select { font-family: inherit; }
   transition: color 0.15s;
 }
 .help-tip__btn:hover, .help-tip__btn[aria-expanded="true"] {
-  color: var(--ev-green-dark);
+  color: var(--text);
 }
 .help-tip__popover {
   position: fixed;
@@ -565,18 +638,19 @@ input, select { font-family: inherit; }
 .kpi-card {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 16px 20px;
-  box-shadow: var(--shadow-sm); border-top: 3px solid var(--ev-green);
+  box-shadow: var(--shadow-sm);
 }
 .kpi-card__label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.7px; margin-bottom: 6px; }
-/* 24px/700 qualifies as large text — raw brand green passes at 3:1 */
-.kpi-card__value { font-size: 24px; font-weight: 700; font-family: var(--mono); letter-spacing: -0.5px; color: var(--ev-green); }
-.kpi-card__target { font-size: 15px; font-weight: 600; color: var(--text-muted); }
-.kpi-card__flame { color: var(--ev-pumpkin); vertical-align: -2px; margin-right: 3px; }
+/* Size, weight and colour all come from .num-kpi — see the numeric ramp. */
+.kpi-card__value { display: flex; align-items: center; }
+/* The flex row collapses the leading space in " / 40h" — margin restores it. */
+.kpi-card__target { font-size: 15px; font-weight: 600; color: var(--text-muted); font-family: var(--font); margin-left: 6px; }
+.kpi-card__flame { color: var(--ev-pumpkin); margin-right: 4px; flex-shrink: 0; }
 
 .reports__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .report-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow-sm); }
 .report-card--wide { grid-column: 1 / -1; }
-.report-card__title { font-size: 11px; font-weight: 700; color: var(--ev-green-dark); text-transform: uppercase; letter-spacing: 0.9px; margin-bottom: 16px; }
+.report-card__title { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.9px; margin-bottom: 16px; }
 .report-card__empty { color: var(--text-faint); font-size: 13px; padding: 20px 0; text-align: center; }
 
 .overview__title { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
@@ -668,7 +742,7 @@ input, select { font-family: inherit; }
 .task-breakdown__info { flex: 1; min-width: 0; }
 .task-breakdown__name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .task-breakdown__project { font-size: 11px; color: var(--text-muted); }
-.task-breakdown__time { font-size: 12px; font-family: var(--mono); color: var(--ev-green-dark); font-weight: 700; }
+.task-breakdown__time { font-weight: 700; }
 
 .export-btn {
   padding: 7px 15px; border-radius: var(--radius-sm);
@@ -692,7 +766,7 @@ input, select { font-family: inherit; }
 .btn-primary:hover { background: var(--ev-green-dark); }
 
 .btn-ghost { background: transparent; color: var(--text-muted); padding: 9px 18px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; border: 1.5px solid var(--border); transition: all 0.2s var(--ease); }
-.btn-ghost:hover { color: var(--text); border-color: var(--ev-green); }
+.btn-ghost:hover { color: var(--text); border-color: var(--text-faint); }
 
 .new-project-form { background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius); padding: 22px; margin-bottom: 22px; display: flex; flex-direction: column; gap: 12px; box-shadow: var(--shadow); }
 .new-project-form__title { font-size: 14px; font-weight: 700; margin-bottom: 2px; }
@@ -720,26 +794,100 @@ input, select { font-family: inherit; }
 .projects-page__empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 60px 24px; color: var(--text-faint); text-align: center; }
 .projects-page__empty-icon { opacity: 0.25; }
 
-.project-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+/* align-content: start stops the grid from stretching short cards to a
+   uniform row height the content never fills. Cards size to what's in them. */
+.project-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  align-content: start;
+  align-items: start;
+  gap: 14px;
+}
 .project-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; display: flex; transition: box-shadow 0.15s; box-shadow: var(--shadow-sm); }
 .project-card:hover { box-shadow: var(--shadow); }
 .project-card__stripe { width: 5px; flex-shrink: 0; }
-.project-card__body { flex: 1; padding: 15px 17px; }
-.project-card__top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
-.project-card__name { font-size: 14px; font-weight: 700; margin-bottom: 2px; }
+.project-card__body { flex: 1; min-width: 0; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+/* Header: dot + name + total + actions, on one baseline. */
+.project-card__top { display: flex; align-items: flex-start; gap: 9px; }
+.project-card__dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+.project-card__heading { flex: 1; min-width: 0; }
+.project-card__name { font-size: 14px; font-weight: 700; }
 .project-card__desc { font-size: 12px; color: var(--text-muted); }
-.project-card__ratio { font-size: 12px; color: var(--text-muted); }
-.project-card__jira { font-size: 12px; color: var(--text-muted); }
-.project-card__total { font-size: 13px; font-family: var(--mono); font-weight: 700; color: var(--ev-green-dark); }
-.project-card__top-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-.project-card__edit { font-size: 11.5px; color: var(--text-muted); background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 2px 8px; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
-.project-card__edit:hover { color: var(--ev-green-dark); border-color: var(--ev-green); }
+.project-card__attrs { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
+.project-card__total-group { text-align: right; flex-shrink: 0; }
+.project-card__total { color: var(--text); }
+/* The loaded entry range is a moving window, so the number is explicitly
+   scoped rather than reading as an all-time total it never was. */
+.project-card__total-label { font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.5px; }
 .project-card__tasks { display: flex; flex-wrap: wrap; gap: 6px; }
+.project-card__footer {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding-top: 10px; border-top: 1px solid var(--border-subtle);
+  margin-top: auto;
+}
+.project-card__last { font-size: 11.5px; color: var(--text-faint); }
+.sparkline { flex-shrink: 0; color: var(--border); }
+.project-card__restore {
+  display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;
+  font-size: 11.5px; color: var(--text-muted);
+  background: transparent; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 2px 8px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.project-card__restore:hover { color: var(--text); border-color: var(--text-faint); }
 
-.task-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 20px; font-size: 11.5px; color: var(--text-muted); font-weight: 500; }
-.task-chip--add { color: var(--ev-green-dark); border-color: rgba(113,149,0,0.3); background: var(--ev-green-soft); cursor: pointer; transition: background 0.15s; }
-.task-chip--add:hover { background: var(--ev-green-mid); }
-.task-chip__delete { display: inline-flex; align-items: center; justify-content: center; padding: 4px; color: var(--text-faint); border-radius: 50%; cursor: pointer; transition: color 0.15s, background 0.15s; }
+/* Card overflow menu — one ⋯ affordance instead of two competing
+   micro-buttons in the corner. */
+.card-menu { position: relative; flex-shrink: 0; }
+.card-menu__btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 24px; height: 22px; border-radius: var(--radius-sm);
+  color: var(--text-faint); font-size: 16px; line-height: 1;
+  transition: color 0.15s, background 0.15s;
+}
+.card-menu__btn:hover, .card-menu__btn[aria-expanded="true"] { color: var(--text); background: var(--surface-2); }
+.card-menu__list {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 20;
+  min-width: 132px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 4px;
+  display: flex; flex-direction: column; gap: 1px;
+  animation: rise-in 0.12s var(--ease);
+}
+.card-menu__item {
+  display: flex; align-items: center; gap: 7px;
+  width: 100%; padding: 6px 9px;
+  border-radius: 4px;
+  font-size: 12.5px; font-weight: 600; color: var(--text-muted);
+  text-align: left;
+  transition: color 0.15s, background 0.15s;
+}
+.card-menu__item:hover:not(:disabled) { color: var(--text); background: var(--surface-2); }
+.card-menu__item--danger:hover:not(:disabled) { color: var(--ev-pumpkin-text); background: var(--danger-soft); }
+.card-menu__item:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.task-chip { display: inline-flex; align-items: center; gap: 3px; padding: 3px 5px 3px 9px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 20px; font-size: 11.5px; color: var(--text-muted); font-weight: 500; }
+.task-chip--add { color: var(--text-muted); border-style: dashed; background: transparent; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
+.task-chip--add:hover { color: var(--text); border-color: var(--text-faint); }
+/* Delete is revealed on hover/focus, not parked on every chip: a permanent ×
+   on ~30 chips put an irreversible action one slip from the rename target.
+   width/opacity (not display:none) so it stays focusable by keyboard and the
+   chip doesn't jump width as it appears. */
+.task-chip__delete {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 0; padding: 0; overflow: hidden;
+  color: var(--text-faint); border-radius: 50%; cursor: pointer;
+  opacity: 0;
+  transition: color 0.15s, background 0.15s, opacity 0.15s, width 0.15s, padding 0.15s;
+}
+.task-chip:hover .task-chip__delete,
+.task-chip:focus-within .task-chip__delete,
+.task-chip__delete:focus-visible {
+  width: 19px; padding: 4px; opacity: 1;
+}
 .task-chip__delete:hover { color: #fff; background: var(--danger); }
 
 .inline-task-form { display: flex; align-items: center; gap: 4px; }
@@ -763,9 +911,9 @@ input, select { font-family: inherit; }
 .calendar__nav { display: flex; align-items: center; gap: 6px; }
 
 .cal-nav-btn { padding: 6px 13px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; color: var(--text-muted); border: 1.5px solid var(--border); background: var(--surface); transition: all 0.2s var(--ease); line-height: 1; }
-.cal-nav-btn:hover { color: var(--text); border-color: var(--ev-green); }
-.cal-nav-btn--today { color: var(--ev-green-dark); border-color: rgba(113,149,0,0.35); background: var(--ev-green-soft); }
-.cal-nav-btn--today:hover { background: var(--ev-green-mid); }
+.cal-nav-btn:hover { color: var(--text); border-color: var(--text-faint); }
+.cal-nav-btn--today { color: var(--text); border-color: var(--border); background: var(--surface-2); }
+.cal-nav-btn--today:hover { background: var(--surface-3); }
 
 .calendar__empty-hint { font-size: 13px; color: var(--text-faint); text-align: center; padding: 8px 0 4px; }
 
@@ -892,7 +1040,7 @@ input, select { font-family: inherit; }
   flex-shrink: 0;
   line-height: 1;
 }
-.entry-row__edit:hover { color: var(--ev-green-dark); }
+.entry-row__edit:hover { color: var(--text); }
 
 .entry-row__running {
   display: inline-flex;
@@ -1213,7 +1361,7 @@ input, select { font-family: inherit; }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--ev-green); }
+::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
 
 /* =====================================================================
    PAGE TRANSITIONS & MOTION
@@ -1324,10 +1472,7 @@ input, select { font-family: inherit; }
 .timesheet__project-filter:focus { border-color: var(--ev-green); }
 .timesheet__toolbar-total {
   margin-left: auto;
-  font-size: 12px;
   font-weight: 700;
-  color: var(--ev-green-dark);
-  font-family: var(--mono);
   white-space: nowrap;
 }
 .timesheet__empty .btn-primary { margin-top: 4px; }
@@ -1377,10 +1522,11 @@ input, select { font-family: inherit; }
 .calendar__week-total {
   font-size: 12px;
   font-weight: 700;
-  color: var(--ev-green-dark);
+  color: var(--text);
   font-family: var(--mono);
-  background: var(--ev-green-soft);
-  border: 1px solid rgba(113,149,0,0.25);
+  font-variant-numeric: tabular-nums;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
   border-radius: 20px;
   padding: 3px 10px;
 }
@@ -1388,10 +1534,11 @@ input, select { font-family: inherit; }
   font-size: 10px;
   font-weight: 700;
   font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   color: var(--text-faint);
   min-height: 14px;
 }
-.calendar__day-header--today .calendar__day-total { color: var(--ev-green-dark); }
+.calendar__day-header--today .calendar__day-total { color: var(--text); }
 .cal-nav-btn { display: inline-flex; align-items: center; justify-content: center; }
 .cal-entry--running {
   border-style: dashed;
@@ -1598,13 +1745,13 @@ input, select { font-family: inherit; }
   border-radius: 20px;
   font-size: 11.5px;
   font-weight: 600;
-  color: var(--ev-green-dark);
-  background: var(--ev-green-soft);
-  border: 1px solid rgba(113,149,0,0.3);
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
   flex-shrink: 0;
-  transition: background 0.15s, opacity 0.15s;
+  transition: color 0.15s, background 0.15s, border-color 0.15s, opacity 0.15s;
 }
-.entry-row__continue:hover:not(:disabled) { background: var(--ev-green-mid); }
+.entry-row__continue:hover:not(:disabled) { color: var(--text); border-color: var(--text-faint); background: var(--surface-3); }
 .entry-row__continue:disabled { opacity: 0.35; cursor: not-allowed; }
 
 /* =====================================================================
@@ -1622,7 +1769,7 @@ input, select { font-family: inherit; }
 .week-target__fill { display: block; height: 100%; background: var(--ev-green); border-radius: 3px; transition: width 0.3s var(--ease); }
 .week-target__fill--met { background: var(--success); }
 .week-target__edit { display: inline-flex; align-items: center; padding: 3px; color: var(--text-faint); border-radius: 4px; }
-.week-target__edit:hover { color: var(--ev-green-dark); }
+.week-target__edit:hover { color: var(--text); }
 
 .week-target-set {
   font-size: 11.5px;
@@ -1632,7 +1779,7 @@ input, select { font-family: inherit; }
   padding: 3px 10px;
   transition: color 0.15s, border-color 0.15s;
 }
-.week-target-set:hover { color: var(--ev-green-dark); border-color: var(--ev-green); }
+.week-target-set:hover { color: var(--text); border-color: var(--text-faint); }
 
 .week-target-editor { display: inline-flex; align-items: center; gap: 4px; }
 .week-target-editor__input {
@@ -1749,6 +1896,7 @@ input, select { font-family: inherit; }
 }
 .matrix { border-collapse: collapse; width: 100%; font-size: 12px; }
 .matrix th, .matrix td {
+  font-variant-numeric: tabular-nums;
   padding: 6px 9px;
   text-align: right;
   white-space: nowrap;
@@ -1990,7 +2138,7 @@ input, select { font-family: inherit; }
   padding: 0 6px;
 }
 .team__member-missing { display: block; font-size: 11px; color: var(--warn, #b45309); font-weight: 600; margin-top: 2px; }
-.team__cell { font-family: var(--mono); color: var(--text-muted); }
+.team__cell { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--text-muted); }
 .team__cell--missing { color: var(--warn, #b45309); }
 .team__cell--total { font-weight: 700; color: var(--text); }
 .team__day--today { background: var(--ev-green-soft); }
@@ -2053,3 +2201,132 @@ input, select { font-family: inherit; }
 :root[data-theme="dark"] .focus-chip:hover,
 :root[data-theme="dark"] .focus-chip__edit:hover,
 :root[data-theme="dark"] .focus-editor__ok:hover { color: var(--ev-green); }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   OVERVIEW — TODAY STRIP + WEEKLY TARGET RING
+   Overview is the landing screen and used to only answer "what happened":
+   a repeat of Reports' 7-day chart plus a heatmap, nothing actionable on
+   it. The strip leads instead — today's logged blocks laid out on a clock
+   with every untracked gap offered as a one-click log — and the weekly
+   target ring sits beside it rather than only on the Calendar header.
+   ═══════════════════════════════════════════════════════════════════════ */
+.overview__today {
+  display: flex; align-items: center; gap: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+
+.today-strip { flex: 1; min-width: 0; }
+.today-strip__summary { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; margin-bottom: 10px; }
+.today-strip__summary-label {
+  font-size: 11px; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.7px;
+}
+.today-strip__summary-sep { color: var(--text-faint); }
+
+.today-strip__track {
+  position: relative;
+  height: 28px;
+  background: var(--surface-2);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.today-strip__block { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
+/* Hatched, dashed and clickable — the one thing on this page that asks to
+   be acted on, so it's allowed to look unfinished. */
+.today-strip__gap {
+  position: absolute; top: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+  border: 1px dashed var(--border);
+  border-radius: 3px;
+  color: var(--text-muted);
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--surface-3), var(--surface-3) 5px,
+    transparent 5px, transparent 10px
+  );
+  overflow: hidden;
+  transition: color 0.15s, border-color 0.15s;
+}
+.today-strip__gap:hover, .today-strip__gap:focus-visible { color: var(--text); border-color: var(--ev-green); }
+.today-strip__gap-label {
+  font-size: 10px; font-weight: 700; white-space: nowrap;
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  padding: 0 3px;
+}
+.today-strip__axis {
+  display: flex; justify-content: space-between;
+  margin-top: 6px;
+  font-size: 10px; color: var(--text-faint);
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+}
+.today-strip__empty { margin-top: 8px; font-size: 12px; color: var(--text-faint); }
+
+.target-ring { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.target-ring--editing { flex-direction: column; align-items: flex-start; gap: 5px; }
+.target-ring__dial { position: relative; display: grid; place-items: center; flex-shrink: 0; }
+.target-ring__dial svg { display: block; }
+.target-ring__track { stroke: var(--surface-3); }
+.target-ring__fill { stroke: var(--ev-green); transition: stroke-dasharray 0.5s var(--ease); }
+.target-ring__fill--met { stroke: var(--success); }
+.target-ring__pct {
+  position: absolute;
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  font-size: 15px; font-weight: 700; color: var(--text);
+}
+.target-ring__meta { display: flex; flex-direction: column; gap: 3px; }
+.target-ring__label {
+  font-size: 11px; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.7px;
+}
+.target-ring__value {
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap;
+}
+.target-ring__edit {
+  display: inline-flex; align-items: center; align-self: flex-start;
+  padding: 3px; color: var(--text-faint); border-radius: 4px;
+  transition: color 0.15s;
+}
+.target-ring__edit:hover { color: var(--text); }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   OVERVIEW — QUICK STARTS
+   The recent list is a record; these three are the buttons. Same data,
+   one click instead of three pickers.
+   ═══════════════════════════════════════════════════════════════════════ */
+.quick-starts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.quick-start {
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+  padding: 10px 12px; text-align: left;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+}
+.quick-start:hover:not(:disabled) { background: var(--surface-3); border-color: var(--text-faint); }
+.quick-start:disabled { opacity: 0.45; cursor: not-allowed; }
+.quick-start__dot { width: 9px; height: 9px; border-radius: 50%; background: var(--pc, var(--text-faint)); flex-shrink: 0; }
+.quick-start__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.quick-start__desc {
+  font-size: 13px; font-weight: 600; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.quick-start__meta {
+  font-size: 11px; color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.quick-start__icon { color: var(--text-faint); flex-shrink: 0; transition: color 0.15s; }
+.quick-start:hover:not(:disabled) .quick-start__icon { color: var(--ev-green); }
+.quick-starts__recent { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-subtle); }
+
+@media (max-width: 900px) {
+  .overview__today { flex-wrap: wrap; gap: 16px; }
+  .today-strip { flex-basis: 100%; }
+  .quick-starts { grid-template-columns: 1fr; }
+}

@@ -203,19 +203,19 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, rangeLo
       <div className="reports__kpis">
         <div className="kpi-card">
           <div className="kpi-card__label">Total tracked</div>
-          <div className="kpi-card__value">{formatMinutes(totalMinutes)}</div>
+          <div className="kpi-card__value num-kpi">{formatMinutes(totalMinutes)}</div>
         </div>
         <div className="kpi-card">
           <div className="kpi-card__label">Avg per active day</div>
-          <div className="kpi-card__value">{formatMinutes(Math.round(totalMinutes / Math.max(activeDays, 1)))}</div>
+          <div className="kpi-card__value num-kpi">{formatMinutes(Math.round(totalMinutes / Math.max(activeDays, 1)))}</div>
         </div>
         <div className="kpi-card">
           <div className="kpi-card__label">Sessions logged</div>
-          <div className="kpi-card__value">{filtered.length}</div>
+          <div className="kpi-card__value num-kpi">{filtered.length}</div>
         </div>
         <div className="kpi-card">
           <div className="kpi-card__label">Projects active</div>
-          <div className="kpi-card__value">{projectBreakdown.length}</div>
+          <div className="kpi-card__value num-kpi">{projectBreakdown.length}</div>
         </div>
       </div>
 
@@ -325,7 +325,7 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, rangeLo
                   <div className="task-breakdown__name">{task!.name}</div>
                   <div className="task-breakdown__project">{project?.name}</div>
                 </div>
-                <div className="task-breakdown__time">{formatMinutes(minutes)}</div>
+                <div className="task-breakdown__time num-row">{formatMinutes(minutes)}</div>
               </div>
             ))}
           </div>
