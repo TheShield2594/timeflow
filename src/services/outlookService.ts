@@ -340,3 +340,56 @@ export function markEventLogged(eventId: string): Set<string> {
   } catch { /* storage unavailable — the hint just won't persist */ }
   return new Set(arr);
 }
+
+// ---------------------------------------------------------------------------
+// Muted subjects
+// ---------------------------------------------------------------------------
+// A recurring block ("Do Not Schedule", "CRM Email Notification") repeats
+// across all seven columns and is never something anyone logs time against, so
+// it is pure noise on the overlay. Muting is by subject rather than by event
+// id: the point is to silence the whole series, including next week's
+// occurrences, which carry ids this device has never seen. Per environment +
+// user, alongside the logged-ids list above.
+const MUTED_KEY_PREFIX = "tt_outlook_muted:";
+const MUTED_MAX = 200;
+
+function mutedKey(): string {
+  const user = getCurrentUser();
+  return `${MUTED_KEY_PREFIX}${user.environmentId}:${user.id}`;
+}
+
+/** Match key for a subject — recurring occurrences come back with the same
+ *  wording but inconsistent case and stray whitespace. */
+export function subjectKey(subject: string): string {
+  return subject.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export function readMutedSubjects(): Set<string> {
+  try {
+    const arr = JSON.parse(localStorage.getItem(mutedKey()) || "[]");
+    return new Set(Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function persistMuted(keys: Set<string>): Set<string> {
+  const arr = [...keys].slice(-MUTED_MAX);
+  try {
+    localStorage.setItem(mutedKey(), JSON.stringify(arr));
+  } catch { /* storage unavailable — the mute just won't persist */ }
+  return new Set(arr);
+}
+
+export function muteSubject(subject: string): Set<string> {
+  const keys = readMutedSubjects();
+  keys.add(subjectKey(subject));
+  return persistMuted(keys);
+}
+
+export function clearMutedSubjects(): Set<string> {
+  try {
+    localStorage.removeItem(mutedKey());
+  } catch { /* nothing persisted anyway */ }
+  return new Set();
+}

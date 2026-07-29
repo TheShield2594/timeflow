@@ -2067,28 +2067,81 @@ input, select { font-family: inherit; }
    full-width and deliberately muted — they're context to categorize, not
    records. Clicking one opens the Log Time modal prefilled.
    ═══════════════════════════════════════════════════════════════════════ */
+/* Flat tint and a dashed LEFT EDGE only — no hatch, no full border. With
+   twenty-plus ghosts a week the hatch texture became the page itself, and an
+   untracked week read as fully booked. Tracked entries keep their saturated
+   fill and solid accent, so they stay the only high-contrast objects here. */
 .cal-ghost {
   position: absolute; left: 2px; right: 2px;
-  border-radius: 5px; padding: 3px 7px; overflow: hidden;
+  border-radius: 0 4px 4px 0; padding: 3px 7px; overflow: hidden;
   z-index: 1; cursor: pointer; pointer-events: auto;
-  background: repeating-linear-gradient(
-    -45deg,
-    var(--surface-2), var(--surface-2) 6px,
-    transparent 6px, transparent 12px
-  );
-  border: 1.5px dashed var(--border);
-  transition: border-color 0.15s, box-shadow 0.15s;
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  border: none;
+  border-left: 2px dashed var(--border);
+  transition: background 0.15s, border-color 0.15s;
 }
-.cal-ghost:hover, .cal-ghost:focus-visible {
-  border-color: var(--ev-green);
-  box-shadow: var(--shadow-sm);
+.cal-ghost:hover, .cal-ghost:focus-within {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  border-left-color: var(--ev-green);
 }
-.cal-ghost--logged { opacity: 0.55; }
+.cal-ghost--logged { opacity: 0.5; }
+/* Fills the block so the whole meeting is the hit target. */
+.cal-ghost__log {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: flex-start;
+  padding: 3px 7px;
+  background: none; border: none; cursor: pointer;
+  text-align: left; overflow: hidden;
+  font: inherit;
+}
 .cal-ghost__name {
-  font-size: 11px; font-weight: 600; color: var(--text-muted);
+  font-size: 11px; font-weight: 600; color: var(--text-faint);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3;
   display: flex; align-items: center; gap: 3px;
 }
+
+/* "+ Log" and the mute control, revealed on hover/focus — the block used to
+   rely on a bare click that nothing announced. */
+.cal-ghost__actions {
+  position: absolute; top: 2px; right: 3px; z-index: 1;
+  display: flex; align-items: center; gap: 3px;
+  opacity: 0; transition: opacity 0.12s;
+}
+.cal-ghost:hover .cal-ghost__actions,
+.cal-ghost:focus-within .cal-ghost__actions { opacity: 1; }
+@media (hover: none) { .cal-ghost__actions { opacity: 1; } }
+.cal-ghost__cta {
+  font-size: 10px; font-weight: 700; color: var(--ev-green-dark);
+  background: var(--surface); border: 1px solid var(--ev-green);
+  border-radius: 20px; padding: 0 6px; line-height: 15px;
+}
+.cal-ghost__mute {
+  display: flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; padding: 0;
+  border: 1px solid var(--border); border-radius: 4px;
+  background: var(--surface); color: var(--text-muted); cursor: pointer;
+}
+.cal-ghost__mute:hover { color: var(--ev-pumpkin-text); border-color: var(--danger-border); }
+
+/* "Faded" mode: still there, still clickable, a fraction of the weight.
+   Hovering one brings it back so it can be read and logged. */
+.calendar--outlook-faded .cal-ghost { opacity: 0.4; }
+.calendar--outlook-faded .cal-ghost:hover,
+.calendar--outlook-faded .cal-ghost:focus-visible,
+.calendar--outlook-faded .cal-ghost:focus-within { opacity: 1; }
+
+/* Per-day "Log N" in the column header. */
+.cal-day-log-all {
+  margin-top: 2px;
+  font-size: 10px; font-weight: 700;
+  color: var(--ev-green-dark);
+  background: var(--accent-soft);
+  border: 1px solid var(--ev-green);
+  border-radius: 20px; padding: 1px 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.cal-day-log-all:hover { background: var(--ev-green-mid); }
 .cal-ghost__check { color: var(--ev-green-dark); flex-shrink: 0; }
 .cal-ghost__time { font-size: 10px; color: var(--text-faint); font-family: var(--mono); margin-top: 2px; }
 
