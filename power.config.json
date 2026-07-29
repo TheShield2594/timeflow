@@ -18,6 +18,14 @@
       ],
       "authenticationType": "Oauth",
       "dataSets": {}
+    },
+    "81311e7e-4679-4a50-a875-094b8e4f554b": {
+      "id": "/providers/Microsoft.PowerApps/apis/shared_office365",
+      "displayName": "Office 365 Outlook",
+      "dataSources": [
+        "office365"
+      ],
+      "dataSets": {}
     }
   },
   "databaseReferences": {}
