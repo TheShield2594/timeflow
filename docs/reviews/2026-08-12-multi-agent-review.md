@@ -312,6 +312,46 @@ Worth recording, because these are the things most likely to be wrong:
 
 ---
 
+## Issue index
+
+Every in-scope finding is tracked. Mobile findings are deliberately not filed.
+
+| Issue | Finding | Priority |
+|---|---|---|
+| [#87](https://github.com/TheShield2594/timeflow/issues/87) | Calendar drag/resize/nudge corrupts durations on DST days | P0 |
+| [#88](https://github.com/TheShield2594/timeflow/issues/88) | `--text-faint` fails WCAG AA in 54 rules | P0 |
+| [#89](https://github.com/TheShield2594/timeflow/issues/89) | Shift+Arrow reschedule destroys keyboard focus | P0 |
+| [#90](https://github.com/TheShield2594/timeflow/issues/90) | `userService.ts` host detection is untested | P0 |
+| [#91](https://github.com/TheShield2594/timeflow/issues/91) | Data-isolation UAT checklist + Team-path assertion | P0 |
+| [#54](https://github.com/TheShield2594/timeflow/issues/54) | Managed solution + environment promotion *(pre-existing, relabeled)* | P0 |
+| [#92](https://github.com/TheShield2594/timeflow/issues/92) | Zero-duration entry marks the rest of the day tracked | P1 |
+| [#93](https://github.com/TheShield2594/timeflow/issues/93) | Matrix column totals don't equal the displayed cells | P1 |
+| [#94](https://github.com/TheShield2594/timeflow/issues/94) | `useTimer.start()` guards on the render snapshot | P1 |
+| [#95](https://github.com/TheShield2594/timeflow/issues/95) | 1 Hz re-render of the entire page tree | P1 |
+| [#96](https://github.com/TheShield2594/timeflow/issues/96) | Linear lookups inside render loops | P1 |
+| [#97](https://github.com/TheShield2594/timeflow/issues/97) | Network errors are never retried | P1 |
+| [#98](https://github.com/TheShield2594/timeflow/issues/98) | Idle prompt fires whenever the tab is backgrounded | P1 |
+| [#99](https://github.com/TheShield2594/timeflow/issues/99) | Running timer is never announced | P1 |
+| [#100](https://github.com/TheShield2594/timeflow/issues/100) | Toasts likely never announce | P1 |
+| [#101](https://github.com/TheShield2594/timeflow/issues/101) | `--warn` referenced but never defined | P1 |
+| [#102](https://github.com/TheShield2594/timeflow/issues/102) | White on primary green is 3.5:1 at rest | P1 |
+| [#103](https://github.com/TheShield2594/timeflow/issues/103) | Focus trap escapes on backdrop click | P1 |
+| [#104](https://github.com/TheShield2594/timeflow/issues/104) | Escape/backdrop discards a filled-in form | P1 |
+| [#105](https://github.com/TheShield2594/timeflow/issues/105) | "Discard session" has no confirm and no undo | P1 |
+| [#106](https://github.com/TheShield2594/timeflow/issues/106) | Reports matrix not semantically navigable; `title`-only values | P1 |
+| [#107](https://github.com/TheShield2594/timeflow/issues/107) | 15 npm advisories in dev tooling | P1 |
+| [#108](https://github.com/TheShield2594/timeflow/issues/108) | Unvalidated interpolation into OData `$filter` | P1 |
+| [#109](https://github.com/TheShield2594/timeflow/issues/109) | Design-review register is lost | P1 |
+| [#110](https://github.com/TheShield2594/timeflow/issues/110) | Migrate `Brandon To Do.md` into issues | P1 |
+| [#111](https://github.com/TheShield2594/timeflow/issues/111) | No production telemetry | P1 |
+| [#112](https://github.com/TheShield2594/timeflow/issues/112) | No rollback/backup/support runbook; doc drift | P1 |
+| [#113](https://github.com/TheShield2594/timeflow/issues/113) | Project percentages sum to 99% | P1 |
+| [#114](https://github.com/TheShield2594/timeflow/issues/114) | Smaller correctness bugs, dead code and test gaps | P2 |
+| [#115](https://github.com/TheShield2594/timeflow/issues/115) | Architecture refactors | P2 |
+| [#116](https://github.com/TheShield2594/timeflow/issues/116) | Bundle: no code splitting; font inline cliff | P2 |
+
+---
+
 ## Appendix A — deferred mobile findings
 
 Mobile and touch support are **not a target** as of 2026-08-12. These findings are
