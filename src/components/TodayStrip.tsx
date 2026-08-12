@@ -1,8 +1,7 @@
 import React, { useMemo } from "react";
 import type { TimeEntry, Project } from "../types";
 import { formatMinutes } from "../hooks";
-import { minutesOfDay } from "../utils/dates";
-import { WORK_DAY_START_MIN, WORK_DAY_END_MIN, findUntrackedGaps } from "../utils/gaps";
+import { WORK_DAY_START_MIN, WORK_DAY_END_MIN, findUntrackedGaps, spanOnDate } from "../utils/gaps";
 
 interface Block {
   start: number;
@@ -37,17 +36,17 @@ export function formatClock(minutes: number): string {
  *  screen's one actionable element — the rest of Overview reports history. */
 export const TodayStrip: React.FC<Props> = ({ entries, projects, date, nowMinutes, onLogGap }) => {
   const { blocks, gaps, windowStart, windowEnd, trackedMinutes } = useMemo(() => {
-    // Clock-face positions for drawing, clipped to the day. The length in
-    // each label describes the *drawn* span, which is what the reader is
-    // looking at; the "tracked" total below comes from stored durations, the
-    // only elapsed-time figure here (#87).
+    // Clock-face positions for drawing, clipped to the day — from the same
+    // helper the gap detector measures coverage with, so a block can never
+    // draw over time the detector still calls a gap (#92). The length in each
+    // label describes the *drawn* span, which is what the reader is looking
+    // at; the "tracked" total below comes from stored durations, the only
+    // elapsed-time figure here (#87).
     const raw: Block[] = entries
       .map((e) => {
-        const start = Math.max(0, Math.min(24 * 60, minutesOfDay(e.startTime)));
-        // A running entry ends "now"; one that ran past midnight is clipped to
-        // the end of the day rather than wrapping round to a negative width.
-        const rawEnd = e.endTime ? minutesOfDay(e.endTime) : nowMinutes;
-        const end = rawEnd <= start ? 24 * 60 : Math.min(24 * 60, rawEnd);
+        const span = spanOnDate(e, date, nowMinutes);
+        if (!span) return null;
+        const { startMin: start, endMin: end } = span;
         const project = projects.find((p) => p.id === e.projectId);
         return {
           start,
@@ -56,6 +55,7 @@ export const TodayStrip: React.FC<Props> = ({ entries, projects, date, nowMinute
           label: `${project?.name || "Untracked project"} · ${formatClock(start)}–${formatClock(end)} · ${formatMinutes(end - start)}`,
         };
       })
+      .filter((b): b is Block => b !== null)
       .sort((a, b) => a.start - b.start);
 
     // Same detector the Calendar draws its gap slots from, capped at now so

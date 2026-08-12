@@ -137,4 +137,41 @@ describe("coveredSpans", () => {
     const spans = coveredSpans([entry("23:00", "01:00")], DATE, WORK_DAY_END_MIN);
     expect(spans).toEqual([{ startMin: 23 * 60, endMin: 24 * 60 }]);
   });
+
+  it("covers nothing for a zero-length entry", () => {
+    // Started and stopped inside the same minute — wrong project picked, then
+    // immediately corrected. It ends where it starts, like a full-day entry,
+    // and only the stored duration tells the two apart (#92).
+    const spans = coveredSpans([entry("09:00", "09:00", { durationMinutes: 0 })], DATE, WORK_DAY_END_MIN);
+    expect(spans).toEqual([{ startMin: 9 * 60, endMin: 9 * 60 }]);
+  });
+
+  it("still covers the whole day for an entry that wrapped all the way round", () => {
+    const spans = coveredSpans([entry("09:00", "09:00", { durationMinutes: 24 * 60 })], DATE, WORK_DAY_END_MIN);
+    expect(spans).toEqual([{ startMin: 9 * 60, endMin: 24 * 60 }]);
+  });
+});
+
+describe("zero-length entries", () => {
+  it("does not mark the rest of the day as tracked", () => {
+    const gaps = findUntrackedGaps({
+      entries: [entry("08:00", "09:00"), entry("09:00", "09:00", { durationMinutes: 0 })],
+      date: DATE,
+      nowMinutes: WORK_DAY_END_MIN,
+    });
+    // Before the fix the mis-click covered 09:00 to midnight and this was [].
+    expect(asClock(gaps)).toEqual(["09:00-18:00"]);
+  });
+
+  it("covers nothing for a timer that has only just started", () => {
+    // A running entry whose start is this very minute is a zero-length span
+    // too, and it must not swallow the rest of the day either.
+    const gaps = findUntrackedGaps({
+      entries: [entry("08:00", null, { durationMinutes: 0 })],
+      date: DATE,
+      nowMinutes: WORK_DAY_START_MIN,
+      upperBoundMin: NOON,
+    });
+    expect(asClock(gaps)).toEqual(["08:00-12:00"]);
+  });
 });
