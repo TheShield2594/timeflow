@@ -7,6 +7,12 @@ discipline: Project Management, Architecture, UI/UX, Security, Mobile, and
 Web Development. This document consolidates them, resolves where they agree,
 and gives a single prioritized plan of action.
 
+> **Scope decision (2026-08-12):** mobile and touch support are **not a target**
+> at this time. The mobile findings are preserved in [Appendix A](#appendix-a--deferred-mobile-findings)
+> but are excluded from the priorities and the plan below. Three findings that
+> the mobile reviewer raised are *not* mobile-specific and remain in scope —
+> they are marked where they appear.
+
 ---
 
 ## Verdict
@@ -18,16 +24,16 @@ respected, empty states are designed rather than blank, and the two things most
 likely to be wrong in an app like this — cross-user authorization and CSV formula
 injection — are both implemented correctly.
 
-What holds it back is concentrated, not diffuse:
+With mobile out of scope, what holds it back is two things:
 
 1. **A data-integrity bug that mis-bills time on DST days.** The calendar treats
    minutes-of-day as if it were a duration. Twice a year that is wrong, and the
    wrong number is what gets stored and exported.
-2. **The mobile experience is not usable as shipped.** Three independent P0s,
-   including a calendar list that is hard-clipped at the fold with no scroller.
-3. **The project cannot be promoted to another environment.** The deploy config
+2. **The project cannot be promoted to another environment.** The deploy config
    is hard-bound to one dev environment and the security-critical Dataverse
    setup is a manual checklist with no verification gate.
+
+Everything else is meaningful but not release-blocking.
 
 ---
 
@@ -39,8 +45,8 @@ What holds it back is concentrated, not diffuse:
 | Architect | 2 | 7 | 9 | Layering is real and respected. One god component, one perf anti-pattern. |
 | UI/UX | 2 | 9 | ~20 | Strong craft; contrast and live-region gaps are the real failures. |
 | Security | 0 crit | 4 med | 6 low | No criticals. Team-view authz and CSV escaping both done right. |
-| Mobile | 3 | 11 | 5 | Effectively unusable on a phone in several core flows. |
 | Web Developer | 1 | 2 | 11 | Found the DST billing bug. All four CI checks verified passing. |
+| ~~Mobile~~ | — | — | — | *Deferred — see Appendix A.* |
 
 ---
 
@@ -53,9 +59,8 @@ Findings that surfaced from more than one direction, which raises confidence:
 | The whole page tree re-renders 1×/second while the timer runs (~720 element diffs/sec on Calendar) | Architect, Mobile |
 | `useTimer.start()` guards on the render snapshot instead of `timerRef.current`, breaking the invariant the rest of the file states explicitly | Architect, Web Dev |
 | `teamService` does its own single-page fetch with no pagination and no retry, unlike the personal path | Architect, PM |
-| `retryWithBackoff` only treats 429/503 as transient — a dropped mobile connection is never retried | Architect, Mobile |
-| Load-bearing information lives only in `title=` attributes (invisible on touch, unreachable by keyboard) | UI/UX, Mobile |
-| Reports matrix values are mouse-only; the UI literally says "Hover a cell for the exact time" | UI/UX, Mobile |
+| `retryWithBackoff` only treats 429/503 as transient — a dropped connection is never retried | Architect, Mobile |
+| Load-bearing information lives only in `title=` attributes (unreachable by keyboard and screen reader) | UI/UX, Mobile |
 
 ---
 
@@ -86,42 +91,7 @@ opts into a DST zone via `vi.stubEnv("TZ", ...)`.
 `src/components/EntryModal.tsx:136-139` already uses correctly. Set `test.env.TZ`
 to a DST-observing zone in `vitest.config.ts` and add a fall-back-day case.
 
-### 2. Mobile calendar day list is clipped; entries and the add button are unreachable
-`src/styles.css:1095, 1819, 1820`
-
-At ≤768px the desktop grid is hidden — but `.calendar__body`, the *only*
-scroller, lives inside the element being hidden. `.cal-mobile-list` has no
-`overflow` of its own and sits inside `.calendar { overflow: hidden }`, which is
-sized to exactly the viewport by the flex chain from `.app { height: 100dvh }`.
-
-At 375×812 that leaves ~480px of list. Past roughly 7 rows — trivially reached on
-a day with meetings, since Outlook ghosts render first — the remaining entries
-**and the `+ Add entry` button** are painted below a hard clip with no way to
-scroll to them.
-
-**Fix:** `@media (max-width: 768px) { .cal-mobile-list { flex: 1; min-height: 0; overflow-y: auto; } }`
-
-### 3. Every input is under 16px, so iOS zooms into a page that cannot be panned back
-12 rules in `src/styles.css` (`:963, 355, 452, 1287, 1636, 783, 401, 416, 1955, 2400, 1082, 978`)
-
-iOS auto-zooms on focus below 16px. Because `.app` is `height: 100dvh; overflow: hidden`
-(`styles.css:232`), the document never scrolls — so after the zoom the user is
-stranded in a fragment of a non-scrolling page with no way to recover. This
-happens on every form field on mobile.
-
-**Fix:** `@media (max-width: 768px) { input, select, textarea { font-size: 16px } }`.
-Do *not* add `maximum-scale=1` — the current viewport tag correctly allows pinch zoom.
-
-### 4. Task deletion is impossible on touch
-`src/styles.css:1067-1078`
-
-`.task-chip__delete` is `width: 0; opacity: 0`, revealed only by `:hover` /
-`:focus-within`. There is no `@media (hover: none)` fallback — unlike the two
-places the codebase gets this right (`:663`, `:2243`). Tapping the chip's name
-button swaps it for the rename input, so the delete button unmounts before it can
-be pressed. There is no path to the action at all on a phone.
-
-### 5. `--text-faint` fails WCAG AA and carries informative text in 54 rules
+### 2. `--text-faint` fails WCAG AA and carries informative text in 54 rules
 `src/styles.css:122` (light: **2.46:1**), `:2105` (dark: 3.86:1)
 
 Not just decoration. It colors the calendar's hour labels, every column header in
@@ -132,7 +102,7 @@ per-day totals, and the percentage column in the By Project report.
 informative text, and keep the current value as `--text-decor` for placeholders
 and separators.
 
-### 6. Keyboard reschedule destroys focus
+### 3. Keyboard reschedule destroys focus
 `src/components/CalendarPage.tsx:1232-1253`, `:1096-1108`
 
 Shift+Arrow is the accessible alternative to drag — but entries render inside the
@@ -141,7 +111,7 @@ gridcell they start in, chosen by `Math.floor(startMin / 30)`. A nudge across a
 focus drops to `<body>`. Every second press on the time axis, every press on the
 day axis. This defeats the very feature built to satisfy WCAG 2.1.1.
 
-### 7. `power.config.json` is hard-bound to one dev environment
+### 4. `power.config.json` is hard-bound to one dev environment
 `power.config.json:3, 6, 13, 22`
 
 The *runtime* data layer promotes cleanly via the connector's `"current"` token —
@@ -150,7 +120,7 @@ targets the committed `appId`/`environmentId`, and the two connection-reference
 GUIDs won't exist in QA or prod. `README.md:310-314` gives no instruction to
 change any of it. A QA push today would either fail or overwrite the dev app.
 
-### 8. Security-critical Dataverse config is a manual checklist with no gate
+### 5. Security-critical Dataverse config is a manual checklist with no gate
 `README.md:79-166`, issue #54
 
 If `ever_timeentries` is not set to **User** ownership, every user can read every
@@ -160,7 +130,7 @@ but no pre-deploy check, no solution artifact, and no UAT script. The primary
 control against a company-wide privacy incident is one person remembering one
 dropdown.
 
-### 9. `userService.ts` host detection is untested
+### 6. `userService.ts` host detection is untested
 `src/services/userService.ts` (124 lines, 0 tests)
 
 `isPowerAppsHost()` decides whether every write in the app goes to Dataverse or to
@@ -189,33 +159,31 @@ UI reports success.**
   (`src/hooks/useTimer.ts:175`), breaking the invariant `stopAt` and `cancel`
   deliberately follow. Risk is a double-start leaving an orphaned draft row that
   resurfaces as a phantom running timer.
+- Project breakdown percentages sum to 99% (`src/utils/reportAggregations.ts:166`) —
+  independent rounding again; needs largest-remainder allocation.
 
 **Performance**
 
 - The entire page tree re-renders once per second while the timer runs. `useTimer`
   is called in `AppContent` (`src/App.tsx:138`), nothing between there and the leaves is
   memoized, and the Calendar rebuilds ~720 elements per second to update one span of
-  text. On mobile this is continuous main-thread work for the whole tracked session.
-- The 336-cell desktop grid still renders at ≤768px where it is `display: none` —
-  ~700 DOM nodes built and kept alive on a phone to be hidden.
+  text. *(Raised independently by the Architect and the Mobile reviewer — this is a
+  desktop problem, not a mobile one.)*
 - Linear `projects.find()` / `tasks.find()` inside render loops, including inside the
   timesheet's search filter (`src/components/TimesheetPage.tsx:98-99`) — with 5,000
   entries that is ~10⁶ comparisons per keystroke.
 
-**Mobile**
+**Resilience** *(both raised by the Mobile reviewer but not mobile-specific)*
 
-- Timer bar selectors are `flex: none` at 368px minimum inside a 347px box — the task
-  picker is clipped, not scrollable (`src/styles.css:423`).
-- Timesheet rows leave ~5px for the description at 375px; at 320px the page pans
-  sideways (`src/styles.css:607-613`).
-- Two date navigators wired to different state, so the week header and the day list
-  disagree (`src/components/CalendarPage.tsx:513` vs `:1418`).
-- ~22 controls below the 44pt/48dp minimum, worst being three 26px actions 2px apart
-  with Delete adjacent to Edit.
-- Drag-to-move returns early for `pointerType === "touch"` and Shift+Arrow has no
-  touch equivalent — so on a phone there is **no** reschedule path at all.
-- The idle prompt fires spuriously on every app switch, offering to trim the entry
-  back to when the user last touched the phone (`src/hooks/useTimerSafety.ts:55-67`).
+- `retryWithBackoff` only classifies 429 and 503 as transient
+  (`src/services/dataverseService.ts:66-70`). A dropped connection is a network-layer
+  failure with no status code, so it is thrown on the first attempt — zero retry for the
+  most common real-world failure. Corroborated by the Architect.
+- The idle prompt fires spuriously whenever the tab is backgrounded
+  (`src/hooks/useTimerSafety.ts:55-67`). `lastActivity` freezes when you switch tabs or
+  apps; on return the check runs and offers to **trim the entry back to when you last
+  touched the keyboard** — for a session you were working through. Fix by bumping
+  `lastActivity` on `visibilitychange → visible`.
 
 **Accessibility**
 
@@ -233,6 +201,10 @@ UI reports success.**
 - "Discard session" deletes potentially hours of tracked time with no confirm and no
   undo — alone among this app's destructive actions.
 - The Reports matrix has no `scope`, no row headers and no caption.
+- Load-bearing information lives only in `title=` attributes — exact matrix cell values,
+  why Continue is disabled, what Archive does, the drag/nudge instructions. `title` is
+  unreachable by keyboard and is overridden by `aria-label` where both are present.
+  `HelpTip` already exists and is the right pattern to reuse.
 
 **Security (medium)**
 
@@ -266,27 +238,24 @@ UI reports success.**
 
 1. Fix the DST duration bug (P0-1) and the zero-duration gap bug, and set `TZ` in
    `vitest.config.ts` so the class stays fixed.
-2. Ship the mobile P0 batch. Per the mobile reviewer this is roughly one CSS block
-   plus three one-line changes: the `.cal-mobile-list` scroller, the `(hover: none)`
-   task-delete reveal, the 16px input override, a `(pointer: coarse)` 44px min-size
-   block, `flex-wrap` on the timer selectors, `position: sticky` on the two first
-   table columns, and hiding the dead week header and the `⌘.` chip on mobile.
-3. Do issue #54 (managed solution) and fix environment promotion. This collapses two
+2. Do issue #54 (managed solution) and fix environment promotion. This collapses two
    P0 risks into one importable artifact. Relabel #54 from `enhancement` — it is the
    release blocker.
-4. Write a UAT sign-off checklist: two accounts, verify A cannot see B's entries, the
+3. Write a UAT sign-off checklist: two accounts, verify A cannot see B's entries, the
    isolation toast never fires, Team shows only direct reports.
-5. Add minimal prod telemetry, even just routing the ErrorBoundary and the isolation
+4. Add minimal prod telemetry, even just routing the ErrorBoundary and the isolation
    canary to App Insights.
-6. Test `userService.ts` host detection.
+5. Test `userService.ts` host detection.
 
 **Phase 1 — next two weeks**
 
-7. Accessibility batch: `--text-faint` split, `--warn` definition, primary-button
+6. Accessibility batch: `--text-faint` split, `--warn` definition, primary-button
    contrast, the toast live region, the timer announcement, focus restoration after
-   Shift+Arrow, focus-trap `inert`.
-8. Performance batch: move `elapsed` out of `AppContent`, memoize the page components,
-   skip the grid JSX when mobile, build id→entity Maps once.
+   Shift+Arrow, focus-trap `inert`, and promoting `title`-only content to `HelpTip`.
+7. Performance batch: move `elapsed` out of `AppContent`, memoize the page components,
+   build id→entity Maps once instead of scanning per row.
+8. Resilience: broaden `retryWithBackoff` to network errors and 502/504; bump
+   `lastActivity` on `visibilitychange` so the idle prompt stops firing on tab switch.
 9. Reconstruct the design-review register into GitHub issues and adopt P0/P1/P2 labels
    so commits and the tracker speak the same language. Migrate `Brandon To Do.md`.
 10. `npm audit fix`, then plan the `vite`/`vitest` majors. Add Dependabot.
@@ -340,3 +309,51 @@ Worth recording, because these are the things most likely to be wrong:
 - **All 22 features claimed in the README are real.** No stub, no half-wired feature.
   If anything the README under-claims — the Overview page, untracked-gap detection, the
   weekly target ring and Team CSV export aren't in the feature table at all.
+
+---
+
+## Appendix A — deferred mobile findings
+
+Mobile and touch support are **not a target** as of 2026-08-12. These findings are
+recorded here so the analysis isn't lost if that changes. None are on the plan above.
+
+Note that the app currently ships a *partial* mobile implementation — four breakpoints
+and a purpose-built `.cal-mobile-list` day view at ≤768px. It is reachable from the
+Power Apps mobile player and from any narrow browser window, and in its current state
+it is broken. Worth a deliberate decision: either remove the mobile-specific code so
+the app degrades predictably, or accept it as-is knowing the state below.
+
+**Blockers, if mobile were in scope**
+
+- **The mobile calendar day list is hard-clipped.** `styles.css:1095, 1819, 1820` — the
+  only scroller lives inside the element hidden at ≤768px, and `.cal-mobile-list` has no
+  `overflow` of its own inside `.calendar { overflow: hidden }`. At 375×812, past ~7 rows
+  the remaining entries and the `+ Add entry` button are unreachable.
+- **All 12 input rules are under 16px**, so iOS zooms on focus into a
+  `height: 100dvh; overflow: hidden` shell that cannot be panned back.
+- **Task deletion has no touch path.** `styles.css:1067-1078` is hover/focus-only with no
+  `@media (hover: none)` fallback.
+
+**High priority, if mobile were in scope**
+
+- No touch reschedule path at all — `CalendarPage.tsx:983` returns early for
+  `pointerType === "touch"`, and Shift+Arrow has no touch equivalent.
+- ~22 controls below the 44pt/48dp minimum; worst is three 26px actions 2px apart with
+  Delete adjacent to Edit.
+- Two date navigators wired to different state, so the week header and day list disagree
+  (`CalendarPage.tsx:513` vs `:1418`).
+- Timer bar selectors are `flex: none` at 368px minimum inside a 347px box — clipped, not
+  scrollable (`styles.css:423`).
+- Timesheet rows leave ~5px for the description at 375px; at 320px the page pans sideways
+  (`styles.css:607-613`).
+- The 336-cell desktop grid still renders at ≤768px where it is `display: none` — ~700
+  DOM nodes built to be hidden.
+- Combobox commits on synthesized `onMouseDown`, producing the classic "first tap does
+  nothing" failure on the required field for starting a timer (`Combobox.tsx:152, 173`).
+- Chart, matrix and heatmap values are hover-only.
+- Modal drafts live in component state only and are lost when iOS evicts the webview;
+  the overnight-split guard is a `useRef`, so an eviction mid-split can double-count.
+- No `viewport-fit=cover`, no `env(safe-area-inset-*)`, no `theme-color`.
+- No `inputMode` / `autoCapitalize` / `enterKeyHint` anywhere.
+- The `⌘.` shortcut chip renders on iPhones, consuming space in the primary control to
+  advertise a keystroke the device cannot produce.
