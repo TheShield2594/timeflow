@@ -16,6 +16,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  setHidden(false);
 });
 
 /** The monitor takes a ref, not a value — a plain object stands in for one. */
@@ -137,6 +138,73 @@ describe("useTimerSafetyMonitor 12h auto-stop", () => {
   });
 });
 
+/** Drive document.hidden the way a tab switch does. */
+function setHidden(hidden: boolean) {
+  Object.defineProperty(document, "hidden", { configurable: true, value: hidden });
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: hidden ? "hidden" : "visible",
+  });
+  document.dispatchEvent(new Event("visibilitychange"));
+}
+
+describe("useTimerSafetyMonitor with the tab in the background", () => {
+  it("does not prompt while the tab is hidden", () => {
+    const { onIdleDetected } = mountMonitor();
+
+    act(() => { setHidden(true); });
+    act(() => { vi.advanceTimersByTime(IDLE_THRESHOLD_MS + 5 * 60 * 1000); });
+
+    // The user is in another app doing the work being timed. Nothing here can
+    // see that, and a prompt they can't see is one they'd come back to (#98).
+    expect(onIdleDetected).not.toHaveBeenCalled();
+  });
+
+  it("does not prompt for time the tab spent hidden once it comes back", () => {
+    const lastActivity = renderHook(() => useActivityTracker()).result.current;
+    const { onIdleDetected } = mountMonitor({ lastActivity });
+
+    act(() => { setHidden(true); });
+    act(() => { vi.advanceTimersByTime(60 * 60 * 1000); });
+    act(() => { setHidden(false); });
+    act(() => { vi.advanceTimersByTime(60 * 1000); });
+
+    expect(onIdleDetected).not.toHaveBeenCalled();
+  });
+
+  it("still prompts for idle time accrued before the tab was hidden", () => {
+    const lastActivity = renderHook(() => useActivityTracker()).result.current;
+    const { onIdleDetected } = mountMonitor({ lastActivity });
+    const lastActiveAt = lastActivity.current;
+
+    // 25 minutes at the desk doing nothing, an hour away, then back. The hour
+    // away is forgiven; the 25 minutes are not, so five more minutes here
+    // crosses the threshold.
+    act(() => { vi.advanceTimersByTime(25 * 60 * 1000); });
+    act(() => { setHidden(true); });
+    act(() => { vi.advanceTimersByTime(60 * 60 * 1000); });
+    act(() => { setHidden(false); });
+    expect(onIdleDetected).not.toHaveBeenCalled();
+
+    act(() => { vi.advanceTimersByTime(6 * 60 * 1000); });
+    expect(onIdleDetected).toHaveBeenCalledTimes(1);
+    // The reported "last active" is shifted by the hidden hour, so trimming
+    // to it doesn't throw away the time spent away.
+    expect(onIdleDetected).toHaveBeenCalledWith(lastActiveAt + 60 * 60 * 1000);
+  });
+
+  it("still auto-stops a 12h timer while the tab is hidden", () => {
+    const { onMaxDurationReached } = mountMonitor();
+
+    act(() => { setHidden(true); });
+    act(() => { vi.advanceTimersByTime(MAX_DURATION_MS + 60_000); });
+
+    // That limit measures the timer, not the user — being away is exactly
+    // when a forgotten timer needs stopping.
+    expect(onMaxDurationReached).toHaveBeenCalled();
+  });
+});
+
 describe("useActivityTracker", () => {
   it("bumps the timestamp on user input", () => {
     const { result } = renderHook(() => useActivityTracker());
@@ -150,6 +218,33 @@ describe("useActivityTracker", () => {
     expect(result.current.current).toBeGreaterThan(initial);
   });
 
+  it("does not count time the tab spent hidden as idle time", () => {
+    const { result } = renderHook(() => useActivityTracker());
+    const initial = result.current.current;
+
+    act(() => { setHidden(true); });
+    act(() => { vi.advanceTimersByTime(45 * 60 * 1000); });
+    act(() => { setHidden(false); });
+
+    // The hidden interval is credited back, so the idle age is unchanged
+    // rather than the 45 minutes the clock says.
+    expect(result.current.current).toBe(initial + 45 * 60 * 1000);
+    expect(Date.now() - result.current.current).toBe(0);
+  });
+
+  it("never reports activity in the future", () => {
+    const { result } = renderHook(() => useActivityTracker());
+
+    act(() => { vi.advanceTimersByTime(10 * 60 * 1000); });
+    act(() => { window.dispatchEvent(new Event("keydown")); });
+    // Hidden and back inside the same tick: crediting the interval must not
+    // push lastActivity past now.
+    act(() => { setHidden(true); });
+    act(() => { setHidden(false); });
+
+    expect(result.current.current).toBe(Date.now());
+  });
+
   it("stops listening once unmounted", () => {
     const { result, unmount } = renderHook(() => useActivityTracker());
     unmount();
@@ -157,6 +252,9 @@ describe("useActivityTracker", () => {
 
     act(() => { vi.advanceTimersByTime(60_000); });
     act(() => { window.dispatchEvent(new Event("keydown")); });
+    act(() => { setHidden(true); });
+    act(() => { vi.advanceTimersByTime(60_000); });
+    act(() => { setHidden(false); });
 
     expect(result.current.current).toBe(afterUnmount);
   });

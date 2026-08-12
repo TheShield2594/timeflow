@@ -1,7 +1,20 @@
 import { useEffect, useRef } from "react";
 
-const ACTIVITY_EVENTS = ["mousedown", "keydown", "touchstart", "scroll", "focus", "pointermove"];
+// Deliberately no `pointermove`: it fires continuously throughout every scroll
+// gesture and every mouse drift across the window, so it reports "working" for
+// a page nobody is working on — the opposite failure from the one below, and
+// it defeats idle detection entirely. Real intent (a click, a key, a scroll, a
+// focus) is what counts as activity.
+const ACTIVITY_EVENTS = ["mousedown", "keydown", "touchstart", "scroll", "focus"];
 
+/**
+ * When the user last did something here. Time with the tab hidden doesn't
+ * count against them: the most common reason to background this app is to go
+ * and do the work being timed, and the app can't see that work happening
+ * (#98). So the hidden interval is added back to `lastActivity` on the way in,
+ * which subtracts it from the idle age without erasing idle time accrued
+ * before the tab was hidden.
+ */
 export function useActivityTracker(): React.MutableRefObject<number> {
   const lastActivity = useRef<number>(Date.now());
   useEffect(() => {
@@ -9,8 +22,24 @@ export function useActivityTracker(): React.MutableRefObject<number> {
       lastActivity.current = Date.now();
     };
     ACTIVITY_EVENTS.forEach((e) => window.addEventListener(e, bump, { passive: true }));
+
+    let hiddenSince: number | null = document.hidden ? Date.now() : null;
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        hiddenSince ??= Date.now();
+        return;
+      }
+      if (hiddenSince === null) return;
+      const now = Date.now();
+      // Never past now — that would read as activity in the future.
+      lastActivity.current = Math.min(now, lastActivity.current + (now - hiddenSince));
+      hiddenSince = null;
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
     return () => {
       ACTIVITY_EVENTS.forEach((e) => window.removeEventListener(e, bump));
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, []);
   return lastActivity;
@@ -59,6 +88,13 @@ export function useTimerSafetyMonitor({
         onMaxDurationReached();
         return;
       }
+      // Background timers still fire while the tab is hidden, but the tracker
+      // only credits the hidden interval once the tab comes back — so an idle
+      // age measured now is the frozen one, and prompting on it would offer to
+      // trim a session the user worked straight through in another window
+      // (#98). Wait until they're here to be asked. The max-duration stop
+      // above is unaffected: it measures the timer, not the user.
+      if (document.hidden) return;
       const idleMs = now - lastActivity.current;
       if (idleMs > IDLE_THRESHOLD_MS && !idleFiredRef.current) {
         idleFiredRef.current = true;
