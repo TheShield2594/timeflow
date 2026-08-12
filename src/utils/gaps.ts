@@ -35,18 +35,30 @@ export interface Gap {
  * The half-open [start, end) span an entry covers on `date`, in minutes of
  * day. Returns null for an entry that contributes nothing to that day.
  *
+ * Exported because the Today strip draws its blocks from exactly this
+ * geometry: a copy of it there is how a block once ran to midnight while the
+ * gap detector disagreed (#92).
+ *
  * Geometry only: these are clock-face positions, clipped to the day, and on a
  * DST day their difference is not elapsed time. Gaps are handed to the entry
  * modal as *times* (which rebuilds the duration from real instants), so
  * nothing here is ever written to `durationMinutes` — see utils/dates (#87).
  */
-function spanOnDate(entry: TimeEntry, date: string, nowMinutes: number): Gap | null {
+export function spanOnDate(entry: TimeEntry, date: string, nowMinutes: number): Gap | null {
   if (entry.date !== date) return null;
   const startMin = Math.max(0, Math.min(MINUTES_PER_DAY, minutesOfDay(entry.startTime)));
   // A running entry covers up to now; one that ran past midnight covers the
   // rest of its own day rather than wrapping to a negative span.
   const rawEnd = entry.endTime ? minutesOfDay(entry.endTime) : nowMinutes;
-  const endMin = rawEnd <= startMin ? MINUTES_PER_DAY : Math.min(MINUTES_PER_DAY, rawEnd);
+  // End exactly on the start is ambiguous on a clock face: it's either an
+  // entry that wrapped all the way round (23:00→23:00 the next day) or one
+  // with no length at all — a timer started and stopped inside the same
+  // minute, which `stopAt` clamps to 0 and is a mis-click away at any time.
+  // The stored duration is the only thing that tells them apart, and reading
+  // the second as the first marks the whole rest of the day as tracked.
+  const wrapsPastMidnight =
+    rawEnd < startMin || (rawEnd === startMin && (entry.durationMinutes ?? 0) > 0);
+  const endMin = wrapsPastMidnight ? MINUTES_PER_DAY : Math.min(MINUTES_PER_DAY, rawEnd);
   return { startMin, endMin };
 }
 

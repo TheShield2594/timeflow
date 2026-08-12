@@ -138,7 +138,7 @@ describe("host detection in a production build", () => {
     expect(isPowerAppsHost()).toBe(true);
   });
 
-  it("falls back to the principal name when the host gives no object id", async () => {
+  it("refuses to sign in on a principal name when the host gives no object id", async () => {
     vi.stubEnv("PROD", true);
     setEmbedded("embedded");
     getContext.mockResolvedValue({
@@ -147,11 +147,11 @@ describe("host detection in a production build", () => {
     });
     const { initCurrentUser } = await freshImport();
 
-    const user = await initCurrentUser();
-
-    expect(user.id).toBe("user@contoso.com");
-    expect(user.displayName).toBe("user@contoso.com");
-    expect(user.environmentId).toBe("unknown-env");
+    // A UPN is not a usable stand-in for the Entra object id: the Team page
+    // compares this value against a Uniqueidentifier column, where
+    // "user@contoso.com" isn't a valid literal at all. Signing in on one
+    // trades a clear auth failure for a feature that breaks with a 400 (#108).
+    await expect(initCurrentUser()).rejects.toThrow(/no user identity/);
   });
 
   it("fails closed outside the host frame instead of signing in as a local user", async () => {

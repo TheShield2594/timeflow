@@ -251,6 +251,18 @@ describe("OverviewPage today strip", () => {
     expect((screen.getByLabelText("End") as HTMLInputElement).value).toBe("11:30");
   });
 
+  it("does not let a zero-length entry black out the rest of the day", () => {
+    // A timer started and stopped inside the same minute. The block and the
+    // gap detector read it from the same helper now, so neither the drawing
+    // nor the detector can call 09:00–midnight tracked (#92).
+    const { container } = renderOverview([timed("a", "08:00", "09:00", 60), timed("b", "09:00", "09:00", 0)]);
+
+    expect(gapLabels(container)).toHaveLength(1);
+    expect(gapLabels(container)[0]).toContain("9 AM to 5 PM");
+    const blocks = Array.from(container.querySelectorAll(".today-strip__block"));
+    expect(blocks.map((b) => (b as HTMLElement).style.width)).toEqual(["10%", "0%"]);
+  });
+
   it("only counts today toward the strip's tracked total", () => {
     const { container } = renderOverview([timed("a", "09:00", "10:00", 60), makeEntry(3, 120)]);
     expect(container.querySelector(".today-strip__tracked")?.textContent).toBe("1h");

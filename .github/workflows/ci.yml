@@ -26,6 +26,16 @@ jobs:
           node-version: 20
           cache: npm
 
+      # keytar — a native module pulled in transitively via @microsoft/power-apps
+      # — normally installs a prebuilt binary, but the download from its release
+      # host now hangs up on hosted runners. npm then falls back to compiling
+      # from source, which needs libsecret's headers, and without them `npm ci`
+      # fails before a single test runs. Install them so the fallback works;
+      # when the prebuild download succeeds this costs one apt call and nothing
+      # else. keytar reaches us through the Power Platform CLI's auth stack and
+      # is never bundled into the app.
+      - run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev
+
       - run: npm ci
 
       - run: npm run lint

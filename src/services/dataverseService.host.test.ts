@@ -27,7 +27,7 @@ const {
   updateTimeEntry, updateTask, updateProject, deactivateTask,
   getProjects, getOpenTimerEntry, isNotFoundError,
   getTimeEntries, extractPagingCookie, setPaginationWarningHandler, escapeXmlAttr,
-  createProject, createTask, createDraftTimerEntry,
+  createProject, createTask, createDraftTimerEntry, getTasksForProject, odataGuid,
 } = await import("./dataverseService");
 
 const ok = (row: Record<string, unknown> = {}) => ({ success: true, data: { dynamicProperties: row } });
@@ -315,6 +315,20 @@ describe("FetchXML paging (#69)", () => {
     expect(warnings).toEqual([]);
   });
 
+  it("echoes a cookie containing $ verbatim", async () => {
+    // The cookie is spliced in via String.replace, where `$&`, "$`", `$'` and
+    // `$n` are substitution patterns on the replacement side — a cookie
+    // carrying them would be silently rewritten into a different cookie (#108).
+    const dollarCookie = '<cookie page="1"><ever_name last="$&$`$\'$1" /></cookie>';
+    sdk.ListRecordsWithOrganization
+      .mockResolvedValueOnce(fetchPage(FETCH_PAGE_SIZE, pagingAnnotation(dollarCookie)))
+      .mockResolvedValueOnce(fetchPage(1));
+
+    await getTimeEntries({ from: "2026-06-01", to: "2026-06-30" });
+
+    expect(fetchXmlArg(2)).toContain("last=&quot;$&amp;$`$&apos;$1&quot;");
+  });
+
   it("warns rather than silently truncating when a full page has no usable cookie", async () => {
     sdk.ListRecordsWithOrganization.mockResolvedValue(fetchPage(FETCH_PAGE_SIZE, null));
 
@@ -519,9 +533,48 @@ describe("create with a dropped response body (#70)", () => {
   });
 });
 
+describe("odataGuid", () => {
+  it("passes a GUID through in either case", () => {
+    expect(odataGuid("6ba7b810-9dad-11d1-80b4-00c04fd430c8")).toBe("6ba7b810-9dad-11d1-80b4-00c04fd430c8");
+    expect(odataGuid("6BA7B810-9DAD-11D1-80B4-00C04FD430C8")).toBe("6BA7B810-9DAD-11D1-80B4-00C04FD430C8");
+  });
+
+  it("rejects anything that would change the shape of the filter", () => {
+    // These comparisons are unquoted, so there is no quoting to escape into:
+    // a value that isn't a GUID is the whole vulnerability (#108).
+    expect(() => odataGuid("proj-1 or ever_userid ne null")).toThrow(/Invalid record id/);
+    expect(() => odataGuid("alice@contoso.com")).toThrow(/Invalid record id/);
+    expect(() => odataGuid("{6ba7b810-9dad-11d1-80b4-00c04fd430c8}")).toThrow(/Invalid record id/);
+    expect(() => odataGuid("6ba7b810-9dad-11d1-80b4-00c04fd430c8 ")).toThrow(/Invalid record id/);
+    expect(() => odataGuid("")).toThrow(/Invalid record id/);
+    expect(() => odataGuid(undefined)).toThrow(/Invalid record id/);
+  });
+});
+
+describe("getTasksForProject filter", () => {
+  it("validates the project id before it reaches the $filter", async () => {
+    await expect(getTasksForProject("proj-1 or ever_name ne null")).rejects.toThrow(/Invalid record id/);
+    expect(sdk.ListRecordsWithOrganization).not.toHaveBeenCalled();
+  });
+
+  it("filters on a real project id", async () => {
+    const projectId = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
+    sdk.ListRecordsWithOrganization.mockResolvedValue(page([]));
+
+    await getTasksForProject(projectId);
+
+    expect(String(sdk.ListRecordsWithOrganization.mock.calls[0]))
+      .toContain(`_ever_project_value eq ${projectId}`);
+  });
+});
+
 describe("escapeXmlAttr", () => {
   it("escapes every character that could break out of a FetchXML attribute", () => {
     expect(escapeXmlAttr(`" />< &`)).toBe("&quot; /&gt;&lt; &amp;");
+  });
+
+  it("escapes single quotes too, so the result is safe in either quoting style", () => {
+    expect(escapeXmlAttr(`it's`)).toBe("it&apos;s");
   });
 
   it("escapes & first, so an already-escaped entity isn't double-unescaped on the way back", () => {

@@ -27,7 +27,7 @@
 import type { TimeEntry } from "../types";
 import { getCurrentUser, isPowerAppsHost, getDataverseOrgUrl } from "./userService";
 import { MicrosoftDataverseService } from "../generated";
-import { escapeXmlAttr, mapEntry } from "./dataverseService";
+import { escapeXmlAttr, mapEntry, odataGuid } from "./dataverseService";
 
 const ENTRIES_SET = "ever_timeentrieses";
 const USERS_SET = "systemusers";
@@ -185,15 +185,19 @@ export async function getTeamContext(): Promise<TeamContext> {
     const user = getCurrentUser();
     // Resolve my systemuser id from my Entra object id, then list users whose
     // Manager (parentsystemuserid) is that id. Disabled accounts excluded.
+    // Both ids go through odataGuid: they are unquoted GUID comparisons, so
+    // anything that isn't a GUID is either a query we didn't mean to send or
+    // an identity we can't resolve — the catch below turns both into "Team
+    // page hidden", which is the same fail-closed outcome, reached on purpose.
     const me = await listRecords(USERS_SET, {
       select: "systemuserid,fullname",
-      filter: `azureactivedirectoryobjectid eq ${user.id}`,
+      filter: `azureactivedirectoryobjectid eq ${odataGuid(user.id)}`,
     });
     const myId = me.length ? str(me[0], "systemuserid") : undefined;
     if (!myId) return (cachedContext = NO_TEAM);
     const rows = await listRecords(USERS_SET, {
       select: "systemuserid,fullname,isdisabled",
-      filter: `_parentsystemuserid_value eq ${myId} and isdisabled eq false`,
+      filter: `_parentsystemuserid_value eq ${odataGuid(myId)} and isdisabled eq false`,
       orderby: "fullname asc",
     });
     const reports = rows
