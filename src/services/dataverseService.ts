@@ -38,6 +38,25 @@ const SETS = {
 
 const ACCEPT = "application/json";
 const PREFER_RETURN = "return=representation";
+
+// ---------------------------------------------------------------------------
+// Query-literal safety
+// ---------------------------------------------------------------------------
+// Every value this app interpolates into an OData `$filter` is a record id
+// compared against a Uniqueidentifier column, and Dataverse wants those
+// unquoted — which means there is no quoting to escape into. The only thing
+// that keeps `eq ${id}` from being `$filter` tampering is that `id` really is
+// a GUID, so check it here rather than trusting each call site's provenance.
+// A non-GUID is a bug (or an attempt), not a query: fail loudly instead of
+// sending a filter whose shape we no longer control.
+const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function odataGuid(value: string | null | undefined): string {
+  if (typeof value !== "string" || !GUID_RE.test(value)) {
+    throw new Error("Invalid record id");
+  }
+  return value;
+}
 // Org URL, required by every *WithOrganization SDK call (the connector rejects
 // the no-org "current environment" variants with HTTP 400). Resolved at RUNTIME
 // from the connection via getDataverseOrgUrl() — see userService — so a single
@@ -176,9 +195,13 @@ const FETCH_PAGE_SIZE = 5000;
 // <fetch>, alongside an incremented `page` attribute, to get the next page.
 function withFetchPaging(fetchXml: string, page: number, pagingCookie?: string): string {
   const cookieAttr = pagingCookie ? ` paging-cookie="${escapeXmlAttr(pagingCookie)}"` : "";
+  // Replacer function, not a replacement string: `$&`, "$`", `$'` and `$n` are
+  // special on the right-hand side of String.replace, and the cookie is server
+  // data that can legitimately contain a `$`. A replacer keeps every character
+  // literal.
   return fetchXml.replace(
     /<fetch(\s|>)/,
-    `<fetch count="${FETCH_PAGE_SIZE}" page="${page}"${cookieAttr}$1`,
+    (_match, tail: string) => `<fetch count="${FETCH_PAGE_SIZE}" page="${page}"${cookieAttr}${tail}`,
   );
 }
 
@@ -577,7 +600,7 @@ export async function getTasksForProject(projectId: string): Promise<Task[]> {
   if (!isPowerAppsHost()) {
     return load<Task>(STORAGE_KEYS.tasks).filter((t) => t.projectId === projectId);
   }
-  const rows = await listAllPages(SETS.tasks, `_ever_project_value eq ${projectId}`, "ever_name asc");
+  const rows = await listAllPages(SETS.tasks, `_ever_project_value eq ${odataGuid(projectId)}`, "ever_name asc");
   return rows.map(mapTask);
 }
 
@@ -703,12 +726,18 @@ function fmtDate(d: Date): string {
 // Minimal escaping for values interpolated into FetchXML condition attributes.
 // Exported for tests: it's the only thing standing between a caller-supplied
 // date string and the FetchXML the server executes.
+//
+// Both quote characters are escaped, so the result is safe in a single- or
+// double-quoted attribute. Callers here always use double quotes, but an
+// escaper that is only conditionally correct is one refactor away from being
+// incorrect.
 export function escapeXmlAttr(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
 
 export async function getTimeEntries(opts: { from?: string; to?: string } = {}): Promise<TimeEntry[]> {

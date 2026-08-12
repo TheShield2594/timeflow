@@ -97,7 +97,13 @@ export async function initCurrentUser(): Promise<CurrentUser> {
       try {
         const ctx = await withTimeout(getContext(), GET_CONTEXT_TIMEOUT_MS);
         const u = ctx.user;
-        const id = u.objectId ?? u.userPrincipalName ?? "";
+        // objectId only. Every Dataverse-side use of this id compares it
+        // against a Uniqueidentifier column (teamService's manager lookup),
+        // where a UPN isn't a weaker identity — it's not a valid literal at
+        // all, so the query fails and the feature quietly disappears. An
+        // identity with no object id is an auth failure, and the retry below
+        // reports it as one.
+        const id = u.objectId ?? "";
         if (id) {
           hostConfirmed = true;
           cached = {
