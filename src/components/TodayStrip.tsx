@@ -37,6 +37,10 @@ export function formatClock(minutes: number): string {
  *  screen's one actionable element — the rest of Overview reports history. */
 export const TodayStrip: React.FC<Props> = ({ entries, projects, date, nowMinutes, onLogGap }) => {
   const { blocks, gaps, windowStart, windowEnd, trackedMinutes } = useMemo(() => {
+    // Clock-face positions for drawing, clipped to the day. The length in
+    // each label describes the *drawn* span, which is what the reader is
+    // looking at; the "tracked" total below comes from stored durations, the
+    // only elapsed-time figure here (#87).
     const raw: Block[] = entries
       .map((e) => {
         const start = Math.max(0, Math.min(24 * 60, minutesOfDay(e.startTime)));

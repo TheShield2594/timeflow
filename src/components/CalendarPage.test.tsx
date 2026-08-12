@@ -165,70 +165,34 @@ describe("CalendarPage entry accessibility", () => {
   });
 });
 
-describe("CalendarPage drag-to-move (#79)", () => {
-  // 1.2px per minute (36px per 30-min slot), so a clientY of 648 is 09:00.
-  const PX_PER_MIN = 36 / 30;
-  const COL_WIDTH = 100;
-  const GUTTER = 50;
+// ── Pointer-driven calendar tests (drag-move, resize) share this geometry ──
 
-  /** Give the grid and its day columns real geometry — jsdom reports every
-   *  getBoundingClientRect as zeroes, and the drag maths is measured, not
-   *  guessed. Columns are keyed off the grid-column each day column sets. */
-  function stubGridGeometry() {
-    const rect = (left: number, right: number): DOMRect => ({
-      left, right, top: 0, bottom: 48 * 36, x: left, y: 0,
-      width: right - left, height: 48 * 36, toJSON: () => ({}),
-    }) as DOMRect;
-    Element.prototype.getBoundingClientRect = function (this: Element) {
-      const el = this as HTMLElement;
-      if (el.classList.contains("calendar__grid")) return rect(0, GUTTER + 7 * COL_WIDTH);
-      if (el.classList.contains("calendar__day-col")) {
-        const idx = Number(el.style.gridColumn) - 2;
-        return rect(GUTTER + idx * COL_WIDTH, GUTTER + (idx + 1) * COL_WIDTH);
-      }
-      return rect(0, 0);
-    };
-  }
+// 1.2px per minute (36px per 30-min slot), so a clientY of 648 is 09:00.
+const PX_PER_MIN = 36 / 30;
+const COL_WIDTH = 100;
+const GUTTER = 50;
 
-  /** Local YYYY-MM-DD for a weekday of the week the calendar is showing. */
-  function weekDayStr(offsetFromMonday: number): string {
-    const d = new Date();
-    d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + offsetFromMonday);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  }
+/** Give the grid and its day columns real geometry — jsdom reports every
+ *  getBoundingClientRect as zeroes, and the drag maths is measured, not
+ *  guessed. Columns are keyed off the grid-column each day column sets. */
+function stubGridGeometry() {
+  const rect = (left: number, right: number): DOMRect => ({
+    left, right, top: 0, bottom: 48 * 36, x: left, y: 0,
+    width: right - left, height: 48 * 36, toJSON: () => ({}),
+  }) as DOMRect;
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    const el = this as HTMLElement;
+    if (el.classList.contains("calendar__grid")) return rect(0, GUTTER + 7 * COL_WIDTH);
+    if (el.classList.contains("calendar__day-col")) {
+      const idx = Number(el.style.gridColumn) - 2;
+      return rect(GUTTER + idx * COL_WIDTH, GUTTER + (idx + 1) * COL_WIDTH);
+    }
+    return rect(0, 0);
+  };
+}
 
-  const xOfDay = (dayIdx: number) => GUTTER + dayIdx * COL_WIDTH + COL_WIDTH / 2;
-  const yOfMinutes = (min: number) => min * PX_PER_MIN;
-  const iso = (date: string, hhmm: string) => new Date(`${date}T${hhmm}:00`).toISOString();
-
-  function nineToTenOn(date: string, id = "e1") {
-    return {
-      id, projectId: "p1", description: "Standup",
-      startTime: `${date}T09:00:00`, endTime: `${date}T10:00:00`,
-      durationMinutes: 60, date, userId: "u1", userDisplayName: "U",
-    };
-  }
-
-  const pointer = (clientX: number, clientY: number) => ({
-    clientX, clientY, button: 0, pointerId: 1, pointerType: "mouse",
-  });
-
-  /** jsdom has no PointerEvent, so fireEvent.pointerX() constructs a plain
-   *  Event and silently drops clientX/clientY/button/pointerType — the very
-   *  fields the drag maths runs on. Define them back onto the event before
-   *  dispatching, which is what a real browser hands React. */
-  function firePointer(
-    kind: "pointerDown" | "pointerMove" | "pointerUp" | "pointerCancel",
-    el: Element,
-    init: Record<string, unknown>,
-  ) {
-    const event = createEvent[kind](el, init);
-    Object.entries(init).forEach(([key, value]) => {
-      Object.defineProperty(event, key, { value, configurable: true });
-    });
-    fireEvent(el, event);
-  }
-
+/** Register the stubs a pointer-driven calendar test needs, and undo them. */
+function useStubbedGrid() {
   const realGetBoundingClientRect = Element.prototype.getBoundingClientRect;
 
   beforeEach(() => {
@@ -240,6 +204,49 @@ describe("CalendarPage drag-to-move (#79)", () => {
   afterEach(() => {
     Element.prototype.getBoundingClientRect = realGetBoundingClientRect;
   });
+}
+
+/** Local YYYY-MM-DD for a weekday of the week the calendar is showing. */
+function weekDayStr(offsetFromMonday: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + offsetFromMonday);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+const xOfDay = (dayIdx: number) => GUTTER + dayIdx * COL_WIDTH + COL_WIDTH / 2;
+const yOfMinutes = (min: number) => min * PX_PER_MIN;
+const iso = (date: string, hhmm: string) => new Date(`${date}T${hhmm}:00`).toISOString();
+
+function nineToTenOn(date: string, id = "e1") {
+  return {
+    id, projectId: "p1", description: "Standup",
+    startTime: `${date}T09:00:00`, endTime: `${date}T10:00:00`,
+    durationMinutes: 60, date, userId: "u1", userDisplayName: "U",
+  };
+}
+
+const pointer = (clientX: number, clientY: number) => ({
+  clientX, clientY, button: 0, pointerId: 1, pointerType: "mouse",
+});
+
+/** jsdom has no PointerEvent, so fireEvent.pointerX() constructs a plain
+ *  Event and silently drops clientX/clientY/button/pointerType — the very
+ *  fields the drag maths runs on. Define them back onto the event before
+ *  dispatching, which is what a real browser hands React. */
+function firePointer(
+  kind: "pointerDown" | "pointerMove" | "pointerUp" | "pointerCancel",
+  el: Element,
+  init: Record<string, unknown>,
+) {
+  const event = createEvent[kind](el, init);
+  Object.entries(init).forEach(([key, value]) => {
+    Object.defineProperty(event, key, { value, configurable: true });
+  });
+  fireEvent(el, event);
+}
+
+describe("CalendarPage drag-to-move (#79)", () => {
+  useStubbedGrid();
 
   it("reschedules an entry to the day and time it was dropped on, keeping its duration", () => {
     const mon = weekDayStr(0);
@@ -461,6 +468,89 @@ describe("CalendarPage drag-to-move (#79)", () => {
       expect(onEdit).not.toHaveBeenCalled();
     });
   });
+
+  // Blocks live inside the gridcell they start in, so any nudge that crosses
+  // a 30-minute or day boundary remounts them somewhere else in the DOM.
+  // Focus used to fall to <body> on every second Shift+Down and on every
+  // Shift+Left/Right — defeating the keyboard alternative to the drag (#89).
+  describe("keyboard focus survives the reschedule (#89)", () => {
+    /** Re-render with the edit applied, the way the entries hook does
+     *  optimistically, so the block really is remounted into its new cell. */
+    function renderWithApply(entry: ReturnType<typeof nineToTenOn>) {
+      const onEdit = vi.fn().mockResolvedValue({});
+      const view = renderCalendarWith([entry], onEdit);
+      const rerenderWith = (patch: Record<string, unknown>) =>
+        view.rerender(
+          <DataRangeProvider>
+            <CalendarPage
+              entries={[{ ...entry, ...patch } as typeof entry]}
+              projects={[project]}
+              tasks={[]}
+              onCreateEntry={vi.fn()}
+              onEdit={onEdit}
+              onDelete={vi.fn()}
+            />
+          </DataRangeProvider>
+        );
+      return { onEdit, rerenderWith };
+    }
+
+    it("puts focus back on the block after a nudge into a different slot cell", () => {
+      const mon = weekDayStr(0);
+      // 09:45 → 10:00 crosses into the next half-hour row, the case that used
+      // to drop focus.
+      const entry = { ...nineToTenOn(mon), startTime: `${mon}T09:45:00`, endTime: `${mon}T10:45:00` };
+      const { onEdit, rerenderWith } = renderWithApply(entry);
+
+      const block = screen.getByRole("button", { name: /Edit entry: Standup/ });
+      block.focus();
+      fireEvent.keyDown(block, { key: "ArrowDown", shiftKey: true });
+      rerenderWith(onEdit.mock.calls[0][1]);
+
+      const moved = screen.getByRole("button", { name: /Edit entry: Standup/ });
+      expect(moved).not.toBe(block);
+      expect(document.activeElement).toBe(moved);
+    });
+
+    it("puts focus back on the block after a nudge to another day", () => {
+      const mon = weekDayStr(0);
+      const { onEdit, rerenderWith } = renderWithApply(nineToTenOn(mon));
+
+      const block = screen.getByRole("button", { name: /Edit entry: Standup/ });
+      block.focus();
+      fireEvent.keyDown(block, { key: "ArrowRight", shiftKey: true });
+      rerenderWith(onEdit.mock.calls[0][1]);
+
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: /Edit entry: Standup/ }));
+    });
+
+    it("does not take focus back from wherever the user moved it meanwhile", () => {
+      const mon = weekDayStr(0);
+      const { onEdit, rerenderWith } = renderWithApply(nineToTenOn(mon));
+
+      const block = screen.getByRole("button", { name: /Edit entry: Standup/ });
+      block.focus();
+      fireEvent.keyDown(block, { key: "ArrowRight", shiftKey: true });
+      const elsewhere = screen.getByRole("button", { name: "Next week" });
+      elsewhere.focus();
+      rerenderWith(onEdit.mock.calls[0][1]);
+
+      expect(document.activeElement).toBe(elsewhere);
+    });
+
+    it("announces the entry's new time, which nothing else confirms", () => {
+      const mon = weekDayStr(0);
+      renderCalendarWith([nineToTenOn(mon)], vi.fn().mockResolvedValue({}));
+
+      const block = screen.getByRole("button", { name: /Edit entry: Standup/ });
+      fireEvent.keyDown(block, { key: "ArrowDown", shiftKey: true });
+
+      const status = screen.getByRole("status");
+      expect(status.textContent).toContain("Standup moved to");
+      expect(status.textContent).toContain("9:15 AM");
+      expect(status.textContent).toContain("10:15 AM");
+    });
+  });
 });
 
 describe("CalendarPage totals include the running session (#74)", () => {
@@ -608,5 +698,145 @@ describe("CalendarPage untracked gaps (P2-15)", () => {
 
     renderCalendarWith([logged(tomorrow, "ahead", "09:00", "10:00", 60)]);
     expect(gapButtons()).toHaveLength(0);
+  });
+});
+
+/**
+ * The days the clocks move (#87).
+ *
+ * Every calendar write path used to derive `durationMinutes` by subtracting
+ * two minutes-of-day readings while storing wall-clock timestamps. On a 23-
+ * or 25-hour day those two representations disagree, and the entry was saved
+ * with a duration contradicting its own timestamps: an hour under-billed
+ * every autumn, an hour over-billed every spring, and a zero-length entry for
+ * anything dropped in the hour that doesn't exist.
+ *
+ * The suite runs in America/New_York (vitest.config.ts), so these are the
+ * real transitions rather than a simulation of them.
+ */
+describe("CalendarPage across a DST transition (#87)", () => {
+  useStubbedGrid();
+
+  const FALL_BACK = "2026-11-01";   // 01:00–02:00 happens twice; a 25-hour day
+  const SPRING_FORWARD = "2026-03-08"; // 02:00–03:00 never happens; 23 hours
+
+  /** Show the week containing `date`, with the clock frozen inside it. */
+  function showWeekOf(date: string) {
+    vi.useFakeTimers();
+    const d = new Date(`${date}T12:00:00`);
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + 2); // Wednesday of that week
+    vi.setSystemTime(d);
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function entryOn(date: string, from: string, to: string, durationMinutes: number) {
+    return {
+      id: "e1", projectId: "p1", description: "Standup",
+      startTime: `${date}T${from}:00`, endTime: `${date}T${to}:00`,
+      durationMinutes, date, userId: "u1", userDisplayName: "U",
+    };
+  }
+
+  it("bills the extra hour when a resize spans the repeated hour", () => {
+    showWeekOf(FALL_BACK);
+    const onEdit = vi.fn().mockResolvedValue({});
+    // 01:00 (EDT) → 02:00 (EST) is already two real hours.
+    renderCalendarWith([entryOn(FALL_BACK, "01", "02", 120)], onEdit);
+
+    const handle = document.querySelector(".cal-entry__handle--bottom")!;
+    firePointer("pointerDown", handle, pointer(xOfDay(6), yOfMinutes(120)));
+    firePointer("pointerUp", handle, pointer(xOfDay(6), yOfMinutes(180)));
+
+    // Dragged out to 03:00, which is three hours after 01:00 on this day.
+    // The old maths wrote 120 and the timesheet lost an hour of real work.
+    expect(onEdit).toHaveBeenCalledWith("e1", {
+      endTime: iso(FALL_BACK, "03:00"),
+      durationMinutes: 180,
+    });
+  });
+
+  it("keeps a moved entry's real length when it lands after the repeated hour", () => {
+    showWeekOf(FALL_BACK);
+    const onEdit = vi.fn().mockResolvedValue({});
+    renderCalendarWith([entryOn(FALL_BACK, "01", "03", 180)], onEdit);
+
+    const block = screen.getByRole("button", { name: /Edit entry: Standup/ });
+    firePointer("pointerDown", block, pointer(xOfDay(6), yOfMinutes(60)));
+    firePointer("pointerMove", block, pointer(xOfDay(6), yOfMinutes(10 * 60)));
+    firePointer("pointerUp", block, pointer(xOfDay(6), yOfMinutes(10 * 60)));
+
+    // Three real hours, moved to a part of the day with no transition in it:
+    // 10:00 → 13:00, still three hours.
+    expect(onEdit).toHaveBeenCalledWith("e1", {
+      date: FALL_BACK,
+      startTime: iso(FALL_BACK, "10:00"),
+      endTime: iso(FALL_BACK, "13:00"),
+      durationMinutes: 180,
+    });
+  });
+
+  it("does not collapse an entry dropped on the hour that never happens", () => {
+    showWeekOf(SPRING_FORWARD);
+    const mon = weekDayStr(0);
+    const onEdit = vi.fn().mockResolvedValue({});
+    renderCalendarWith([nineToTenOn(mon)], onEdit);
+
+    const block = screen.getByRole("button", { name: /Edit entry: Standup/ });
+    firePointer("pointerDown", block, pointer(xOfDay(0), yOfMinutes(9 * 60)));
+    firePointer("pointerMove", block, pointer(xOfDay(6), yOfMinutes(120)));
+    firePointer("pointerUp", block, pointer(xOfDay(6), yOfMinutes(120)));
+
+    // 02:00 doesn't exist that morning, so the drop resolves to 03:00 — and
+    // the entry keeps its hour instead of being saved with start === end.
+    const [, patch] = onEdit.mock.calls[0];
+    expect(patch).toEqual({
+      date: SPRING_FORWARD,
+      startTime: iso(SPRING_FORWARD, "03:00"),
+      endTime: iso(SPRING_FORWARD, "04:00"),
+      durationMinutes: 60,
+    });
+    expect(patch.startTime).not.toBe(patch.endTime);
+  });
+
+  it("nudges by real minutes, stepping over the hour the clocks skip", () => {
+    showWeekOf(SPRING_FORWARD);
+    const onEdit = vi.fn().mockResolvedValue({});
+    // 01:45 (EST) → 03:45 (EDT): an hour of real time, either side of the gap.
+    renderCalendarWith([entryOn(SPRING_FORWARD, "01:45", "03:45", 60)], onEdit);
+
+    const block = screen.getByRole("button", { name: /Edit entry: Standup/ });
+    fireEvent.keyDown(block, { key: "ArrowDown", shiftKey: true });
+
+    // A quarter hour after 01:45 is 03:00 that morning — the wall clock jumps
+    // an hour because fifteen minutes of real time did.
+    expect(onEdit).toHaveBeenCalledWith("e1", {
+      date: SPRING_FORWARD,
+      startTime: iso(SPRING_FORWARD, "03:00"),
+      endTime: iso(SPRING_FORWARD, "04:00"),
+      durationMinutes: 60,
+    });
+  });
+
+  it("clamps a move to the real end of a 25-hour day", () => {
+    showWeekOf(FALL_BACK);
+    const onEdit = vi.fn().mockResolvedValue({});
+    renderCalendarWith([entryOn(FALL_BACK, "09", "10", 60)], onEdit);
+
+    const block = screen.getByRole("button", { name: /Edit entry: Standup/ });
+    firePointer("pointerDown", block, pointer(xOfDay(6), yOfMinutes(9 * 60)));
+    firePointer("pointerMove", block, pointer(xOfDay(6), yOfMinutes(30 * 60)));
+    firePointer("pointerUp", block, pointer(xOfDay(6), yOfMinutes(30 * 60)));
+
+    // Dropped past the bottom of the grid: the entry ends at midnight, which
+    // on this day is 25 hours after the day began, not 24.
+    expect(onEdit).toHaveBeenCalledWith("e1", {
+      date: FALL_BACK,
+      startTime: iso(FALL_BACK, "23:00"),
+      endTime: iso("2026-11-02", "00:00"),
+      durationMinutes: 60,
+    });
   });
 });

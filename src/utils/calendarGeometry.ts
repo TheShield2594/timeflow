@@ -6,14 +6,22 @@
  * layout engine (jsdom reports every getBoundingClientRect as zeroes). The
  * component supplies the measured geometry — a grid top edge, a list of day
  * column rects — and these functions do the rest.
+ *
+ * Everything here is *geometry*: minutes-of-day positions on a fixed 24-hour
+ * clock face. None of these results is a duration — on a DST day the clock
+ * face and elapsed time disagree, so anything written to `durationMinutes`
+ * must be derived from real instants via utils/dates (#87).
  */
+import { MINUTES_PER_DAY } from "./dates";
 
 /** px per 30-minute slot. */
 export const SLOT_HEIGHT = 36;
 export const SLOTS_PER_HOUR = 2;
 export const TOTAL_SLOTS = 24 * SLOTS_PER_HOUR;
 export const PX_PER_MIN = SLOT_HEIGHT / 30;
-export const MINUTES_PER_DAY = 24 * 60;
+/** Re-exported so the grid's maths reads from one place; note it is the
+ *  clock face, not the elapsed length of a DST day (utils/dates). */
+export { MINUTES_PER_DAY };
 
 /** Drag-resize and drag-move both snap to quarter-hour steps. */
 export const SNAP_MIN = 15;

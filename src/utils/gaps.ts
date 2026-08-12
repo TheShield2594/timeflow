@@ -31,8 +31,15 @@ export interface Gap {
   endMin: number;
 }
 
-/** The half-open [start, end) span an entry covers on `date`, in minutes of
- *  day. Returns null for an entry that contributes nothing to that day. */
+/**
+ * The half-open [start, end) span an entry covers on `date`, in minutes of
+ * day. Returns null for an entry that contributes nothing to that day.
+ *
+ * Geometry only: these are clock-face positions, clipped to the day, and on a
+ * DST day their difference is not elapsed time. Gaps are handed to the entry
+ * modal as *times* (which rebuilds the duration from real instants), so
+ * nothing here is ever written to `durationMinutes` — see utils/dates (#87).
+ */
 function spanOnDate(entry: TimeEntry, date: string, nowMinutes: number): Gap | null {
   if (entry.date !== date) return null;
   const startMin = Math.max(0, Math.min(MINUTES_PER_DAY, minutesOfDay(entry.startTime)));
