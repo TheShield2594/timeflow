@@ -4,6 +4,11 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    // CI machines run in UTC, where every day is exactly 24 hours and the
+    // clock never moves — so the whole class of DST bugs (#87) is invisible
+    // there. Pin the suite to a zone that observes it; individual tests that
+    // want a different zone still stub TZ themselves.
+    env: { TZ: "America/New_York" },
     coverage: {
       provider: "v8",
       // text for the CI log, html to browse locally, lcov for any tooling

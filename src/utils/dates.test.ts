@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { localDateStr, localDateDaysAgo, addDaysStr, weekStartStr, friendlyDate, toTimeInput, minutesOfDay } from "./dates";
+import {
+  localDateStr, localDateDaysAgo, addDaysStr, weekStartStr, friendlyDate, toTimeInput,
+  minutesOfDay, dateAtMinutes, isoAtMinutes, minutesBetween, dayLengthMinutes,
+} from "./dates";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -144,5 +147,81 @@ describe("minutesOfDay", () => {
 
   it("computes hours * 60 + minutes for an arbitrary time", () => {
     expect(minutesOfDay(new Date(2024, 5, 15, 14, 30).toISOString())).toBe(14 * 60 + 30);
+  });
+});
+
+// The suite runs in America/New_York (vitest.config.ts) so these transitions
+// are real: 2026-03-08 loses 02:00–03:00, 2026-11-01 repeats 01:00–02:00.
+const SPRING_FORWARD = "2026-03-08";
+const FALL_BACK = "2026-11-01";
+
+describe("dateAtMinutes", () => {
+  it("places a minutes-of-day offset on the local clock", () => {
+    const d = dateAtMinutes("2026-06-15", 9 * 60 + 30);
+    expect(d.getHours()).toBe(9);
+    expect(d.getMinutes()).toBe(30);
+    expect(localDateStr(d)).toBe("2026-06-15");
+  });
+
+  it("treats a full day as the next day's midnight", () => {
+    const d = dateAtMinutes("2026-06-15", 24 * 60);
+    expect(localDateStr(d)).toBe("2026-06-16");
+    expect(d.getHours()).toBe(0);
+  });
+
+  it("walks the calendar for the day the clocks go back, not 24h of milliseconds", () => {
+    // Midnight-to-midnight is 25 hours here; adding 1440 minutes of elapsed
+    // time would land at 23:00 on the same day instead.
+    const d = dateAtMinutes(FALL_BACK, 24 * 60);
+    expect(localDateStr(d)).toBe("2026-11-02");
+    expect(d.getHours()).toBe(0);
+  });
+
+  it("normalizes an hour that the clocks skip, so callers must not trust the offset back", () => {
+    // 02:00 does not exist on the spring-forward day: both offsets resolve to
+    // the same instant, which is exactly why durations can't be built by
+    // subtracting minutes-of-day (#87).
+    expect(dateAtMinutes(SPRING_FORWARD, 120).getTime())
+      .toBe(dateAtMinutes(SPRING_FORWARD, 180).getTime());
+  });
+});
+
+describe("isoAtMinutes", () => {
+  it("is dateAtMinutes as a storable timestamp", () => {
+    expect(isoAtMinutes("2026-06-15", 9 * 60)).toBe(dateAtMinutes("2026-06-15", 9 * 60).toISOString());
+  });
+});
+
+describe("minutesBetween", () => {
+  it("measures an ordinary span", () => {
+    expect(minutesBetween("2026-06-15T09:00:00", "2026-06-15T10:30:00")).toBe(90);
+  });
+
+  it("counts the extra hour on the day the clocks go back", () => {
+    // 01:00 → 03:00 is three hours here. Subtracting minutes-of-day says two,
+    // and the timesheet under-bills the hour that was actually worked.
+    expect(minutesBetween(`${FALL_BACK}T01:00:00`, `${FALL_BACK}T03:00:00`)).toBe(180);
+  });
+
+  it("counts the missing hour on the day the clocks go forward", () => {
+    expect(minutesBetween(`${SPRING_FORWARD}T01:00:00`, `${SPRING_FORWARD}T04:00:00`)).toBe(120);
+  });
+
+  it("accepts Date instances as well as ISO strings", () => {
+    expect(minutesBetween(new Date(2026, 5, 15, 9, 0), new Date(2026, 5, 15, 9, 45))).toBe(45);
+  });
+});
+
+describe("dayLengthMinutes", () => {
+  it("is 1440 on an ordinary day", () => {
+    expect(dayLengthMinutes("2026-06-15")).toBe(1440);
+  });
+
+  it("is an hour short when the clocks go forward", () => {
+    expect(dayLengthMinutes(SPRING_FORWARD)).toBe(1380);
+  });
+
+  it("is an hour long when the clocks go back", () => {
+    expect(dayLengthMinutes(FALL_BACK)).toBe(1500);
   });
 });

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { TimeEntry, Project, Task, OutlookEvent } from "../types";
 import { getCurrentUser } from "../services/userService";
 import {
@@ -6,7 +6,9 @@ import {
   readLoggedEventIds, readMutedSubjects, subjectKey,
 } from "../services/outlookService";
 import { useOutlookEvents } from "../hooks/useOutlookEvents";
-import { addDaysStr, localDateStr, minutesOfDay, toTimeInput } from "../utils/dates";
+import {
+  addDaysStr, dateAtMinutes, localDateStr, minutesBetween, minutesOfDay, toTimeInput,
+} from "../utils/dates";
 import { Gap, findUntrackedGaps } from "../utils/gaps";
 import {
   ColumnRect,
@@ -110,12 +112,34 @@ function formatHour(h: number): string {
   return `${display} ${suffix}`;
 }
 
-// Combine a date string with a minutes-of-day offset into an ISO timestamp,
-// the same way EntryModal builds startTime/endTime from date + "HH:MM".
-function isoAtMinutes(dateStr: string, minutes: number): string {
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return new Date(`${dateStr}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`).toISOString();
+/**
+ * Place a block of `durationMin` *elapsed* minutes starting at the instant
+ * `startDt` on `date`, pinned so it still begins no earlier than that day's
+ * midnight and ends no later than the next one.
+ *
+ * Every reschedule (drag-move, keyboard nudge) commits through here so the
+ * three fields that must agree — startTime, endTime, durationMinutes — are
+ * derived from one instant and one elapsed length. The old code built each
+ * from minutes-of-day arithmetic, which on a 23- or 25-hour day wrote a
+ * duration that contradicted its own timestamps (#87): a 01:00 → 03:00 span
+ * on a fall-back day is three hours, not two.
+ *
+ * The clamp is on instants too, so "must end by midnight" means the real
+ * midnight of that day — an hour earlier or later than 1440 wall-clock
+ * minutes when the clocks move.
+ */
+function placeEntry(date: string, startDt: Date, durationMin: number): {
+  startTime: string; endTime: string; durationMinutes: number;
+} {
+  const dayStart = dateAtMinutes(date, 0).getTime();
+  const dayEnd = dateAtMinutes(date, MINUTES_PER_DAY).getTime();
+  const latestStart = Math.max(dayStart, dayEnd - durationMin * 60000);
+  const start = Math.min(Math.max(startDt.getTime(), dayStart), latestStart);
+  return {
+    startTime: new Date(start).toISOString(),
+    endTime: new Date(start + durationMin * 60000).toISOString(),
+    durationMinutes: durationMin,
+  };
 }
 
 // "9:15 AM" for a minutes-of-day offset. 24:00 (the end of the last slot)
@@ -328,6 +352,9 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
           : "Click to edit",
       };
 
+  // data-entry-id: the block is remounted into a different gridcell whenever
+  // a reschedule crosses a slot or day boundary, and this is how the page
+  // finds the new node to hand keyboard focus back to (#89).
   return (
     <div
       className={`cal-entry ${running ? "cal-entry--running" : "cal-entry--clickable"}`
@@ -347,6 +374,7 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
         // surface in CSS (see styles.css) instead of using it raw.
         "--pc": color,
       } as React.CSSProperties}
+      data-entry-id={entry.id}
       onPointerDown={handlePointerDown}
       {...interactiveProps}
     >
@@ -907,24 +935,35 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     const startMinutes = minutesOfDay(entry.startTime);
     const endMinutes = minutesOfDay(entry.endTime!);
     const raw = minutesFromClientY(e.clientY);
+    // Both edges resolve the dragged edge to an instant and measure the span
+    // against the *other* edge's existing instant, so durationMinutes is
+    // always elapsed time (#87). A drag that lands in the hour a
+    // spring-forward day skips can collapse the span to nothing — that isn't
+    // a resize the user can have meant, so it's abandoned rather than saved
+    // as a zero-length entry.
     if (edge === "start") {
       const newStart = Math.max(0, Math.min(raw, endMinutes - MIN_RESIZE_DURATION_MIN));
       if (newStart === startMinutes) return;
+      const startDt = dateAtMinutes(entry.date, newStart);
+      const durationMinutes = minutesBetween(startDt, entry.endTime!);
+      if (durationMinutes < MIN_RESIZE_DURATION_MIN) return;
       // The entries hook rolls back and toasts on failure; catching here just
       // keeps a failed save from surfacing as an unhandled rejection.
       await onEdit(entry.id, {
-        startTime: isoAtMinutes(entry.date, newStart),
-        durationMinutes: endMinutes - newStart,
+        startTime: startDt.toISOString(),
+        durationMinutes,
       }).catch(() => {});
     } else {
-      const newEnd = Math.max(startMinutes + MIN_RESIZE_DURATION_MIN, Math.min(raw, 24 * 60));
+      const newEnd = Math.max(startMinutes + MIN_RESIZE_DURATION_MIN, Math.min(raw, MINUTES_PER_DAY));
       if (newEnd === endMinutes) return;
-      const endIso = newEnd >= 24 * 60
-        ? new Date(`${addDaysStr(entry.date, 1)}T00:00:00`).toISOString()
-        : isoAtMinutes(entry.date, newEnd);
+      // MINUTES_PER_DAY resolves to the next day's midnight, walked on the
+      // calendar — the end of *this* day whatever its length.
+      const endDt = dateAtMinutes(entry.date, newEnd);
+      const durationMinutes = minutesBetween(entry.startTime, endDt);
+      if (durationMinutes < MIN_RESIZE_DURATION_MIN) return;
       await onEdit(entry.id, {
-        endTime: endIso,
-        durationMinutes: newEnd - startMinutes,
+        endTime: endDt.toISOString(),
+        durationMinutes,
       }).catch(() => {});
     }
   }, [minutesFromClientY, onEdit]);
@@ -984,11 +1023,12 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     const gridRect = gridRef.current?.getBoundingClientRect();
     if (!gridRect) return;
     const startMin = minutesOfDay(entry.startTime);
-    const endMin = minutesOfDay(entry.endTime);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     movingRef.current = {
       entry,
-      durationMin: Math.max(endMin - startMin, MIN_RESIZE_DURATION_MIN),
+      // Elapsed minutes, not the difference of two clock readings — a move
+      // preserves how long the entry actually ran (#87).
+      durationMin: Math.max(minutesBetween(entry.startTime, entry.endTime), MIN_RESIZE_DURATION_MIN),
       grabOffsetMin: (e.clientY - gridRect.top) / PX_PER_MIN - startMin,
       originX: e.clientX,
       originY: e.clientY,
@@ -1046,27 +1086,25 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     const { entry, durationMin, target } = state;
     if (!target) return;
     if (target.date === entry.date && target.startMin === minutesOfDay(entry.startTime)) return;
-    const endMin = target.startMin + durationMin;
-    const endIso = endMin >= MINUTES_PER_DAY
-      ? new Date(`${addDaysStr(target.date, 1)}T00:00:00`).toISOString()
-      : isoAtMinutes(target.date, endMin);
     // The entries hook rolls the optimistic update back and toasts on
     // failure, so there's nothing to do here but not crash on rejection.
     void onEdit(entry.id, {
       date: target.date,
-      startTime: isoAtMinutes(target.date, target.startMin),
-      endTime: endIso,
-      durationMinutes: durationMin,
+      ...placeEntry(target.date, dateAtMinutes(target.date, target.startMin), durationMin),
     }).catch(() => {});
   }, [onEdit]);
+
+  /** Entry to put keyboard focus back on once the reschedule has re-rendered,
+   *  and what to announce about it. */
+  const refocusIdRef = useRef<string | null>(null);
+  const [nudgeMessage, setNudgeMessage] = useState("");
 
   /** Shift + arrows: the keyboard equivalent of dragging a block to a new
    *  slot — ±15 minutes vertically, ±1 day horizontally. */
   const nudgeEntry = useCallback((entry: TimeEntry, deltaMin: number, deltaDays: number) => {
     if (!entry.endTime) return;
     if (localDateStr(new Date(entry.endTime)) > entry.date) return;
-    const startMin = minutesOfDay(entry.startTime);
-    const durationMin = Math.max(minutesOfDay(entry.endTime) - startMin, MIN_RESIZE_DURATION_MIN);
+    const durationMin = Math.max(minutesBetween(entry.startTime, entry.endTime), MIN_RESIZE_DURATION_MIN);
     // Clamped to the week on screen, exactly like a drag: the day columns
     // bound how far a pointer can carry a block, and an entry nudged off the
     // edge would simply vanish from the view the user is working in.
@@ -1074,19 +1112,32 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     const date = stepped < weekBounds.from ? entry.date
       : stepped > weekBounds.to ? entry.date
       : stepped;
-    const newStart = clampMoveStart(startMin + deltaMin, durationMin);
-    if (date === entry.date && newStart === startMin) return;
-    const endMin = newStart + durationMin;
-    const endIso = endMin >= MINUTES_PER_DAY
-      ? new Date(`${addDaysStr(date, 1)}T00:00:00`).toISOString()
-      : isoAtMinutes(date, endMin);
-    void onEdit(entry.id, {
-      date,
-      startTime: isoAtMinutes(date, newStart),
-      endTime: endIso,
-      durationMinutes: durationMin,
-    }).catch(() => {});
-  }, [onEdit, weekBounds]);
+    // A vertical nudge shifts the entry by real minutes, so on a
+    // spring-forward day it steps over the hour that doesn't exist instead of
+    // landing in it; a day step keeps the wall-clock time the user reads off
+    // the grid (#87).
+    const startDt = deltaMin
+      ? new Date(new Date(entry.startTime).getTime() + deltaMin * 60000)
+      : dateAtMinutes(date, minutesOfDay(entry.startTime));
+    const placed = placeEntry(date, startDt, durationMin);
+    if (date === entry.date && placed.startTime === new Date(entry.startTime).toISOString()) return;
+    // The block is rendered inside the gridcell it starts in, so a nudge
+    // across a 30-minute boundary (or onto another day) remounts it in a
+    // different cell and the focused node stops existing. Remember what to
+    // put focus back on once the new node is in the DOM (#89).
+    refocusIdRef.current = entry.id;
+    const label = entry.description
+      || projects.find((p) => p.id === entry.projectId)?.name
+      || "Entry";
+    const time = (iso: string) =>
+      new Date(iso).toLocaleTimeString("en", { hour: "numeric", minute: "2-digit" });
+    setNudgeMessage(
+      `${label} moved to ${new Date(placed.startTime).toLocaleDateString("en", {
+        weekday: "long", month: "long", day: "numeric",
+      })}, ${time(placed.startTime)} – ${time(placed.endTime)}`
+    );
+    void onEdit(entry.id, { date, ...placed }).catch(() => {});
+  }, [onEdit, projects, weekBounds]);
 
   // Group entries by the grid slot cell they start in, keyed `${date}-${row}`,
   // so each block can render *inside* its starting `gridcell`. Entries used to
@@ -1106,6 +1157,20 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     });
     return m;
   }, [positionedByDate]);
+
+  // Put focus back on a nudged entry's freshly-mounted node. Only when focus
+  // actually fell to the body — if the entry stayed in its cell the node was
+  // never unmounted and still holds focus, and if the user has moved on to
+  // something else in the meantime, stealing it back would be worse than the
+  // bug (#89). useLayoutEffect so it lands before the browser paints.
+  useLayoutEffect(() => {
+    const id = refocusIdRef.current;
+    if (!id) return;
+    refocusIdRef.current = null;
+    if (document.activeElement && document.activeElement !== document.body) return;
+    const blocks = gridRef.current?.querySelectorAll<HTMLElement>("[data-entry-id]") ?? [];
+    Array.from(blocks).find((el) => el.dataset.entryId === id)?.focus();
+  }, [entriesByCell]);
 
   // Untracked gaps (P2-15), grouped into slot cells the same way. Computed
   // per visible day from entries already in memory — no extra fetch. `tick`
@@ -1332,6 +1397,12 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
 
   return (
     <div className={`calendar ${outlookMode === "faded" ? "calendar--outlook-faded" : ""}`}>
+
+      {/* A Shift+arrow reschedule moves a block the user may not be able to
+          see; without this the new time is confirmed nowhere, for anyone
+          (WCAG 4.1.3). Kept outside the grid so a screen reader in
+          table-navigation mode doesn't meet it as a stray cell. */}
+      <div className="visually-hidden" role="status" aria-live="polite">{nudgeMessage}</div>
 
       {modal && (
         <EntryModal
