@@ -1,0 +1,355 @@
+# TimeFlow — Operations Runbook
+
+The answer to *"prod broke, what now?"*, *"can we get deleted entries back?"* and
+*"a user says their hours are missing — what do I check?"*
+
+This app holds the company's billable-time record. Treat the Dataverse rows as
+the system of record and the app as a client over them: almost every recovery
+path below ends in Dataverse, not in this repo.
+
+- **Audience:** whoever is on the hook for the app (today: one person — see
+  [Bus factor](#bus-factor)).
+- **Companion docs:** [README](../README.md) for what the app is and how it's
+  built, [CONTRIBUTING](../CONTRIBUTING.md) for the dev workflow and how a
+  release is cut, [DECISIONS](DECISIONS.md) for open calls that need an owner.
+
+---
+
+## 1. What "prod" is
+
+| Piece | Where it lives | Changed by |
+|---|---|---|
+| App bundle (`dist/`) | The Power Apps Code App in the target environment | `npm run build && pac code push` |
+| Dataverse tables + columns | The target environment's database | Manual table edits today; a managed solution once [#54](https://github.com/TheShield2594/timeflow/issues/54) lands |
+| Security roles / ownership scope | The target environment | Admin, by hand (see [§6](#6-admin-setup-checklist)) |
+| Connection references (Dataverse, Office 365 Outlook) | `power.config.json`, bound per environment | `pac code add-data-source`, then a push |
+| User preferences (target hours, rounding, theme, focus settings) | Each user's browser `localStorage` | Not backed up; not restorable — see [§4](#4-backup-and-restore) |
+
+`power.config.json` currently names one `environmentId` and one `appId`. There
+is no dev/QA/prod split yet — that is exactly what #54 is for. Until it lands,
+"promote to prod" and "deploy" are the same operation against the same
+environment, and **the deploy is not reversible by re-running a pipeline** —
+you have to rebuild the previous version yourself, as below.
+
+---
+
+## 2. Deploy
+
+```bash
+git checkout main && git pull
+npm ci
+npm run lint && npm run typecheck && npm test && npm run build
+pac code push
+```
+
+Then record what shipped — see [Releases](../CONTRIBUTING.md#releases-and-tagging).
+Every deploy gets a tag, so that "what is prod running?" has an answer that
+doesn't depend on anyone's memory:
+
+```bash
+git tag -a v1.2.0 -m "Deployed to prod 2026-08-13"
+git push origin v1.2.0
+```
+
+**Post-deploy smoke test** (two minutes, catches the failures that matter):
+
+1. App loads and signs in — no "Sign-in failed" screen.
+2. Start the timer on any project, refresh the page: the timer survives.
+3. Stop it: the entry lands on the Timesheet with the right duration.
+4. Calendar renders the week; if Outlook is wired up, the chip reads
+   "Outlook: on".
+5. **No "Data isolation warning" toast.** If one appears, stop and go to
+   [§5.5](#55-a-user-reports-a-data-isolation-warning-toast) — that is a P0.
+
+---
+
+## 3. Rollback
+
+A deploy has up to three independent halves, and they roll back separately.
+Work down this list; most incidents only need the first.
+
+### 3.1 App code
+
+There is no "redeploy previous build" button. Rebuild the previous release from
+its tag and push that:
+
+```bash
+git fetch --tags
+git checkout v1.1.0          # the tag that was in prod before the bad deploy
+npm ci                       # the lockfile is part of the release
+npm run build
+pac code push
+```
+
+Verify with the smoke test in §2, then note the rollback in `CHANGELOG.md` and
+open an issue for the fix-forward. Leave the reverted tag in place — never
+re-point a tag that has been in prod.
+
+### 3.2 Dataverse schema
+
+Once [#54](https://github.com/TheShield2594/timeflow/issues/54) ships, schema
+rollback is: import the previous managed-solution version over the current one
+in the target environment (Power Platform admin center → Solutions → Import),
+then redeploy the matching `dist` per §3.1. The two must move together — an old
+bundle against new columns is fine, a new bundle against missing columns is not.
+
+**Until #54 lands there is no schema rollback.** Table and column changes are
+made by hand in the maker portal and are not versioned anywhere. Two rules
+follow from that:
+
+- Never remove or rename a column that a shipped build reads. Add columns;
+  don't take them away.
+- Screenshot or export the table's column list before any schema change, so
+  "what did it look like before?" is answerable.
+
+### 3.3 Data
+
+**Rollback does not restore data.** Reverting the app bundle undoes code, never
+rows. Anything users wrote against the bad build stays exactly as written. If
+the bad build wrote *wrong* rows (e.g. the DST duration bug in
+[#87](https://github.com/TheShield2594/timeflow/issues/87)), the rows have to be
+corrected — see [§4](#4-backup-and-restore) and [§5.2](#52-entries-are-missing-or-wrong).
+
+---
+
+## 4. Backup and restore
+
+### What is and isn't backed up
+
+| Data | Backed up? |
+|---|---|
+| `ever_timeentries`, `ever_projects`, `ever_workitems` rows | Yes — by Dataverse's environment backups, not by anything in this repo |
+| Table schema, security roles | Only as part of a whole-environment backup (and, once #54 lands, as a solution artifact in source control) |
+| Per-user `localStorage` preferences | **No.** Target hours, export rounding, focus settings, the Outlook overlay toggle, muted subjects and "already logged" checkmarks are per-device and unrecoverable. Losing them is cosmetic — the time entries are the record. |
+
+### Before you need it — confirm these once, then re-confirm yearly
+
+These are environment settings nobody on this project has verified in writing.
+Check them in the Power Platform admin center and record the answers here:
+
+- [ ] **System backup retention** for this environment (Environments → (env) →
+      Backups). Retention depends on environment type and licensing — read the
+      actual number off the portal rather than assuming, and write it down:
+      it is the hard limit on how far back any recovery can reach.
+- [ ] **Auditing enabled on `ever_timeentries`** (Settings → Audit settings,
+      and per-table in the maker portal). Without it, a deleted row leaves no
+      trace of who deleted it or what it contained, and §5.2 has nothing to
+      read. Turning this on is the single highest-value item in this document.
+- [ ] **Who can take a manual backup** and who can restore (restore is an
+      admin-level operation).
+
+### Restoring
+
+Dataverse restore is **environment-level and destructive**: it restores the
+whole environment to a point in time, overwriting everything written since.
+There is no "restore one table" and no "restore one user's rows".
+
+So for anything short of total loss, do **not** restore over prod. Instead:
+
+1. Restore the backup into a **new/sandbox environment** (admin center →
+   Backups → Restore → target a different environment).
+2. Export the rows you need from there (Advanced Find / export to Excel, or a
+   Dataverse query).
+3. Re-import them into prod as new rows.
+
+Restoring over prod is reserved for the case where prod's data is wholesale
+wrong and the loss window is acceptable — and it needs the data owner's
+explicit sign-off, because every entry logged since the backup point is gone.
+
+### What the app itself deletes
+
+Deleting a task or archiving a project **deactivates** the record
+(`statecode` = Inactive) — the row survives and Undo/Restore brings it back, so
+those are never a restore case. **Time entries are the only records the app
+hard-deletes.** A hard-deleted time entry is gone from the table immediately;
+the in-app Undo works only while the toast is on screen, because it re-creates
+the row from what the browser still had in memory.
+
+---
+
+## 5. First-line support
+
+**Contact:** the app owner (Brandon / @TheShield2594) is first line, second line
+and escalation today. There is no rota and no shared inbox. Users should be told
+one contact route — pick it, put it here, and put it in the app's help text.
+
+There is **no production telemetry**
+([#111](https://github.com/TheShield2594/timeflow/issues/111)): errors surface
+as a toast to the affected user and a message in *their* browser console, and
+reach nobody else. So the first question in every triage is *"can you open the
+browser console (F12) and read me what's red?"* — that is currently the only
+diagnostic channel that exists.
+
+### 5.1 "The app won't load / sign-in failed"
+
+1. Reproduce in a fresh tab. Note the exact banner text — "Sign-in failed: …"
+   comes from `useAppBootstrap`, a blank page does not.
+2. Check the environment is up (admin center → Environments → state).
+3. Check the user has a Power Apps licence and the app is shared with them.
+4. Check the DLP policy hasn't changed — Office 365 Outlook and Microsoft
+   Dataverse must sit in the same data group, or the platform blocks the app
+   from running with both connectors (§6).
+5. If a deploy went out in the last hour, roll back per §3.1 first and diagnose
+   after.
+
+### 5.2 "Entries are missing or wrong"
+
+Work outside-in — most reports are a filter, not a data loss:
+
+1. **Date range.** Timesheet, Reports and Calendar each read a range. Ask what
+   range is selected; "All time" is the check that settles it.
+2. **Project filter / search box** on the Timesheet.
+3. **The day the entry landed on.** An entry that crosses midnight is stored
+   against the day it *starts*, so a 23:30→00:30 session shows on the earlier
+   day.
+4. **Is it in Dataverse at all?** Maker portal → Tables → `ever_timeentries` →
+   Data, or Advanced Find filtered by owner and date. This is the line between
+   "the app isn't showing it" (a bug — file it) and "the row is gone" (a data
+   incident — continue).
+5. **If the row is gone:** check the audit history for the record (if auditing
+   is on — see §4). Time entries are hard-deleted by design, so a deletion is
+   plausible and recoverable only via §4's sandbox-restore path. Get the user's
+   estimate of the affected date range before you start; it determines which
+   backup you need.
+6. **If the row is there but the numbers are wrong:** capture `ever_starttime`,
+   `ever_endtime` and `ever_durationminutes` for the row. Duration
+   disagreeing with the timestamps is the signature of the DST class of bug
+   ([#87](https://github.com/TheShield2594/timeflow/issues/87)) — check whether
+   the date was a DST transition day before assuming it's new.
+
+### 5.3 "My timer ran all night" / "the 12h auto-stop didn't fire"
+
+Expected behaviour, and worth knowing before you go looking for a bug: the 12h
+auto-stop is a **client-side** check that only runs while a tab has the app
+open. Close the tab on a running timer and nothing stops it server-side; the
+running entry is reconciled from the server draft at the next app launch. Fix
+the entry by editing its end time on the Timesheet.
+
+### 5.4 "Outlook meetings aren't showing"
+
+The Calendar chip tells you which layer failed:
+
+- **"Outlook: not connected"** — the connector isn't wired up in this
+  environment, or the DLP policy blocks it, or the user declined the consent
+  prompt. Walk §6's Outlook block.
+- **"Outlook: on" but a specific meeting is absent** — all-day events are never
+  shown (no time span to lay out), meetings crossing midnight are clamped to
+  their start day, and a *muted subject* hides an entire recurring series.
+  Muting is per-device; the Calendar shows a count of what's hidden and can
+  unmute.
+
+### 5.5 "A user reports a Data isolation warning toast"
+
+**This is a P0. Treat it as a possible cross-user data exposure.**
+
+The toast means `hasForeignUserEntries()` found a row belonging to someone other
+than the signed-in user in a personal-page read, which the server-side
+`eq-userid` filter should make impossible.
+
+1. Get a screenshot and the browser console output — the detail is logged there
+   and nowhere else.
+2. Verify `ever_timeentries` ownership is **User or Team**, not Organization
+   (maker portal → Tables → `ever_timeentries` → Settings → Advanced options).
+   Organization ownership is the failure that produces this.
+3. Verify the security role grants **User**-scope (Basic) privileges on
+   `ever_timeentries`, not Organization scope.
+4. Until it's understood, assume every user can read every user's entries and
+   decide with the data owner whether to keep the app available.
+
+### 5.6 "The Team page is missing" (a manager can't see their reports)
+
+Almost always one of two admin settings, not code — see §6:
+
+1. The report's Power Apps user profile has no **Manager** set
+   (`parentsystemuserid`). **The M365/Entra org chart does not sync into this
+   field.** Every new hire needs it set by hand, or their manager silently loses
+   visibility with no error anywhere — see
+   [#131](https://github.com/TheShield2594/timeflow/issues/131). Add it to the
+   joiner checklist.
+2. Hierarchy security is off, or `ever_timeentries` isn't in its table list.
+
+---
+
+## 6. Admin setup checklist
+
+Environment-side setup the app degrades gracefully around: each feature stays
+hidden or shows a hint until its steps are done, so none of this blocks
+deploying a build. *(Migrated from `Brandon To Do.md`; tracked in
+[#130](https://github.com/TheShield2594/timeflow/issues/130).)*
+
+### Outlook calendar overlay
+
+The connection reference and the data source are **already committed** —
+`power.config.json` carries `shared_office365` and
+`.power/schemas/appschemas/dataSourcesInfo.ts` has the `office365` entry with
+both operations. Do not redo those steps. What remains per environment:
+
+- [ ] **DLP policy** (admin center → Policies → Data policies): Office 365
+      Outlook must be in the same data group as Microsoft Dataverse. Different
+      groups = the platform refuses to run the app. This is the most common
+      "worked in dev, blocked in prod" failure.
+- [ ] **Per-user consent**: each user gets a one-time prompt for the Office 365
+      Outlook connection on their first launch after this ships. Tell users it
+      is expected; a declined prompt shows as "Outlook: not connected" for that
+      user only.
+- [ ] Verify: Calendar shows the "Outlook: on" chip and this week's meetings as
+      dashed ghost blocks.
+
+### Manager Team view
+
+- [ ] **Set Manager on each Power Apps user profile** (admin center →
+      Environments → (env) → Settings → Users → open the report → Manager).
+      This field — `systemuser.parentsystemuserid` — is the only thing the app
+      reads. See the sync gap in §5.6.
+- [ ] **Enable Hierarchy security** ((env) → Settings → Users + permissions →
+      Hierarchy security): Enable Hierarchy Modeling **On**, type **Manager
+      hierarchy**, depth **1** (raise it if managers-of-managers should see
+      deeper), and **include `ever_timeentries`** in the table list — tables
+      default to excluded.
+- [ ] **Org-level Read on the User (`systemuser`) table** in the role users run
+      under; most baseline roles have it. Without it the app can't detect
+      "do I have reports" and the Team page stays hidden for everyone.
+- [ ] Verify: a manager sees the Team nav item and their report's week; a
+      non-manager doesn't. (Local dev preview:
+      `localStorage.setItem("tt_mock_team", "1")`.)
+
+### Row security (do this before any real data lands)
+
+- [ ] `ever_timeentries` ownership is **User or Team**; role grants Basic
+      (user-scope) Create/Read/Write/Delete.
+- [ ] `ever_projects` and `ever_workitems` are Organization-owned with Basic
+      privileges — shared data, deliberately.
+- [ ] Two-account UAT sign-off: A cannot see B's entries, no isolation toast,
+      Team shows only direct reports
+      ([#91](https://github.com/TheShield2594/timeflow/issues/91)).
+
+### Focus mode
+
+Nothing to configure — it's a per-user toggle in the timer bar. One limitation
+to have ready when people ask: break/focus prompts only fire while the app tab
+is open, because a Code App has no OS-level presence.
+
+---
+
+## Bus factor
+
+One person knows all of the above. Everything in this document exists so that a
+second person could run the app on a bad day without that first person — which
+means it is only true if it is kept true. Update this file in the same PR as any
+change to the deploy, rollback, schema or security-role story.
+
+---
+
+## Known gaps in this runbook
+
+Honest list, so nobody discovers these mid-incident:
+
+- **No prod telemetry** ([#111](https://github.com/TheShield2594/timeflow/issues/111)) —
+  first line depends on the user reading their own console.
+- **No schema rollback** until [#54](https://github.com/TheShield2594/timeflow/issues/54).
+- **Backup retention and auditing are unverified** — the checkboxes in §4 have
+  never been filled in.
+- **No tested restore.** The sandbox-restore path in §4 is the documented
+  procedure, not a rehearsed one. It should be rehearsed once, before it is
+  needed for real.
+- **Support contact is a person, not a channel.**

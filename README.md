@@ -9,36 +9,82 @@ Tracks time against projects and tasks, stores data in Microsoft Dataverse, and 
 
 | Feature | Status |
 |---|---|
+| Overview landing page (today strip, weekly target ring, activity heatmap, quick-start) | ✅ |
 | Timer (start / stop, Ctrl/Cmd + .) | ✅ |
 | Project & task tagging | ✅ |
 | Timesheet view (grouped by day, search + project filter) | ✅ |
 | Manual entry creation (timesheet + calendar click-to-log) | ✅ |
 | Week calendar (24h grid, overlap layout, running session) | ✅ |
 | Calendar drag-to-reschedule + drag-to-resize (Shift + arrows by keyboard) | ✅ |
+| Untracked-gap detection (calendar + today strip, one click to log) | ✅ ([working hours are fixed](#untracked-gap-detection)) |
 | Reports dashboard (daily/weekly bar chart, project %, top tasks) | ✅ |
 | KPI strip (total, avg per active day, sessions, projects) | ✅ |
 | Projects management (create, edit, archive/restore) | ✅ |
 | Tasks (create, rename, delete with undo) | ✅ |
 | Continue a past entry (one-click timer restart) | ✅ |
-| Weekly target with progress (calendar + timesheet) | ✅ |
+| Weekly target with progress (overview ring, calendar + timesheet) | ✅ |
 | Timer persists across page refresh | ✅ |
 | Multi-tab timer sync | ✅ |
-| Idle detection + 12h auto-stop safety net | ✅ |
+| Idle detection + 12h auto-stop safety net | ✅ ([client-side only](#the-12h-auto-stop-is-client-side)) |
 | Delete with Undo | ✅ |
 | CSV export (incl. Jira ticket + ratio, billing-style rounding) | ✅ |
 | Reports: project × period matrix, all-time range | ✅ |
 | Light + dark theme | ✅ |
 | Dataverse backend wired (@microsoft/power-apps SDK) | ✅ |
-| Outlook meeting overlay + log-from-meeting (Office 365 connector) | ✅ (needs [connector setup](#outlook-calendar-overlay)) |
-| Manager Team view — reports' week totals, missing-day flags, project rollup | ✅ (needs [hierarchy security](#manager-team-view-hierarchy-security)) |
+| Outlook meeting overlay + log-from-meeting, with per-subject muting | ✅ (connector wired; needs [DLP + consent](#outlook-calendar-overlay)) |
+| Manager Team view — reports' week totals, missing-day flags, project rollup, CSV export | ✅ (needs [hierarchy security](#manager-team-view-hierarchy-security)) |
 | Focus mode (Pomodoro) — focus/break cadence on the timer, daily block count | ✅ |
+
+The **Overview** page is the default landing page (`App.tsx`).
+
+---
+
+## Documentation
+
+| Doc | What's in it |
+|---|---|
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Setup, the four checks, test/commit conventions, how a release is cut |
+| [docs/RUNBOOK.md](docs/RUNBOOK.md) | Deploy, rollback, Dataverse backup/restore, first-line support triage, the environment admin checklist |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Settled decisions and their reasoning; open decisions with an owner and a date |
+| [CHANGELOG.md](CHANGELOG.md) | What shipped, per version |
+| [docs/reviews/](docs/reviews/) | The 2026-08-12 six-discipline application review, and the reconstructed July design-review register |
+| [CLAUDE.md](CLAUDE.md) | Orientation for coding agents: commands, the date rule, the mock-vs-host split |
+
+---
+
+## Behaviour worth knowing before you support this app
+
+### The 12h auto-stop is client-side
+
+A timer running past 12 hours is stopped automatically — but the check is a
+`setInterval` in the browser (`useTimerSafety.ts`), not a server-side job. Close
+the tab on a running timer and **nothing stops it**; the running entry is
+reconciled from the server draft the next time the app launches, and the user
+fixes the end time on the Timesheet. Same underlying limitation as focus mode's
+prompts: a Code App has no presence when its tab is gone.
+
+### Untracked-gap detection
+
+The Calendar and the Overview today strip surface stretches of the day nothing
+was logged against, and offer each as a one-click log. The rules live in one
+place (`src/utils/gaps.ts`) so the two surfaces can never disagree:
+
+- **Working hours are hardcoded 08:00–18:00**, and the **minimum gap is 15
+  minutes**. Neither is configurable — there is no per-user settings store
+  (see [Decisions](docs/DECISIONS.md)). Anyone working a non-standard shift
+  gets under-reported gaps, silently.
+- Today is capped at the current minute; future days are skipped entirely.
+- A day with no entries at all reports nothing, so weekends don't each show a
+  ten-hour gap.
 
 ---
 
 ## Local Development
 
 ### Prerequisites
-- Node.js 20.19+ or 22.12+ (Vite 7's floor; CI runs 22)
+- Node.js 20.19+ or 22.12+ (Vite 7's floor). Enforced by `engines` in
+  `package.json`; the exact version CI uses is in `.nvmrc` (`nvm use` picks it
+  up, and the CI workflow reads the same file)
 - npm or pnpm
 - **Linux only:** `libsecret-1-dev` (`sudo apt install libsecret-1-dev` on Debian/Ubuntu). It's pulled in natively by `@microsoft/power-apps` → `@azure/msal-node-extensions` → `keytar`. GitHub-hosted CI runners have it preinstalled; a fresh Linux box doesn't, and `npm install`/`npm ci` fails with a cryptic `node-gyp` build error without it.
 
@@ -62,9 +108,16 @@ request. `npx vitest` (no `run`) starts the watcher for local development.
 The app runs with **mock data** in localStorage when `window.PowerApps` is not present.
 There is no seed data — a fresh `npm run dev` starts with an empty workspace; create your first project from the Projects page.
 
+Conventions, test practices and the commit/PR rules are in
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 ---
 
 ## Deploy to Power Apps
+
+Set-up instructions are below; the operational side — cutting a release,
+rolling one back, backup/restore, and what to check when a user reports a
+problem — is in [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 ### Prerequisites
 1. [Power Platform CLI](https://learn.microsoft.com/en-us/power-platform/developer/cli/introduction) installed
@@ -182,12 +235,17 @@ loosened read filter, so the per-user isolation above is untouched:
   `hasForeignUserEntries()` isolation check stays armed unchanged (the Team
   page's cross-user rows never flow through `useTimeEntries`).
 
-Environment setup (details in `Brandon To Do.md`): set the **Manager** field
-on each Power Apps user profile — that field (`parentsystemuserid`) is the
-only thing the app reads; the M365/Entra org chart is not consulted and does
-not sync into it. Then enable **Hierarchy security** with the Manager
-hierarchy and include `ever_timeentries` in its table list. In local dev,
-preview the page with `localStorage.setItem("tt_mock_team", "1")`.
+Environment setup (full checklist in
+[the runbook](docs/RUNBOOK.md#6-admin-setup-checklist), tracked in
+[#130](https://github.com/TheShield2594/timeflow/issues/130)): set the
+**Manager** field on each Power Apps user profile — that field
+(`parentsystemuserid`) is the only thing the app reads; the M365/Entra org
+chart is not consulted and does not sync into it, so every new hire needs it
+set by hand or their manager silently loses visibility with no error
+([#131](https://github.com/TheShield2594/timeflow/issues/131)). Then enable
+**Hierarchy security** with the Manager hierarchy and include
+`ever_timeentries` in its table list. In local dev, preview the page with
+`localStorage.setItem("tt_mock_team", "1")`.
 
 **Runtime detection (UAT sign-off check):** as defense in depth, on the first
 entries refresh `useTimeEntries` calls `hasForeignUserEntries()` to check
@@ -271,21 +329,20 @@ a project takes two clicks. Each user sees only their own calendar: the
 Office 365 Outlook connector runs on a per-user delegated connection that
 every user consents to on first launch.
 
-The connector is **optional and off until an admin wires it up** — without it
-the page shows an "Outlook: not connected" chip and everything else works
-normally. To enable it:
+The connector is **optional** — without it the page shows an "Outlook: not
+connected" chip and everything else works normally.
 
-1. Add the data source (once, from a dev machine authenticated with `pac`):
+**The data source is already added and committed.** `power.config.json` carries
+the `shared_office365` connection reference and
+`.power/schemas/appschemas/dataSourcesInfo` has the `office365` entry with both
+operations, so step 1 below does *not* need doing again:
 
-   ```bash
-   pac connection list                     # find/create an Office 365 Outlook connection id
-   pac code add-data-source -a shared_office365 -c <connectionId>
-   ```
-
-   This regenerates `.power/schemas/appschemas/dataSourcesInfo` with an
-   `office365` entry and registers the connection reference in
-   `power.config.json`. Until that file carries an `office365` entry, the app
-   uses its own fallback operation schemas for the two calls it makes
+1. ~~Add the data source (once, from a dev machine authenticated with `pac`):~~
+   **Done** — `pac connection list` then
+   `pac code add-data-source -a shared_office365 -c <connectionId>`, in commit
+   `1a721ed`. Kept here for reference and for any new environment that needs its
+   own connection. Without an `office365` entry in `dataSourcesInfo`, the app
+   falls back to its own operation schemas for the two calls it makes
    (`CalendarGetTables_V2`, `GetEventsCalendarViewV3`) — see
    `src/services/outlookService.ts`.
 2. Check the environment's **DLP policy**: Office 365 Outlook must sit in the
@@ -294,6 +351,10 @@ normally. To enable it:
    blocked in prod" failure.
 3. `npm run build && pac code push`. Users get a one-time consent prompt for
    the new connection on next launch.
+
+Steps 2 and 3 are what actually remain — tracked in
+[#130](https://github.com/TheShield2594/timeflow/issues/130), with the full
+checklist in [the runbook](docs/RUNBOOK.md#6-admin-setup-checklist).
 
 Details and caveats:
 - **All-day events are not shown** — they have no time span to lay out on the
@@ -329,32 +390,66 @@ Tests live next to what they cover, as `*.test.ts(x)`.
 ```
 src/
   types/
-    index.ts              — TypeScript interfaces for all data models
-    powerapps.d.ts        — window.PowerApps runtime type declarations
-  generated/              — Power Platform SDK client (generated; not linted)
-  services/
-    dataverseService.ts   — Real Dataverse calls + localStorage mock fallback
-    userService.ts        — Current user (PowerApps userInfo / Office365Users / local)
-    csvExport.ts          — CSV export helper (rounding, escaping, BOM)
+    index.ts               — TypeScript interfaces for all data models
+    powerapps.d.ts         — window.PowerApps runtime type declarations
+  generated/               — Power Platform SDK client (generated; not linted)
+  services/                — the only modules that talk to the SDK
+    dataverseService.ts    — Real Dataverse calls + localStorage mock fallback
+    outlookService.ts      — Office 365 Outlook calendar reads (+ mock meetings)
+    teamService.ts         — Direct-report detection and the Team page's reads
+    userService.ts         — Current user; decides host-vs-mock for everything
+    csvExport.ts           — CSV export helper (rounding, escaping, BOM)
   contexts/
-    DataRangeContext.tsx  — Which date range the pages currently need loaded
-    ToastContext.tsx      — Toast notifications with undo
-  hooks/index.ts          — React hooks: useProjects, useTasks, useTimeEntries, useTimer,
-                            useTimerSafety, useTheme, useToday, useWeeklyTarget, useFocusTrap
+    DataRangeContext.tsx   — Which date range the pages currently need loaded
+    ToastContext.tsx       — Toast notifications with undo
+  hooks/                   — one hook per file; index.ts re-exports the main four
+    useAppBootstrap.ts     — Sign-in resolution and auth error state
+    useProjects.ts         — Projects, optimistic create/edit/archive/restore
+    useTasks.ts            — Tasks, with per-project lazy loading
+    useTimeEntries.ts      — Entries for the loaded range + the isolation check
+    useTimer.ts            — Running timer: persistence, multi-tab sync, drafts
+    useTimerSafety.ts      — Activity tracking, idle detection, 12h auto-stop
+    useFocusMode.ts        — Pomodoro cadence layered on the timer
+    useOutlookEvents.ts    — Meeting overlay state, muting, logged marks
+    useTeam.ts             — Team context: does this user have direct reports
+    useTheme.ts            — Light/dark, applied before sign-in resolves
+    useToday.ts            — "Today" that survives the app being open past midnight
+    useWeeklyTarget.ts     — Weekly target hours (localStorage)
+    useFocusTrap.ts        — Modal focus containment
+    formatters.ts          — Elapsed/minutes formatting, ratio parsing
+    _shared.ts             — Temp ids and error-message helpers
   utils/
-    dates.ts              — Local-timezone date helpers (never toISOString for dates)
-    calendarGeometry.ts   — Calendar pointer maths (slots, snapping, day columns)
-    reportAggregations.ts — Pure aggregation behind the Reports dashboard
+    dates.ts               — Local-timezone date helpers (never toISOString for dates)
+    gaps.ts                — Untracked-gap detection shared by Calendar + Overview
+    calendarGeometry.ts    — Calendar pointer maths (slots, snapping, day columns)
+    reportAggregations.ts  — Pure aggregation behind the Reports dashboard
+    entityIndex.ts         — id→record Maps so render loops don't scan
   components/
-    TimerBar.tsx          — Sticky timer bar at the top
-    OverviewPage.tsx      — Landing page with the activity heatmap
-    TimesheetPage.tsx     — Day-grouped list of time entries
-    CalendarPage.tsx      — Week calendar: drag to create, resize, reschedule
-    ReportsPage.tsx       — Dashboard with charts and KPIs
-    ProjectsPage.tsx      — Project/task management
-  App.tsx                 — Root layout, sign-in bootstrap, page routing
-  styles.css              — Full theme CSS, light + dark (no external UI library needed)
-  main.tsx                — React entry point
+    PageRouter.tsx         — Which page is mounted
+    TimerBar.tsx           — Sticky timer bar at the top
+    OverviewPage.tsx       — Landing page: today strip, target ring, heatmap
+    TimesheetPage.tsx      — Day-grouped list of time entries
+    CalendarPage.tsx       — Week calendar: drag to create, resize, reschedule
+    ReportsPage.tsx        — Dashboard with charts and KPIs
+    ProjectsPage.tsx       — Project/task management
+    TeamPage.tsx           — Manager view of direct reports' weeks + CSV export
+    EntryModal.tsx         — Create/edit a time entry
+    FocusModal.tsx         — Focus/break prompts
+    IdleModal.tsx          — Idle prompt (trim / discard / keep)
+    TodayStrip.tsx         — Today on a clock, with gaps offered as one-click logs
+    TargetRing.tsx         — Weekly target progress ring
+    ActivityHeatmap.tsx    — Year-at-a-glance activity grid
+    SvgBarChart.tsx        — Bar chart with a real axis and empty state
+    Sparkline.tsx          — Inline 7-day trend on project cards
+    EntryRow.tsx           — One timesheet row
+    Combobox.tsx           — Type-ahead single-select (projects, tasks)
+    DateRangeFilter.tsx    — Range picker shared by the data-driven pages
+    RangeSpinner.tsx       — Background-fetch indicator
+    HelpTip.tsx            — Keyboard-reachable explanatory tip
+    Icons.tsx              — Inline SVG icons
+  App.tsx                  — Root layout, error boundary, sign-in bootstrap, nav
+  styles.css               — Full theme CSS, light + dark (no external UI library needed)
+  main.tsx                 — React entry point
 ```
 
 ---
@@ -370,4 +465,13 @@ src/
 ---
 
 ## License
+
 MIT — see [LICENSE](LICENSE).
+
+⚠️ That licence was inherited from a template and has never been a deliberate
+choice for what this actually is: a private, Everence-branded internal app. MIT
+grants anyone who obtains a copy the right to use, modify and redistribute it,
+including commercially. Nothing is wrong today — the repo is private — but the
+file says something the project may not mean. Tracked as an open decision in
+[docs/DECISIONS.md](docs/DECISIONS.md#d-2--licence); whoever owns the code
+should settle it.

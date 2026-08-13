@@ -17,9 +17,14 @@
  * `ever_project@odata.bind` / `ever_workitem@odata.bind` with the entity-SET
  * path (plural form), e.g. `/ever_projectses(<guid>)`.
  *
- * Time entries are user-scoped: reads filter by ever_userid eq <current user>,
- * writes stamp the current user. Make sure initCurrentUser() has resolved
- * before calling any of these.
+ * Time entries are user-scoped, but NOT by comparing ever_userid: reads filter
+ * server-side with FetchXML's `eq-userid` operator against `ownerid`, which
+ * Dataverse resolves to the calling user itself. `ever_userid` is stamped on
+ * write for display/audit only — the SDK has returned inconsistent user ids
+ * across sessions, so a filter built from a client-held id can't be trusted.
+ * This means the isolation depends on `ever_timeentries` being User-owned;
+ * see "Row security matters" in README.md. Make sure initCurrentUser() has
+ * resolved before calling any of these.
  */
 import type { Project, Task, TimeEntry } from "../types";
 import { getCurrentUser, isPowerAppsHost, getDataverseOrgUrl } from "./userService";
