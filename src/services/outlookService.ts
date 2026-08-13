@@ -7,7 +7,7 @@
  *
  * The connector is OPTIONAL: until an admin runs
  *   pac code add-data-source -a shared_office365 -c <connectionId>
- * (see "Brandon To Do.md"), every read rejects with OutlookNotConnectedError
+ * (see docs/RUNBOOK.md §6), every read rejects with OutlookNotConnectedError
  * and the calendar page shows a "not connected" hint instead of meetings.
  * Once the data source exists, `pac` regenerates
  * .power/schemas/appschemas/dataSourcesInfo with an `office365` entry, which

@@ -18,7 +18,7 @@
  * Manager detection: the app asks Dataverse "does anyone list me as their
  * manager?" (systemuser.parentsystemuserid). Requires org-level Read on the
  * User table, which baseline roles typically grant; if the probe fails the
- * Team page simply stays hidden. Admin setup steps live in "Brandon To Do.md".
+ * Team page simply stays hidden. Admin setup steps live in docs/RUNBOOK.md §6.
  *
  * Local dev: the Team page is hidden unless `tt_mock_team` is set in
  * localStorage (`localStorage.setItem("tt_mock_team", "1")`), which serves
