@@ -38,7 +38,7 @@ Tracks time against projects and tasks, stores data in Microsoft Dataverse, and 
 ## Local Development
 
 ### Prerequisites
-- Node.js 18+
+- Node.js 20.19+ or 22.12+ (Vite 7's floor; CI runs 22)
 - npm or pnpm
 - **Linux only:** `libsecret-1-dev` (`sudo apt install libsecret-1-dev` on Debian/Ubuntu). It's pulled in natively by `@microsoft/power-apps` → `@azure/msal-node-extensions` → `keytar`. GitHub-hosted CI runners have it preinstalled; a fresh Linux box doesn't, and `npm install`/`npm ci` fails with a cryptic `node-gyp` build error without it.
 

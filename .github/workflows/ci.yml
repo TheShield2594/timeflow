@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  # An advisory can be published against a dependency we never touched, so the
+  # audit job below needs a trigger that doesn't depend on anyone pushing.
+  schedule:
+    - cron: "0 6 * * 1"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -23,7 +27,7 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       # keytar — a native module pulled in transitively via @microsoft/power-apps
@@ -47,3 +51,25 @@ jobs:
       - run: npm run test:coverage
 
       - run: npm run build
+
+  # Kept separate from build-and-test so a new advisory reads as "a dependency
+  # is vulnerable", not "the tests broke".
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      # --omit=dev keeps this to what actually ships. Dev-tool advisories are
+      # real but they're developer-workstation risk, and letting them fail this
+      # job would mean every PR is blocked by whatever landed in the vitest or
+      # eslint tree that week. Dependabot picks those up instead.
+      #
+      # No `npm ci` first: audit resolves the tree straight from the lockfile,
+      # so this needs neither node_modules nor the libsecret dance above.
+      - run: npm audit --omit=dev --audit-level=high
