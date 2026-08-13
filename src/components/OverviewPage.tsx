@@ -6,6 +6,7 @@ import { getCurrentUser } from "../services/userService";
 import { useToday } from "../hooks/useToday";
 import { useWeeklyTarget } from "../hooks/useWeeklyTarget";
 import { addDaysStr, weekStartStr } from "../utils/dates";
+import { byId, indexById } from "../utils/entityIndex";
 import { EntryRow } from "./EntryRow";
 import { ActivityHeatmap } from "./ActivityHeatmap";
 import { TodayStrip } from "./TodayStrip";
@@ -38,6 +39,9 @@ export const OverviewPage: React.FC<Props> = ({
   const { targetHours, setTargetHours } = useWeeklyTarget();
   const today = useToday();
   const [gapDraft, setGapDraft] = useState<EntryDraft | null>(null);
+
+  const projectById = useMemo(() => indexById(projects), [projects]);
+  const taskById = useMemo(() => indexById(tasks), [tasks]);
 
   // The heatmap looks back HEATMAP_WEEKS weeks — make sure that window is
   // actually loaded rather than assuming it fits inside whatever range
@@ -108,7 +112,7 @@ export const OverviewPage: React.FC<Props> = ({
     const picks: TimeEntry[] = [];
     for (const entry of [...entries].sort((a, b) => b.startTime.localeCompare(a.startTime))) {
       if (!entry.endTime) continue;
-      const project = projects.find((p) => p.id === entry.projectId);
+      const project = projectById.get(entry.projectId);
       if (!project?.isActive) continue;
       const key = `${entry.projectId}|${entry.taskId ?? ""}|${entry.description ?? ""}`;
       if (seen.has(key)) continue;
@@ -117,7 +121,7 @@ export const OverviewPage: React.FC<Props> = ({
       if (picks.length === QUICK_START_COUNT) break;
     }
     return picks;
-  }, [entries, projects]);
+  }, [entries, projectById]);
 
   const handleLogGap = useCallback((startMinutes: number, endMinutes: number) => {
     setGapDraft({
@@ -218,8 +222,8 @@ export const OverviewPage: React.FC<Props> = ({
           ) : (
             <div className="quick-starts">
               {quickStarts.map((entry) => {
-                const project = projects.find((p) => p.id === entry.projectId);
-                const task = tasks.find((t) => t.id === entry.taskId);
+                const project = projectById.get(entry.projectId);
+                const task = byId(taskById, entry.taskId);
                 return (
                   <button
                     key={entry.id}
@@ -251,8 +255,8 @@ export const OverviewPage: React.FC<Props> = ({
                 <EntryRow
                   key={entry.id}
                   entry={entry}
-                  project={projects.find((p) => p.id === entry.projectId)}
-                  task={tasks.find((t) => t.id === entry.taskId)}
+                  project={projectById.get(entry.projectId)}
+                  task={byId(taskById, entry.taskId)}
                   timerBusy={timerBusy}
                   onContinue={onContinue}
                 />

@@ -10,6 +10,7 @@ import {
   addDaysStr, dateAtMinutes, localDateStr, minutesBetween, minutesOfDay, toTimeInput,
 } from "../utils/dates";
 import { Gap, findUntrackedGaps } from "../utils/gaps";
+import { byId, indexById } from "../utils/entityIndex";
 import {
   ColumnRect,
   MINUTES_PER_DAY,
@@ -537,6 +538,8 @@ UntrackedGapBlock.displayName = "UntrackedGapBlock";
 export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeLoading, onCreateEntry, onEdit, onDelete, onLoadTasksForProject }) => {
   const [anchor, setAnchor] = useState(() => new Date());
   const weekDays = useMemo(() => getWeekDays(anchor), [anchor]);
+  const projectById = useMemo(() => indexById(projects), [projects]);
+  const taskById = useMemo(() => indexById(tasks), [tasks]);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 769);
   const [mobileDay, setMobileDay] = useState(() => new Date());
 
@@ -1127,7 +1130,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     // put focus back on once the new node is in the DOM (#89).
     refocusIdRef.current = entry.id;
     const label = entry.description
-      || projects.find((p) => p.id === entry.projectId)?.name
+      || projectById.get(entry.projectId)?.name
       || "Entry";
     const time = (iso: string) =>
       new Date(iso).toLocaleTimeString("en", { hour: "numeric", minute: "2-digit" });
@@ -1137,7 +1140,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
       })}, ${time(placed.startTime)} – ${time(placed.endTime)}`
     );
     void onEdit(entry.id, { date, ...placed }).catch(() => {});
-  }, [onEdit, projects, weekBounds]);
+  }, [onEdit, projectById, weekBounds]);
 
   // Group entries by the grid slot cell they start in, keyed `${date}-${row}`,
   // so each block can render *inside* its starting `gridcell`. Entries used to
@@ -1360,8 +1363,8 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
   // (rowTopMin = the cell's minutes-of-day top).
   const renderEntryBlock = (p: Positioned, rowTopMin: number) => {
     const { entry, startMin, endMin, running, col, cols } = p;
-    const project = projects.find((pr) => pr.id === entry.projectId);
-    const task = tasks.find((t) => t.id === entry.taskId);
+    const project = projectById.get(entry.projectId);
+    const task = byId(taskById, entry.taskId);
     const reshapable = !running && !!entry.endTime && localDateStr(new Date(entry.endTime)) <= entry.date;
     const isResizing = resizePreview?.entryId === entry.id;
     const effStartMin = isResizing && resizePreview!.edge === "start" ? resizePreview!.minutes : startMin;
@@ -1608,7 +1611,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
             {dayItems.length === 0 ? (
               <p className="cal-mobile-empty">No entries — tap below to add one.</p>
             ) : dayItems.map(({ entry, running }) => {
-              const project = projects.find((p) => p.id === entry.projectId);
+              const project = projectById.get(entry.projectId);
               // Mirror CalendarEntryBlock: the running session is owned by the
               // timer bar, so its row isn't a button that silently no-ops on
               // tap/Enter — just a labeled, non-interactive block.

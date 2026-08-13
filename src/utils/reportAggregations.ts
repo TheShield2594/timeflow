@@ -9,6 +9,7 @@
  */
 import type { Project, Task, TimeEntry } from "../types";
 import { localDateStr, weekStartStr } from "./dates";
+import { byId, indexById } from "./entityIndex";
 
 export type Bucket = "day" | "week" | "month";
 
@@ -155,13 +156,14 @@ export function buildProjectBreakdown(
   projects: Project[],
   totalMinutes: number,
 ): ProjectBreakdownRow[] {
+  const projectById = indexById(projects);
   const map = new Map<string, number>();
   entries.forEach((e) => {
     map.set(e.projectId, (map.get(e.projectId) || 0) + (e.durationMinutes || 0));
   });
   return [...map.entries()]
     .map(([id, minutes]) => ({
-      project: projects.find((p) => p.id === id),
+      project: projectById.get(id),
       minutes,
       percent: totalMinutes > 0 ? Math.round((minutes / totalMinutes) * 100) : 0,
     }))
@@ -199,6 +201,7 @@ export function buildMatrix(
   bucketKeys: string[],
   bucket: Bucket,
 ): { rows: MatrixRow[]; colTotals: number[] } {
+  const projectById = indexById(projects);
   const byProject = new Map<string, Map<string, number>>();
   entries.forEach((e) => {
     const k = bucketKeyFor(e.date, bucket);
@@ -208,7 +211,7 @@ export function buildMatrix(
   });
   const rows = [...byProject.entries()]
     .map(([id, cells]) => ({
-      project: projects.find((p) => p.id === id),
+      project: projectById.get(id),
       cells,
       total: [...cells.values()].reduce((s, m) => s + m, 0),
     }))
@@ -232,14 +235,16 @@ export function buildTaskBreakdown(
   projects: Project[],
   limit = 8,
 ): TaskBreakdownRow[] {
+  const projectById = indexById(projects);
+  const taskById = indexById(tasks);
   const map = new Map<string, number>();
   entries.filter((e) => e.taskId).forEach((e) => {
     map.set(e.taskId!, (map.get(e.taskId!) || 0) + (e.durationMinutes || 0));
   });
   return [...map.entries()]
     .map(([id, minutes]) => {
-      const task = tasks.find((t) => t.id === id);
-      return { task, project: projects.find((p) => p.id === task?.projectId), minutes };
+      const task = taskById.get(id);
+      return { task, project: byId(projectById, task?.projectId), minutes };
     })
     .filter((r): r is TaskBreakdownRow => Boolean(r.task))
     .sort((a, b) => b.minutes - a.minutes)
