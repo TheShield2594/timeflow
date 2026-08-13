@@ -6,6 +6,7 @@ import { useToday } from "../hooks/useToday";
 import { useWeeklyTarget } from "../hooks/useWeeklyTarget";
 import { getCurrentUser } from "../services/userService";
 import { friendlyDate, localDateStr, toTimeInput, weekStartStr } from "../utils/dates";
+import { byId, indexById } from "../utils/entityIndex";
 import { EntryModal, EntryDraft, EntrySaveData } from "./EntryModal";
 import { EntryRow } from "./EntryRow";
 import { IconClock, IconPlus, IconSearch, IconX } from "./Icons";
@@ -84,6 +85,9 @@ export const TimesheetPage: React.FC<Props> = ({
 
   const { from, to } = useMemo(() => resolveDateRange(rangeState, today), [rangeState, today]);
 
+  const projectById = useMemo(() => indexById(projects), [projects]);
+  const taskById = useMemo(() => indexById(tasks), [tasks]);
+
   // Reset visible days when the filter/range changes so "Load more" state doesn't carry over.
   useEffect(() => { setVisibleDays(INITIAL_VISIBLE_DAYS); }, [from, to, search, projectFilter]);
 
@@ -95,12 +99,12 @@ export const TimesheetPage: React.FC<Props> = ({
       if (e.date < from || e.date > to) return false;
       if (projectFilter && e.projectId !== projectFilter) return false;
       if (!q) return true;
-      const project = projects.find((p) => p.id === e.projectId);
-      const task = tasks.find((t) => t.id === e.taskId);
+      const project = projectById.get(e.projectId);
+      const task = byId(taskById, e.taskId);
       return [e.description, project?.name, task?.name, e.jiraTicket]
         .some((s) => s?.toLowerCase().includes(q));
     });
-  }, [entries, from, to, search, projectFilter, projects, tasks]);
+  }, [entries, from, to, search, projectFilter, projectById, taskById]);
 
   const grouped = useMemo(() => groupByDate(filteredEntries), [filteredEntries]);
   const sortedDates = useMemo(
@@ -279,8 +283,8 @@ export const TimesheetPage: React.FC<Props> = ({
 
               <div className="timesheet__entries">
                 {dayEntries.map((entry) => {
-                  const project = projects.find((p) => p.id === entry.projectId);
-                  const task = tasks.find((t) => t.id === entry.taskId);
+                  const project = projectById.get(entry.projectId);
+                  const task = byId(taskById, entry.taskId);
 
                   return (
                     <EntryRow

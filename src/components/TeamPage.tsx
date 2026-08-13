@@ -4,6 +4,7 @@ import type { TeamContext, TeamEntry } from "../services/teamService";
 import { useTeamEntries } from "../hooks/useTeam";
 import { formatMinutes } from "../hooks";
 import { addDaysStr, localDateStr, weekStartStr } from "../utils/dates";
+import { indexById } from "../utils/entityIndex";
 import {
   exportToCSV, RoundingRule, ROUNDING_LABELS,
 } from "../services/csvExport";
@@ -130,6 +131,7 @@ export const TeamPage: React.FC<Props> = ({ teamContext, projects, tasks }) => {
 
   // Team-wide project rollup for the visible week, largest first.
   const projectRollup = useMemo(() => {
+    const projectById = indexById(projects);
     const byProject = new Map<string, number>();
     entries.forEach((e) => {
       if (!e.endTime) return;
@@ -137,7 +139,7 @@ export const TeamPage: React.FC<Props> = ({ teamContext, projects, tasks }) => {
     });
     return [...byProject.entries()]
       .map(([projectId, minutes]) => {
-        const project = projects.find((p) => p.id === projectId);
+        const project = projectById.get(projectId);
         return {
           projectId,
           minutes,

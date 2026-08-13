@@ -2,6 +2,7 @@ import React, { useMemo } from "react";
 import type { TimeEntry, Project } from "../types";
 import { formatMinutes } from "../hooks";
 import { WORK_DAY_START_MIN, WORK_DAY_END_MIN, findUntrackedGaps, spanOnDate } from "../utils/gaps";
+import { indexById } from "../utils/entityIndex";
 
 interface Block {
   start: number;
@@ -35,6 +36,8 @@ export function formatClock(minutes: number): string {
  *  gap between them offered as a one-click "log this" target. The landing
  *  screen's one actionable element — the rest of Overview reports history. */
 export const TodayStrip: React.FC<Props> = ({ entries, projects, date, nowMinutes, onLogGap }) => {
+  const projectById = useMemo(() => indexById(projects), [projects]);
+
   const { blocks, gaps, windowStart, windowEnd, trackedMinutes } = useMemo(() => {
     // Clock-face positions for drawing, clipped to the day — from the same
     // helper the gap detector measures coverage with, so a block can never
@@ -47,7 +50,7 @@ export const TodayStrip: React.FC<Props> = ({ entries, projects, date, nowMinute
         const span = spanOnDate(e, date, nowMinutes);
         if (!span) return null;
         const { startMin: start, endMin: end } = span;
-        const project = projects.find((p) => p.id === e.projectId);
+        const project = projectById.get(e.projectId);
         return {
           start,
           end,
@@ -76,7 +79,7 @@ export const TodayStrip: React.FC<Props> = ({ entries, projects, date, nowMinute
       windowEnd: end,
       trackedMinutes: entries.reduce((s, e) => s + (e.durationMinutes || 0), 0),
     };
-  }, [entries, projects, date, nowMinutes]);
+  }, [entries, projectById, date, nowMinutes]);
 
   const span = Math.max(1, windowEnd - windowStart);
   const pct = (minutes: number) => `${((minutes / span) * 100).toFixed(3)}%`;
