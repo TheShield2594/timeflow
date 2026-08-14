@@ -23,6 +23,7 @@ import {
   resolveEffectiveRange,
   sumMinutes,
 } from "../utils/reportAggregations";
+import { HelpTip } from "./HelpTip";
 import { IconChart, IconDownload } from "./Icons";
 import { SvgBarChart } from "./SvgBarChart";
 import {
@@ -222,12 +223,18 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, rangeLo
       <div className="reports__export-bar">
         <span className="reports__export-label">Export</span>
         <div className="reports__export-controls">
+          {/* That rounding never touches the stored entries is the most
+              billing-consequential sentence on this page, and it was reachable
+              only by hovering the select (#106). */}
+          <HelpTip
+            label="What does rounding do?"
+            text="Billing-style rounding applied to the duration columns of the CSV as it's written. Your stored entries keep their exact minutes — nothing here changes what's recorded in Dataverse."
+          />
           <select
             className="rounding-select"
             value={rounding}
             onChange={(e) => handleRoundingChange(e.target.value as RoundingRule)}
             aria-label="Duration rounding applied to the CSV export"
-            title="Billing-style rounding applied to the export's duration columns (stored entries are unchanged)"
           >
             {(Object.keys(ROUNDING_LABELS) as RoundingRule[]).map((rule) => (
               <option key={rule} value={rule}>{ROUNDING_LABELS[rule]}</option>
@@ -306,35 +313,49 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, rangeLo
           <div className="report-card report-card--wide">
             <h3 className="report-card__title">Project × {bucketNoun}</h3>
             <div className="matrix-wrap">
+              {/* scope= on every header and a <th> on the project column are
+                  what make this a table a screen reader can navigate rather
+                  than a wall of bare numbers; the exact duration goes in each
+                  cell's accessible name, because `title` alone is unreachable
+                  by keyboard and invisible to assistive tech (#106). TeamPage
+                  is the working example this follows. */}
               <table className="matrix">
+                <caption className="visually-hidden">
+                  Hours per project per {bucketNoun.toLowerCase()}
+                </caption>
                 <thead>
                   <tr>
-                    <th className="matrix__proj-col">Project</th>
+                    <th scope="col" className="matrix__proj-col">Project</th>
                     {bucketKeys.map((k) => (
-                      <th key={k}>{shortDate(k, bucket)}</th>
+                      <th scope="col" key={k}>{shortDate(k, bucket)}</th>
                     ))}
-                    <th className="matrix__total-col">Total</th>
+                    <th scope="col" className="matrix__total-col">Total</th>
                   </tr>
                 </thead>
                 <tbody>
                   {matrix.rows.map(({ project, cells, total }, r) => (
                     <tr key={project!.id}>
-                      <td className="matrix__proj-col">
+                      <th scope="row" className="matrix__proj-col">
                         <span className="project-breakdown__dot" style={{ background: project!.color }} />
                         {project!.name}
-                      </td>
+                      </th>
                       {bucketKeys.map((k, c) => {
                         // "–" tracks the real minutes, not the printed ones: a
                         // couple of minutes rounds down to 0.0 on this grid,
                         // and a dash there would claim nothing was logged.
                         const mins = cells.get(k) || 0;
                         return (
-                          <td key={k} className={mins ? "" : "matrix__zero"} title={mins ? formatMinutes(mins) : undefined}>
+                          <td
+                            key={k}
+                            className={mins ? "" : "matrix__zero"}
+                            title={mins ? formatMinutes(mins) : undefined}
+                            aria-label={mins ? formatMinutes(mins) : "No time logged"}
+                          >
                             {mins ? formatDecimalHours(display.cells[r][c]) : "–"}
                           </td>
                         );
                       })}
-                      <td className="matrix__total-col" title={formatMinutes(total)}>
+                      <td className="matrix__total-col" title={formatMinutes(total)} aria-label={formatMinutes(total)}>
                         {formatDecimalHours(display.rowTotals[r])}
                       </td>
                     </tr>
@@ -342,20 +363,32 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, rangeLo
                 </tbody>
                 <tfoot>
                   <tr>
-                    <td className="matrix__proj-col">Total</td>
+                    <th scope="row" className="matrix__proj-col">Total</th>
                     {matrix.colTotals.map((mins, i) => (
-                      <td key={bucketKeys[i]} className={mins ? "" : "matrix__zero"} title={mins ? formatMinutes(mins) : undefined}>
+                      <td
+                        key={bucketKeys[i]}
+                        className={mins ? "" : "matrix__zero"}
+                        title={mins ? formatMinutes(mins) : undefined}
+                        aria-label={mins ? formatMinutes(mins) : "No time logged"}
+                      >
                         {mins ? formatDecimalHours(display.colTotals[i]) : "–"}
                       </td>
                     ))}
-                    <td className="matrix__total-col" title={formatMinutes(matrixTotalMinutes)}>
+                    <td
+                      className="matrix__total-col"
+                      title={formatMinutes(matrixTotalMinutes)}
+                      aria-label={formatMinutes(matrixTotalMinutes)}
+                    >
                       {formatDecimalHours(display.grandTotal)}
                     </td>
                   </tr>
                 </tfoot>
               </table>
             </div>
-            <p className="matrix__hint">Hours per project per {bucketNoun.toLowerCase()}. Hover a cell for the exact time.</p>
+            <p className="matrix__hint">
+              Decimal hours per project per {bucketNoun.toLowerCase()}. Every cell carries its
+              exact time — as a tooltip on hover, and read out in place of the rounded figure.
+            </p>
           </div>
         )}
 

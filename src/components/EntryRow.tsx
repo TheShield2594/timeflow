@@ -37,7 +37,17 @@ function durationColumn(minutes: number): string {
  * row — twenty rows meaning sixty buttons, which made "Continue" the loudest
  * repeated element on the page despite being a rare action.
  */
-export const EntryRow: React.FC<Props> = ({ entry, project, task, timerBusy, onContinue, onEdit, onDelete }) => (
+export const EntryRow: React.FC<Props> = ({ entry, project, task, timerBusy, onContinue, onEdit, onDelete }) => {
+  // Why Continue is unavailable. It used to live only in `title`, which a
+  // keyboard user can't reach and which a disabled control shows unreliably —
+  // so the button just sat there greyed out with no stated reason (#106).
+  const continueBlockedBy =
+    timerBusy ? "Timer already running"
+      : !project?.isActive ? "Project is archived"
+        : null;
+  const blockedId = `continue-blocked-${entry.id}`;
+
+  return (
   <div className="entry-row">
     <div
       className="entry-row__accent"
@@ -82,20 +92,22 @@ export const EntryRow: React.FC<Props> = ({ entry, project, task, timerBusy, onC
       {entry.endTime && (
         <>
           {onContinue && (
-            <button
-              type="button"
-              className="entry-row__action entry-row__continue"
-              onClick={() => onContinue(entry)}
-              disabled={timerBusy || !project?.isActive}
-              title={
-                timerBusy ? "Timer already running"
-                  : !project?.isActive ? "Project is archived"
-                  : "Continue — start the timer with this entry's project, task and description"
-              }
-              aria-label={`Continue working on ${entry.description || project?.name || "this entry"}`}
-            >
-              <IconPlay size={12} />
-            </button>
+            <>
+              <button
+                type="button"
+                className="entry-row__action entry-row__continue"
+                onClick={() => onContinue(entry)}
+                disabled={!!continueBlockedBy}
+                title={continueBlockedBy ?? "Continue — start the timer with this entry's project, task and description"}
+                aria-label={`Continue working on ${entry.description || project?.name || "this entry"}`}
+                aria-describedby={continueBlockedBy ? blockedId : undefined}
+              >
+                <IconPlay size={12} />
+              </button>
+              {continueBlockedBy && (
+                <span id={blockedId} className="visually-hidden">{continueBlockedBy}</span>
+              )}
+            </>
           )}
           {onEdit && (
             <button
@@ -123,4 +135,5 @@ export const EntryRow: React.FC<Props> = ({ entry, project, task, timerBusy, onC
       )}
     </span>
   </div>
-);
+  );
+};

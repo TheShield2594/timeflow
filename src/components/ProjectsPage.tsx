@@ -135,15 +135,23 @@ const CardMenu: React.FC<{ project: Project; onEdit: () => void; onArchive: () =
           >
             <IconPencil size={13} /> Edit
           </button>
+          {/* What Archive does used to be a `title` and nothing else, which
+              left the one irreversible-looking item in this menu explained
+              only to a hovering mouse (#106). It's short enough to just say. */}
           <button
             type="button"
             role="menuitem"
-            className="card-menu__item card-menu__item--danger"
+            className="card-menu__item card-menu__item--danger card-menu__item--stacked"
             disabled={pending}
-            title={pending ? "Project is saving…" : "Removes it from pickers, keeps its history"}
             onClick={() => { setOpen(false); onArchive(); }}
           >
-            <IconArchive size={13} /> Archive
+            <IconArchive size={13} />
+            <span className="card-menu__item-text">
+              Archive
+              <span className="card-menu__item-hint">
+                {pending ? "Project is still saving…" : "Removes it from pickers, keeps its history"}
+              </span>
+            </span>
           </button>
         </div>
       )}

@@ -183,20 +183,26 @@ const FocusControl: React.FC<{ focus: FocusControlState }> = ({ focus }) => {
     : phase === "focus" ? `Focus ${mmss(remainingSeconds)}`
     : phase === "break" ? `Break ${mmss(remainingSeconds)}`
     : "Focus on";
-  const title =
-    `Focus mode — ${settings.focusMinutes}m focus / ${settings.breakMinutes}m break, ` +
-    `${sessionsToday} completed today. Prompts only fire while this tab is open. ` +
-    `Click to turn ${enabled ? "off" : "on"}.`;
+  // What focus mode is, and the caveat that its prompts stop with the tab, used
+  // to be a `title` on the chip and nowhere else — invisible to a keyboard or
+  // screen-reader user, who has no way to hover it (#106). The chip's own
+  // accessible name carries what it does when clicked; the explanation moves to
+  // the tip beside it.
+  const summary =
+    `${settings.focusMinutes} minutes of focus, then a ${settings.breakMinutes} minute break, ` +
+    `prompted as each one ends. ${sessionsToday} focus ${sessionsToday === 1 ? "block" : "blocks"} completed today. ` +
+    `Prompts only fire while this tab is open.`;
 
   return (
     <span className="focus-control">
       <button
         className={`focus-chip ${enabled ? "focus-chip--on" : ""} ${phase === "break" ? "focus-chip--break" : ""}`}
         onClick={onToggle}
-        title={title}
+        aria-label={`${label} — click to turn focus mode ${enabled ? "off" : "on"}`}
       >
         {label}
       </button>
+      <HelpTip label="What is focus mode?" text={summary} />
       {enabled && (
         <button
           className="focus-chip__edit"

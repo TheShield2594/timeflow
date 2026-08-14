@@ -42,11 +42,11 @@ function renderReports(entries: TimeEntry[], withProjects: Project[] = projects)
 
 const gamma: Project = { id: "p3", name: "Gamma", color: "#333333", isActive: true, createdAt: "" };
 
-/** A matrix row as the numbers a reader would actually add up: the project
- *  name dropped, and an untracked dash read as the zero it stands for. */
+/** A matrix row as the numbers a reader would actually add up, with an
+ *  untracked dash read as the zero it stands for. The project name isn't in
+ *  here: it's a <th>, so querySelectorAll("td") already leaves it out (#106). */
 function printedRow(row: Element): number[] {
   return [...row.querySelectorAll("td")]
-    .slice(1)
     .map((c) => (c.textContent === "–" ? 0 : Number(c.textContent)));
 }
 
@@ -187,11 +187,52 @@ describe("ReportsPage project × period matrix", () => {
     expect(cell.getAttribute("title")).toBe("50m");
   });
 
+  it("associates every number with its project and its period (#106)", () => {
+    renderReports([entry(today, 60, "p1"), entry(today, 30, "p2")]);
+
+    const table = screen.getByRole("table");
+    // The table names itself, so it isn't announced as an unlabelled grid.
+    expect(table.querySelector("caption")!.textContent).toContain("Hours per project");
+
+    // Column headers are headers, and scoped — without this a screen reader in
+    // table mode reads bare numbers with no idea which week they fall in.
+    const columnHeaders = within(table).getAllByRole("columnheader");
+    expect(columnHeaders.length).toBeGreaterThan(2);
+    expect(columnHeaders.every((h) => h.getAttribute("scope") === "col")).toBe(true);
+    expect(columnHeaders[0].textContent).toBe("Project");
+
+    // And the project name is the row's header, not just its first cell.
+    const rowHeaders = within(table).getAllByRole("rowheader");
+    expect(rowHeaders.map((h) => h.textContent)).toEqual(["Alpha", "Beta", "Total"]);
+    expect(rowHeaders.every((h) => h.getAttribute("scope") === "row")).toBe(true);
+  });
+
+  it("reads out the exact time rather than the rounded figure on screen", () => {
+    // 50 minutes prints as 0.8 hours. A reader who only hears "0.8" can't
+    // recover the minutes, and the exact value used to be in `title` alone —
+    // unreachable by keyboard and invisible to assistive tech.
+    renderReports([entry(today, 50, "p1")]);
+
+    const table = screen.getByRole("table");
+    const alpha = within(table).getByRole("row", { name: /Alpha/ });
+    const logged = [...alpha.querySelectorAll("td")].find((c) => c.textContent === "0.8")!;
+    expect(logged.getAttribute("aria-label")).toBe("50m");
+
+    // An untracked cell says so, instead of announcing a bare dash.
+    const empty = [...alpha.querySelectorAll("td")].find((c) => c.textContent === "–");
+    expect(empty?.getAttribute("aria-label")).toBe("No time logged");
+  });
+
+  it("no longer tells the reader to hover for the exact time", () => {
+    renderReports([entry(today, 50, "p1")]);
+    expect(screen.queryByText(/Hover a cell/)).toBeNull();
+  });
+
   it("does not print an empty bucket as time that was logged", () => {
     renderReports([entry(yesterday, 55, "p1"), entry(today, 55, "p1")]);
     const table = screen.getByRole("table");
     const alpha = within(table).getByRole("row", { name: /Alpha/ });
-    const cells = [...alpha.querySelectorAll("td")].slice(1, -1).map((c) => c.textContent);
+    const cells = [...alpha.querySelectorAll("td")].slice(0, -1).map((c) => c.textContent);
     expect(cells.filter((c) => c !== "–")).toEqual(["0.9", "0.9"]);
   });
 });
