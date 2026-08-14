@@ -125,6 +125,25 @@
   --accent-hover:   var(--ev-green-dark);
   --accent-soft:    var(--ev-green-soft);
 
+  /* Fill for SOLID white-on-green controls — the primary button, the Start
+     button, the active Reports tab, today's calendar date.
+
+     White on raw --ev-green is 3.52:1, short of the 4.5:1 that 13px/700 text
+     needs, and the resting state was the failing one while :hover already
+     measured past AA — backwards (#102). These are deliberately their own
+     tokens rather than --ev-green-dark: that one is re-pointed at a *light*
+     green in dark mode because it is a small-text-on-dark-surface colour, and
+     a button fill has to keep its white text legible in either theme. */
+  --accent-solid:       #5a7800;  /* 5.1:1 with #fff */
+  --accent-solid-hover: #4a6300;  /* 6.8:1 with #fff */
+
+  /* The glow half of the input focus indicator. Inputs opt out of the global
+     :focus-visible ring (they carry their own border + glow), which left the
+     10%-alpha tint of --ev-green-soft doing the work — marginal against WCAG
+     2.2's 2.4.11 (#102). Its own token so strengthening it doesn't also
+     repaint every chip and tint that uses --ev-green-soft as a surface. */
+  --focus-glow:     rgba(113,149,0,0.18);
+
   --danger:         #CC4F00;
   --success:        #358450;
 
@@ -145,7 +164,7 @@
   /* Sidebar uses dark forest green */
   --sidebar-bg:          #1a2d1e;
   --sidebar-text:        #c8d9c0;
-  --sidebar-muted:       #7a9478;
+  --sidebar-muted:       #83a081;  /* 5.1:1 on --sidebar-bg — #7a9478 was 4.40:1 (#102) */
   --sidebar-active-bg:   rgba(113,149,0,0.22);
   --sidebar-active-text: #b8d430;
   --sidebar-border:      rgba(255,255,255,0.07);
@@ -356,7 +375,7 @@ input, select { font-family: inherit; }
   transition: border-color 0.15s, box-shadow 0.15s;
   outline: none;
 }
-.timer-bar__desc:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--ev-green-soft); }
+.timer-bar__desc:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--focus-glow); }
 .timer-bar__desc::placeholder { color: var(--text-faint); }
 
 /* Ratio + ticket, revealed by the disclosure in the main row. */
@@ -402,7 +421,7 @@ input, select { font-family: inherit; }
   transition: border-color 0.15s, box-shadow 0.15s;
   outline: none;
 }
-.timer-bar__ticket:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--ev-green-soft); }
+.timer-bar__ticket:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--focus-glow); }
 .timer-bar__ticket::placeholder { color: var(--text-faint); font-family: var(--font); }
 
 .timer-bar__ratio {
@@ -417,7 +436,7 @@ input, select { font-family: inherit; }
   transition: border-color 0.15s, box-shadow 0.15s;
   outline: none;
 }
-.timer-bar__ratio:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--ev-green-soft); }
+.timer-bar__ratio:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--focus-glow); }
 .timer-bar__ratio::placeholder { color: var(--text-faint); }
 
 .timer-bar__selectors { display: flex; gap: 8px; flex: none; }
@@ -438,7 +457,7 @@ input, select { font-family: inherit; }
   transition: border-color 0.15s, box-shadow 0.15s;
   max-width: 165px;
 }
-.timer-bar__select:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--ev-green-soft); }
+.timer-bar__select:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--focus-glow); }
 
 /* ---------- Combobox (type-ahead single select) ---------- */
 .combobox { position: relative; display: flex; align-items: center; }
@@ -455,7 +474,7 @@ input, select { font-family: inherit; }
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .combobox__input--dotted { padding-left: 24px; }
-.combobox__input:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--ev-green-soft); cursor: text; }
+.combobox__input:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--focus-glow); cursor: text; }
 .combobox__input::placeholder { color: var(--text-faint); font-weight: 500; }
 .combobox__dot {
   position: absolute; left: 10px;
@@ -504,7 +523,7 @@ input, select { font-family: inherit; }
   width: 160px;
   transition: box-shadow 0.15s;
 }
-.timer-bar__new-task-input:focus { box-shadow: 0 0 0 3px var(--ev-green-soft); }
+.timer-bar__new-task-input:focus { box-shadow: 0 0 0 3px var(--focus-glow); }
 .timer-bar__new-task-ok { color: var(--ev-grass-text); font-size: 16px; padding: 4px 6px; font-weight: 700; background: transparent; border: none; cursor: pointer; }
 .timer-bar__new-task-ok:disabled { color: var(--text-muted); cursor: not-allowed; }
 .timer-bar__new-task-cancel { color: var(--text-muted); font-size: 20px; padding: 2px 6px; background: transparent; border: none; cursor: pointer; }
@@ -540,8 +559,8 @@ input, select { font-family: inherit; }
 }
 /* Never faded: Start stays a solid primary button with nothing selected and
    sends you to the project picker instead of going dead. */
-.timer-bar__btn--start { background: var(--ev-green); color: #fff; }
-.timer-bar__btn--start:hover { background: var(--ev-green-dark); }
+.timer-bar__btn--start { background: var(--accent-solid); color: #fff; }
+.timer-bar__btn--start:hover { background: var(--accent-solid-hover); }
 .timer-bar__btn--stop {
   background: var(--danger-soft);
   color: var(--ev-pumpkin-text);
@@ -716,7 +735,7 @@ input, select { font-family: inherit; }
 }
 .reports__tab { padding: 5px 12px; border-radius: 4px; font-size: 12.5px; font-weight: 600; color: var(--text-muted); transition: all 0.2s var(--ease); }
 .reports__tab:hover { color: var(--text); }
-.reports__tab--active { background: var(--ev-green); color: #fff; }
+.reports__tab--active { background: var(--accent-solid); color: #fff; }
 
 /* Inline indicator for a background fetch (e.g. widening the loaded date
    range) — content already on screen stays put, this just signals "more
@@ -950,8 +969,8 @@ input, select { font-family: inherit; }
 .projects-page__header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
 .projects-page__title { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
 
-.btn-primary { background: var(--ev-green); color: #fff; padding: 9px 18px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 700; transition: background 0.15s; }
-.btn-primary:hover { background: var(--ev-green-dark); }
+.btn-primary { background: var(--accent-solid); color: #fff; padding: 9px 18px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 700; transition: background 0.15s; }
+.btn-primary:hover { background: var(--accent-solid-hover); }
 
 .btn-ghost { background: transparent; color: var(--text-muted); padding: 9px 18px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; border: 1.5px solid var(--border); transition: all 0.2s var(--ease); }
 .btn-ghost:hover { color: var(--text); border-color: var(--text-faint); }
@@ -961,7 +980,7 @@ input, select { font-family: inherit; }
 .new-project-form__actions { display: flex; gap: 8px; }
 
 .form-input { background: var(--surface-2); border: 1.5px solid var(--border); border-radius: var(--radius-sm); padding: 9px 13px; color: var(--text); font-size: 13.5px; outline: none; width: 100%; transition: border-color 0.15s, box-shadow 0.15s; }
-.form-input:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--ev-green-soft); }
+.form-input:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--focus-glow); }
 .form-input-group { display: flex; align-items: center; gap: 8px; }
 .form-input-group .form-input { flex: 1; width: auto; }
 .form-input::placeholder { color: var(--text-faint); }
@@ -1080,7 +1099,7 @@ input, select { font-family: inherit; }
 
 .inline-task-form { display: flex; align-items: center; gap: 4px; }
 .inline-task-form__input { background: var(--surface-2); border: 1.5px solid var(--ev-green); border-radius: var(--radius-sm); padding: 3px 8px; color: var(--text); font-size: 12px; outline: none; width: 130px; transition: box-shadow 0.15s; }
-.inline-task-form__input:focus { box-shadow: 0 0 0 3px var(--ev-green-soft); }
+.inline-task-form__input:focus { box-shadow: 0 0 0 3px var(--focus-glow); }
 .inline-task-form__ok { color: var(--ev-grass-text); font-size: 14px; padding: 2px 4px; font-weight: 700; }
 .inline-task-form__cancel { color: var(--text-muted); font-size: 18px; padding: 2px 4px; }
 
@@ -1118,7 +1137,7 @@ input, select { font-family: inherit; }
 .calendar__day-header { display: flex; flex-direction: column; align-items: center; padding: 10px 4px; gap: 4px; }
 .calendar__day-name { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-muted); }
 .calendar__day-num { font-size: 18px; font-weight: 500; color: var(--text-muted); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
-.calendar__day-num--today { background: var(--ev-green); color: #fff; font-weight: 700; }
+.calendar__day-num--today { background: var(--accent-solid); color: #fff; font-weight: 700; }
 .calendar__day-header--today .calendar__day-name { color: var(--ev-green-dark); }
 
 .calendar__grid-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -1253,7 +1272,7 @@ input, select { font-family: inherit; }
   display: flex;
   flex-direction: column;
   gap: 10px;
-  box-shadow: 0 0 0 3px var(--ev-green-soft);
+  box-shadow: 0 0 0 3px var(--focus-glow);
 }
 
 .entry-edit-form__row {
@@ -1635,7 +1654,7 @@ input, select { font-family: inherit; }
   padding: 0 10px;
   transition: border-color 0.2s var(--ease), box-shadow 0.2s var(--ease);
 }
-.search-box:focus-within { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--ev-green-soft); }
+.search-box:focus-within { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--focus-glow); }
 .search-box__icon { color: var(--text-faint); flex-shrink: 0; }
 .search-box__input {
   flex: 1;
@@ -1811,11 +1830,11 @@ input, select { font-family: inherit; }
   font-weight: 600;
 }
 .btn-sm.btn-primary {
-  background: var(--ev-green);
+  background: var(--accent-solid);
   color: #fff;
-  border: 1.5px solid #5a7800; /* literal: brand hover green, not the theme-remapped --ev-green-dark */
+  border: 1.5px solid var(--accent-solid-hover);
 }
-.btn-sm.btn-primary:hover { background: #5a7800; }
+.btn-sm.btn-primary:hover { background: var(--accent-solid-hover); }
 .btn-sm.btn-ghost {
   background: var(--surface-2);
   color: var(--text-muted);
@@ -1967,7 +1986,7 @@ input, select { font-family: inherit; }
   outline: none;
   transition: box-shadow 0.15s;
 }
-.week-target-editor__input:focus { box-shadow: 0 0 0 3px var(--ev-green-soft); }
+.week-target-editor__input:focus { box-shadow: 0 0 0 3px var(--focus-glow); }
 .week-target-editor__ok { display: inline-flex; padding: 3px; color: var(--ev-grass-text); }
 .week-target-editor__cancel { display: inline-flex; padding: 3px; color: var(--text-muted); }
 
@@ -2118,6 +2137,9 @@ input, select { font-family: inherit; }
   /* Brand tints re-balanced for dark surfaces */
   --ev-green-soft:  rgba(143,179,42,0.14);
   --ev-green-mid:   rgba(143,179,42,0.26);
+  /* Same lightened hue, carried at the stronger alpha the light theme uses so
+     the input focus glow stays a visible indicator here too. */
+  --focus-glow:     rgba(143,179,42,0.28);
 
   /* AA text-safe variants (≥ 4.5:1 on --surface) */
   --ev-green-dark:   #a9cb4b;
@@ -2151,11 +2173,11 @@ input, select { font-family: inherit; }
   --shadow:    0 1px 3px rgba(0,0,0,0.20), 0 4px 12px rgba(0,0,0,0.14);
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.16);
 }
-/* Buttons keep white-on-green; --ev-green-dark above is tuned for dark-surface
-   TEXT, which would wash out button hover — pin it back to the brand hover. */
-:root[data-theme="dark"] .btn-primary:hover,
-:root[data-theme="dark"] .timer-bar__btn--start:hover,
-:root[data-theme="dark"] .btn-sm.btn-primary:hover { background: #5a7800; }
+/* No dark-theme pin for the solid buttons any more: --accent-solid and
+   --accent-solid-hover are theme-independent by design (see their definition),
+   so white-on-green keeps both its contrast and its hover step in either
+   theme. The old override existed because those fills were built from
+   --ev-green-dark, which dark mode re-points at a light green for small text. */
 /* The light shimmer is blinding on dark cards */
 :root[data-theme="dark"] .skeleton::after {
   background: linear-gradient(90deg, transparent, rgba(255,255,255,0.09), transparent);
