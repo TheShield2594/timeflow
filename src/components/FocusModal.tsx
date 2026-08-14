@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 
 interface BreakPromptProps {
@@ -26,8 +26,26 @@ type Props = BreakPromptProps | ResumePromptProps;
  */
 export const FocusModal: React.FC<Props> = (props) => {
   const modalRef = useFocusTrap<HTMLDivElement>();
+  // Escape = the non-committal option, exactly as IdleModal binds it to "Keep
+  // running". The interruption is the point of this dialog, so neither branch
+  // gets a ✕ — but a dialog with *no* way out at all breaks the expectation
+  // every other dialog in the app sets (#103).
+  const onEscape = props.kind === "break" ? props.onKeepGoing : props.onDismiss;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onEscape();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onEscape]);
+
   return (
-    <div className="modal-backdrop">
+    <div
+      className="modal-backdrop"
+      // Backdrop clicks don't dismiss this dialog, so without this they would
+      // just blur the focused control down to <body> — outside the trap (#103).
+      onMouseDown={(e) => { if (e.target === e.currentTarget) e.preventDefault(); }}
+    >
       <div className="cal-modal focus-modal" ref={modalRef} role="dialog" aria-modal="true"
         aria-label={props.kind === "break" ? "Focus block complete" : "Break finished"}>
         {props.kind === "break" ? (
