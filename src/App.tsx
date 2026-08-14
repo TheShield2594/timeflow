@@ -135,8 +135,11 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
     [refresh]
   );
 
-  const { timer, elapsed, start, stop, stopAt, cancel, update } = useTimer(handleNewEntry);
-  const focusMode = useFocusMode(timer.isRunning, elapsed);
+  // Neither of these ticks: nothing in AppContent re-renders on the second,
+  // so a running timer no longer re-reconciles the whole page tree underneath
+  // it (#95). The clocks live in TimerBar, next to the digits they update.
+  const { timer, start, stop, stopAt, cancel, update } = useTimer(handleNewEntry);
+  const focusMode = useFocusMode(timer.isRunning, timer.startTime);
 
   const deleteWithUndo = useCallback(async (id: string) => {
     const snapshot = entries.find((e) => e.id === id);
@@ -202,6 +205,10 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
     focusMode.dismissResume();
     if (last) continueEntry(last);
   }, [focusMode, continueEntry]);
+
+  // Stable identity so the memoized pages below aren't handed a fresh prop on
+  // every AppContent render.
+  const goToProjects = useCallback(() => setPage("projects"), []);
 
   const lastActivity = useActivityTracker();
 
@@ -322,7 +329,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
           tasks={tasks}
           isRunning={timer.isRunning}
           pendingStopAt={timer.pendingStopAt}
-          elapsed={elapsed}
+          startTime={timer.startTime}
           currentProjectId={timer.projectId}
           currentTaskId={timer.taskId}
           description={timer.description}
@@ -331,7 +338,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
           focus={{
             enabled: focusMode.enabled,
             phase: focusMode.phase,
-            remainingSeconds: focusMode.remainingSeconds,
+            endsAt: focusMode.endsAt,
             settings: focusMode.settings,
             sessionsToday: focusMode.sessionsToday,
             onToggle: focusMode.toggleEnabled,
@@ -366,7 +373,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
             onDeleteTask={deleteTaskWithUndo}
             onRenameTask={renameTask}
             onLoadTasksForProject={loadTasksForProject}
-            onGoToProjects={() => setPage("projects")}
+            onGoToProjects={goToProjects}
             teamContext={teamContext}
           />
         </div>

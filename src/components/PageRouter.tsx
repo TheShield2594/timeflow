@@ -10,6 +10,23 @@ import type { TimeEntry, Project, Task } from "../types";
 
 export type Page = "overview" | "timesheet" | "calendar" | "reports" | "projects" | "team";
 
+/**
+ * The pages are memoized here rather than at their own exports so each stays a
+ * plain component for the tests that render it directly.
+ *
+ * None of them were memoized before, so anything that re-rendered the app
+ * shell re-reconciled the whole mounted page — on the Calendar, ~720 elements
+ * and a couple of thousand fresh closures (#95). The 1 Hz timer tick that made
+ * that continuous is gone now, but the shell still re-renders on every entry
+ * edit, toast and range change, and none of those change most pages' props.
+ */
+const Overview = React.memo(OverviewPage);
+const Timesheet = React.memo(TimesheetPage);
+const Calendar = React.memo(CalendarPage);
+const Reports = React.memo(ReportsPage);
+const Projects = React.memo(ProjectsPage);
+const Team = React.memo(TeamPage);
+
 /** Skeleton shown only on the very first data load — shaped like the timesheet. */
 export const PageSkeleton: React.FC = () => (
   <div className="page-skeleton" aria-hidden="true">
@@ -76,7 +93,7 @@ export const PageRouter: React.FC<Props> = ({
 
   if (page === "overview") {
     return (
-      <OverviewPage
+      <Overview
         entries={entries}
         projects={projects}
         tasks={tasks}
@@ -91,7 +108,7 @@ export const PageRouter: React.FC<Props> = ({
 
   if (page === "timesheet") {
     return (
-      <TimesheetPage
+      <Timesheet
         entries={entries}
         projects={projects}
         tasks={tasks}
@@ -109,7 +126,7 @@ export const PageRouter: React.FC<Props> = ({
 
   if (page === "calendar") {
     return (
-      <CalendarPage
+      <Calendar
         entries={entries}
         projects={projects}
         tasks={tasks}
@@ -124,7 +141,7 @@ export const PageRouter: React.FC<Props> = ({
 
   if (page === "reports") {
     return (
-      <ReportsPage
+      <Reports
         entries={entries}
         projects={projects}
         tasks={tasks}
@@ -137,12 +154,12 @@ export const PageRouter: React.FC<Props> = ({
     // The nav item only renders for managers, but guard anyway: without a
     // team there is nothing to show.
     if (!teamContext || teamContext.reports.length === 0) return null;
-    return <TeamPage teamContext={teamContext} projects={projects} tasks={tasks} />;
+    return <Team teamContext={teamContext} projects={projects} tasks={tasks} />;
   }
 
   if (page === "projects") {
     return (
-      <ProjectsPage
+      <Projects
         projects={projects}
         tasks={tasks}
         entries={entries}
