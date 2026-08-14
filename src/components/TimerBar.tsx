@@ -10,8 +10,22 @@ const NEW_TASK_OPTION = "__new_task__";
 
 // The hover `title` alone is invisible on touch and to keyboard-only/screen-
 // reader users, so the shortcut also gets a persistent on-screen hint.
-const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPod|iPad/.test(navigator.platform);
+//
+// `navigator.platform` is deprecated and reports "" in some hardened/privacy
+// configurations, which silently offered a Mac user "Ctrl+." — a shortcut that
+// isn't the one they have. userAgentData carries the same answer and is the
+// supported route; platform stays as the fallback for browsers without it.
+function detectMac(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const platform =
+    (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ||
+    navigator.platform ||
+    navigator.userAgent;
+  return /Mac|iPhone|iPod|iPad/.test(platform);
+}
+const IS_MAC = detectMac();
 const SHORTCUT_HINT = IS_MAC ? "⌘." : "Ctrl+.";
+const SHORTCUT_SPOKEN = IS_MAC ? "Command period" : "Control period";
 
 /**
  * Seconds remaining until `endsAt`, re-rendering only this subtree once a
@@ -89,6 +103,24 @@ interface Props {
   onUpdate: (patch: { description?: string; taskId?: string | null; ratio?: number; jiraTicket?: string }) => void;
   onAddTask: (data: Omit<Task, "id">) => Promise<Task>;
   onLoadTasksForProject: (projectId: string) => void;
+}
+
+/**
+ * Elapsed time as words, quantised to whole minutes.
+ *
+ * Both halves matter for the live region (#99): "00:05:00" is read out as a
+ * string of digits and colons, and anything finer than a minute would re-fire
+ * the announcement every second — an announcement storm that makes the app
+ * unusable rather than accessible.
+ */
+function spokenDuration(totalSeconds: number): string {
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  const parts: string[] = [];
+  if (h > 0) parts.push(`${h} hour${h === 1 ? "" : "s"}`);
+  if (m > 0 || h === 0) parts.push(`${m} minute${m === 1 ? "" : "s"}`);
+  return parts.join(" ");
 }
 
 function mmss(totalSeconds: number): string {
@@ -236,6 +268,7 @@ export const TimerBar: React.FC<Props> = ({
   // resurrect stale pre-start text. The project stays selected — starting
   // another session on the same project is the common case.
   const wasRunning = useRef(isRunning);
+  const [hasStopped, setHasStopped] = useState(false);
   useEffect(() => {
     if (wasRunning.current && !isRunning) {
       setDesc("");
@@ -243,6 +276,7 @@ export const TimerBar: React.FC<Props> = ({
       setTicketInput("");
       setSelectedTask("");
       setExtrasOpen(false);
+      setHasStopped(true);
     }
     wasRunning.current = isRunning;
   }, [isRunning]);
@@ -461,7 +495,15 @@ export const TimerBar: React.FC<Props> = ({
               className={`timer-bar__btn btn-icon ${isRunning ? "timer-bar__btn--stop" : "timer-bar__btn--start"}`}
               onClick={isRunning ? onStop : handleStart}
               title={isRunning ? "Stop timer (Ctrl/Cmd + .)" : "Start timer (Ctrl/Cmd + .)"}
-              aria-label={isRunning ? "Stop timer" : "Start timer"}
+              // The shortcut is folded into the accessible name rather than
+              // left in the aria-hidden <kbd>, which no screen reader ever
+              // reached. The elapsed time deliberately isn't here — an
+              // aria-label replaces the element's content, so naming the
+              // button after the clock would re-announce on every tick;
+              // the live region below carries it instead (#99).
+              aria-label={
+                (isRunning ? "Stop timer" : "Start timer") + `, keyboard shortcut ${SHORTCUT_SPOKEN}`
+              }
             >
               {isRunning ? <><IconStop /> Stop</> : <><IconPlay /> Start</>}
               {/* Elapsed time belongs to the running button, not beside it —
@@ -512,6 +554,22 @@ export const TimerBar: React.FC<Props> = ({
       {needsProject && (
         <div className="timer-bar__hint" role="status">Pick a project first</div>
       )}
+
+      {/* The only path by which a non-visual user learns the timer's state.
+          The digits themselves live inside the Stop button, whose aria-label
+          replaces its content, and the sidebar's "Timer running" is static
+          text — so before this there was no elapsed time and no start/stop
+          announcement at all (#99, WCAG 4.1.3).
+
+          Rendered unconditionally so the region is in the accessibility tree
+          before any text lands in it, for the same reason the toast regions
+          are (see ToastContext). It stays empty until the first stop, so a
+          reload doesn't open with "Timer stopped". */}
+      <div className="visually-hidden" role="status" aria-live="polite">
+        {isRunning
+          ? `Timer running, ${spokenDuration(elapsed)} elapsed`
+          : hasStopped ? "Timer stopped" : ""}
+      </div>
 
       {isRunning && (
         <div className="timer-bar__pulse-bar">
