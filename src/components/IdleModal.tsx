@@ -37,7 +37,16 @@ export const IdleModal: React.FC<Props> = ({ lastActiveAt, startTime, onTrim, on
   const sessionSeconds = Math.floor((lastActiveAt - new Date(startTime).getTime()) / 1000);
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="idle-modal-title">
+    <div
+      className="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="idle-modal-title"
+      // Escape dismisses this dialog but a backdrop click does not, so without
+      // this the click would only blur focus out to <body> — past the trap,
+      // which is bound to the dialog element (#103).
+      onMouseDown={(e) => { if (e.target === e.currentTarget) e.preventDefault(); }}
+    >
       <div className="idle-modal" ref={modalRef}>
         <h3 id="idle-modal-title" className="idle-modal__title">You've been idle for {formatElapsed(idleSeconds)}</h3>
         <p className="idle-modal__body">

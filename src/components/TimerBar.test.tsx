@@ -39,7 +39,9 @@ function renderBar(overrides: Partial<React.ComponentProps<typeof TimerBar>> = {
   return { ...utils, onStart, onStop };
 }
 
-const startButton = () => screen.getByRole("button", { name: "Start timer" });
+// Matched by prefix: the accessible name now carries the keyboard shortcut
+// too, and which modifier it names depends on the platform (#99).
+const startButton = () => screen.getByRole("button", { name: /^Start timer/ });
 
 /** Drive the type-ahead the way a user does: open it, then pick a row. */
 function pickFromCombobox(ariaLabel: string, optionName: string) {
@@ -112,7 +114,7 @@ describe("TimerBar Start button", () => {
         startTime: new Date(now - 4521 * 1000).toISOString(),
         currentProjectId: "p1",
       });
-      const stop = screen.getByRole("button", { name: "Stop timer" });
+      const stop = screen.getByRole("button", { name: /^Stop timer/ });
       expect(stop.textContent).toContain("01:15:21");
 
       act(() => { vi.advanceTimersByTime(1000); });
@@ -120,6 +122,84 @@ describe("TimerBar Start button", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+/** The bar with just enough props to flip between running and stopped. */
+const StatusHarness: React.FC<{ isRunning: boolean; startTime?: string }> = ({ isRunning, startTime }) => (
+  <TimerBar
+    projects={projects}
+    tasks={tasks}
+    isRunning={isRunning}
+    startTime={isRunning ? startTime ?? new Date().toISOString() : null}
+    currentProjectId={isRunning ? "p1" : null}
+    currentTaskId={null}
+    description=""
+    onStart={vi.fn()}
+    onStop={vi.fn()}
+    onUpdate={vi.fn()}
+    onAddTask={vi.fn()}
+    onLoadTasksForProject={vi.fn()}
+  />
+);
+
+describe("TimerBar screen-reader status", () => {
+  // aria-label REPLACES an element's content for the accessible name, so the
+  // elapsed digits rendered inside the Stop button were unreachable — there
+  // was no way for a non-visual user to learn how long they'd been tracking.
+  it("carries the elapsed time the Stop button's aria-label hides", () => {
+    vi.useFakeTimers();
+    try {
+      const now = new Date("2026-08-14T12:00:00.000Z").getTime();
+      vi.setSystemTime(now);
+      render(<StatusHarness isRunning startTime={new Date(now - 3661 * 1000).toISOString()} />);
+
+      expect(screen.getByRole("status").textContent).toBe("Timer running, 1 hour 1 minute elapsed");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Per-second updates would be an announcement storm; the region is quantised
+  // to whole minutes so the text only changes 60x less often than the clock.
+  it("holds its text steady between minute boundaries", () => {
+    vi.useFakeTimers();
+    try {
+      const now = new Date("2026-08-14T12:00:00.000Z").getTime();
+      vi.setSystemTime(now);
+      render(<StatusHarness isRunning startTime={new Date(now - 120 * 1000).toISOString()} />);
+      expect(screen.getByRole("status").textContent).toBe("Timer running, 2 minutes elapsed");
+
+      act(() => { vi.advanceTimersByTime(59_000); });
+      expect(screen.getByRole("status").textContent).toBe("Timer running, 2 minutes elapsed");
+
+      act(() => { vi.advanceTimersByTime(1000); });
+      expect(screen.getByRole("status").textContent).toBe("Timer running, 3 minutes elapsed");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stays silent on load, so a reload doesn't open with 'Timer stopped'", () => {
+    render(<StatusHarness isRunning={false} />);
+    // The region itself must exist from the start — assistive tech doesn't
+    // announce a live region that arrives with its content already in it.
+    expect(screen.getByRole("status").textContent).toBe("");
+  });
+
+  it("announces the stop once a session has actually run", () => {
+    const { rerender } = render(<StatusHarness isRunning={false} />);
+    rerender(<StatusHarness isRunning />);
+    rerender(<StatusHarness isRunning={false} />);
+
+    expect(screen.getByRole("status").textContent).toBe("Timer stopped");
+  });
+
+  it("names the keyboard shortcut in the button's accessible name, not an aria-hidden hint", () => {
+    render(<StatusHarness isRunning={false} />);
+    const start = screen.getByRole("button", { name: /^Start timer/ });
+
+    expect(start.getAttribute("aria-label")).toMatch(/keyboard shortcut (Command|Control) period/);
   });
 });
 

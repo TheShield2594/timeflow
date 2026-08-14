@@ -5,7 +5,7 @@ import { FocusModal } from "./components/FocusModal";
 import { useFocusMode } from "./hooks/useFocusMode";
 import { PageRouter, Page } from "./components/PageRouter";
 import { IconHome, IconTimesheet, IconCalendar, IconChart, IconFolder, IconMoon, IconSun, IconUsers } from "./components/Icons";
-import { useProjects, useTasks, useTimeEntries, useTimer } from "./hooks";
+import { formatMinutes, useProjects, useTasks, useTimeEntries, useTimer } from "./hooks";
 import { useTeamContext } from "./hooks/useTeam";
 import { useActivityTracker, useTimerSafetyMonitor, MAX_DURATION_MS } from "./hooks/useTimerSafety";
 import { useAppBootstrap } from "./hooks/useAppBootstrap";
@@ -127,12 +127,30 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
   // restart the timer on what the user was just doing.
   const lastEntryRef = useRef<TimeEntry | null>(null);
 
+  // Set by the stop paths that already explain themselves (the 12h safety net),
+  // so the generic save confirmation below doesn't stack a second toast on top
+  // of a more specific one.
+  const saveToastSuppressed = useRef(false);
+
   const handleNewEntry = useCallback(
     (entry: TimeEntry) => {
       lastEntryRef.current = entry;
       refresh();
+      // Every failure path toasts, but a *successful* stop used to produce
+      // nothing at all — the bar just reset, and on Overview or Reports the
+      // new entry isn't even on screen. Sighted and non-sighted users alike
+      // had no confirmation that the hours were recorded (#99).
+      if (saveToastSuppressed.current) {
+        saveToastSuppressed.current = false;
+        return;
+      }
+      // Both parts are optional on TimeEntry, and a confirmation is still worth
+      // showing without them — the point is that the save landed.
+      const duration = entry.durationMinutes !== undefined ? ` ${formatMinutes(entry.durationMinutes)}` : "";
+      const project = projects.find((p) => p.id === entry.projectId);
+      toast(`Saved${duration}${project ? ` to ${project.name}` : ""}.`, "success");
     },
-    [refresh]
+    [refresh, projects, toast]
   );
 
   // Neither of these ticks: nothing in AppContent re-renders on the second,
@@ -225,11 +243,18 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
     // its Trim/Discard buttons would otherwise no-op against a reset timer.
     setIdleAlert(null);
     const cappedEnd = new Date(new Date(timer.startTime).getTime() + MAX_DURATION_MS).toISOString();
+    // This path's own message says everything the generic "Saved …" toast
+    // would, plus why the timer stopped on its own.
+    saveToastSuppressed.current = true;
     try {
       await stopAt(cappedEnd);
       toast("Timer auto-stopped after 12 hours — edit the entry if needed.", "info");
     } catch {
       // stopAt already toasted the save error
+    } finally {
+      // handleNewEntry clears the flag when the save lands; if it never lands,
+      // clear it here so the suppression can't leak onto the retry.
+      saveToastSuppressed.current = false;
     }
   }, [timer.startTime, stopAt, toast]);
 
