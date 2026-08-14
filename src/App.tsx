@@ -7,7 +7,7 @@ import { PageRouter, Page } from "./components/PageRouter";
 import { IconHome, IconTimesheet, IconCalendar, IconChart, IconFolder, IconMoon, IconSun, IconUsers } from "./components/Icons";
 import { formatMinutes, useProjects, useTasks, useTimeEntries, useTimer } from "./hooks";
 import { useTeamContext } from "./hooks/useTeam";
-import { useActivityTracker, useTimerSafetyMonitor, MAX_DURATION_MS } from "./hooks/useTimerSafety";
+import { useIdleGuard } from "./hooks/useIdleGuard";
 import { useAppBootstrap } from "./hooks/useAppBootstrap";
 import { useTheme, Theme } from "./hooks/useTheme";
 import { setPaginationWarningHandler } from "./services/dataverseService";
@@ -57,11 +57,6 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, EBState> {
   }
 }
 
-interface IdleAlert {
-  lastActiveAt: number;
-  startTime: string;
-}
-
 const NAV_ITEMS: { key: Page; label: string; icon: React.ReactNode }[] = [
   { key: "overview", label: "Overview", icon: <IconHome /> },
   { key: "timesheet", label: "Timesheet", icon: <IconTimesheet /> },
@@ -100,7 +95,6 @@ const App: React.FC = () => {
 
 const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ theme, onToggleTheme }) => {
   const [page, setPage] = useState<Page>("overview");
-  const [idleAlert, setIdleAlert] = useState<IdleAlert | null>(null);
   const toast = useToast();
   const { from, to } = useDataRange();
 
@@ -156,7 +150,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
   // Neither of these ticks: nothing in AppContent re-renders on the second,
   // so a running timer no longer re-reconciles the whole page tree underneath
   // it (#95). The clocks live in TimerBar, next to the digits they update.
-  const { timer, start, stop, stopAt, cancel, update } = useTimer(handleNewEntry);
+  const { timer, start, stop, stopAt, cancel, restore, update } = useTimer(handleNewEntry);
   const focusMode = useFocusMode(timer.isRunning, timer.startTime);
 
   const deleteWithUndo = useCallback(async (id: string) => {
@@ -228,88 +222,9 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
   // every AppContent render.
   const goToProjects = useCallback(() => setPage("projects"), []);
 
-  const lastActivity = useActivityTracker();
-
-  const handleIdleDetected = useCallback((lastActiveAt: number) => {
-    if (timer.startTime) {
-      setIdleAlert({ lastActiveAt, startTime: timer.startTime });
-    }
-  }, [timer.startTime]);
-
-  const handleMaxDuration = useCallback(async () => {
-    if (!timer.startTime) return;
-    // The idle prompt may already be open from the +30min check. Clear it so it
-    // can't linger over an entry the safety net has already stopped and saved —
-    // its Trim/Discard buttons would otherwise no-op against a reset timer.
-    setIdleAlert(null);
-    const cappedEnd = new Date(new Date(timer.startTime).getTime() + MAX_DURATION_MS).toISOString();
-    // This path's own message says everything the generic "Saved …" toast
-    // would, plus why the timer stopped on its own.
-    saveToastSuppressed.current = true;
-    try {
-      await stopAt(cappedEnd);
-      toast("Timer auto-stopped after 12 hours — edit the entry if needed.", "info");
-    } catch {
-      // stopAt already toasted the save error
-    } finally {
-      // handleNewEntry clears the flag when the save lands; if it never lands,
-      // clear it here so the suppression can't leak onto the retry.
-      saveToastSuppressed.current = false;
-    }
-  }, [timer.startTime, stopAt, toast]);
-
-  useTimerSafetyMonitor({
-    isRunning: timer.isRunning,
-    startTime: timer.startTime,
-    lastActivity,
-    onIdleDetected: handleIdleDetected,
-    onMaxDurationReached: handleMaxDuration,
+  const idleGuard = useIdleGuard({
+    timer, stopAt, cancel, restore, refresh, toast, saveToastSuppressed,
   });
-
-  // Dismiss the idle prompt whenever the timer is no longer running for any
-  // reason we didn't drive from the modal itself — most importantly a cross-tab
-  // stop arriving via the storage-event sync. Without this the modal would sit
-  // over a stopped timer and its buttons would silently no-op. A save in flight
-  // (pendingStopAt set) is left alone so the modal doesn't flicker mid-stop.
-  useEffect(() => {
-    if (!timer.isRunning && !timer.pendingStopAt && idleAlert) {
-      setIdleAlert(null);
-    }
-  }, [timer.isRunning, timer.pendingStopAt, idleAlert]);
-
-  const handleIdleTrim = useCallback(async () => {
-    if (!idleAlert) return;
-    setIdleAlert(null);
-    try {
-      const entry = await stopAt(new Date(idleAlert.lastActiveAt).toISOString());
-      // stopAt no-ops (returns undefined) when the timer was already stopped —
-      // tell the user rather than leaving the click with no visible effect.
-      if (!entry) toast("Timer was already stopped — nothing to trim.", "info");
-    } catch {
-      // toasted by stopAt
-    }
-  }, [idleAlert, stopAt, toast]);
-
-  const handleIdleKeep = useCallback(() => {
-    lastActivity.current = Date.now();
-    setIdleAlert(null);
-  }, [lastActivity]);
-
-  const handleIdleDiscard = useCallback(async () => {
-    setIdleAlert(null);
-    // cancel() resolves once the draft row is deleted; refresh after so the
-    // discarded session's "Running…" row disappears from the timesheet too.
-    // It reports whether there was actually a session to discard — if the 12h
-    // safety net or another tab already stopped and saved the entry, report
-    // that instead of falsely claiming the session was discarded.
-    const discarded = await cancel();
-    if (discarded) {
-      refresh();
-      toast("Session discarded.", "info");
-    } else {
-      toast("Timer was already stopped — the saved entry was kept.", "info");
-    }
-  }, [cancel, refresh, toast]);
 
   return (
     <div className="app">
@@ -404,20 +319,20 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
         </div>
       </div>
 
-      {idleAlert && (
+      {idleGuard.idleAlert && (
         <IdleModal
-          lastActiveAt={idleAlert.lastActiveAt}
-          startTime={idleAlert.startTime}
-          onTrim={handleIdleTrim}
-          onKeep={handleIdleKeep}
-          onDiscard={handleIdleDiscard}
+          lastActiveAt={idleGuard.idleAlert.lastActiveAt}
+          startTime={idleGuard.idleAlert.startTime}
+          onTrim={idleGuard.onTrim}
+          onKeep={idleGuard.onKeep}
+          onDiscard={idleGuard.onDiscard}
         />
       )}
 
       {/* Focus-mode boundary prompts. The idle modal wins if both are up —
           idle means the block's countdown was ticking against an empty
           chair, so that conflict needs resolving first. */}
-      {!idleAlert && focusMode.phase === "prompt-break" && (
+      {!idleGuard.idleAlert && focusMode.phase === "prompt-break" && (
         <FocusModal
           kind="break"
           sessionsToday={focusMode.sessionsToday}
@@ -426,7 +341,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
           onKeepGoing={focusMode.keepGoing}
         />
       )}
-      {!idleAlert && focusMode.phase === "prompt-resume" && (
+      {!idleGuard.idleAlert && focusMode.phase === "prompt-resume" && (
         <FocusModal
           kind="resume"
           canContinue={!!lastEntryRef.current && !timer.isRunning && !timer.pendingStopAt}

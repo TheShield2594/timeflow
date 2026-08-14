@@ -150,6 +150,60 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /**
+   * Open a session: apply it locally, then write its draft row.
+   *
+   * Shared by `start` (start time = now) and `restore` (start time = whatever
+   * the discarded session had), because everything after the start time is
+   * identical — including the raced-stop cleanup below, which is what keeps a
+   * draft from being stranded open and coming back as a phantom running timer.
+   *
+   * Resolves once the draft create has settled, so a caller that needs the row
+   * to exist before it refreshes the timesheet can wait for it.
+   */
+  const beginSession = useCallback(async (session: TimerState): Promise<void> => {
+    applyTimer(session);
+    persistTimer(session);
+
+    let draftEntryId: string | null = null;
+    try {
+      draftEntryId = await svc.createDraftTimerEntry({
+        projectId: session.projectId!,
+        taskId: session.taskId,
+        description: session.description,
+        startTime: session.startTime!,
+        date: localDateStr(new Date(session.startTime!)),
+        ratio: session.ratio,
+        jiraTicket: session.jiraTicket,
+      });
+    } catch {
+      return; // non-critical
+    }
+    // Null means the row may exist but we couldn't establish its id (dropped
+    // response body, and the read-back didn't resolve it either). Storing it
+    // would make stop() PATCH `undefined`; leaving draftEntryId unset instead
+    // routes stop() through the create path, and bootstrap's reconcile adopts
+    // or restores the orphaned draft on the next load (#70).
+    if (!draftEntryId) return;
+    // If the user already stopped or discarded this session while the draft
+    // create was in flight, the completed entry (if any) was created via the
+    // no-draft path — this row would linger open (endTime null) and be
+    // restored as a phantom running timer on the next reload. Delete it.
+    const current = timerRef.current;
+    if (!current.isRunning || current.startTime !== session.startTime) {
+      await svc.deleteTimeEntry(draftEntryId).catch(() => { /* best effort */ });
+      return;
+    }
+    // applyTimer, not setTimer: the ref has to carry draftEntryId
+    // *synchronously* (see the invariant above). With a plain setTimer, a
+    // stop or cancel landing before React commits would read a ref with no
+    // draftEntryId and create a duplicate entry / strand the draft as a
+    // phantom running timer on the next reload.
+    const next: TimerState = { ...current, draftEntryId };
+    applyTimer(next);
+    persistTimer(next);
+  }, [applyTimer, persistTimer]);
+
   const start = useCallback((
     projectId: string,
     taskId: string | null,
@@ -174,7 +228,7 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       toast("Timer is already running. Stop it first.", "error");
       return;
     }
-    const newTimer: TimerState = {
+    void beginSession({
       isRunning: true,
       startTime: new Date().toISOString(),
       projectId,
@@ -182,44 +236,31 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       description,
       ratio,
       jiraTicket,
-    };
-    applyTimer(newTimer);
-    persistTimer(newTimer);
+    });
+  }, [beginSession, toast]);
 
-    svc.createDraftTimerEntry({
-      projectId,
-      taskId,
-      description,
-      startTime: newTimer.startTime!,
-      date: localDateStr(new Date(newTimer.startTime!)),
-      ratio,
-      jiraTicket,
-    }).then((draftEntryId) => {
-      // Null means the row may exist but we couldn't establish its id (dropped
-      // response body, and the read-back didn't resolve it either). Storing it
-      // would make stop() PATCH `undefined`; leaving draftEntryId unset instead
-      // routes stop() through the create path, and bootstrap's reconcile adopts
-      // or restores the orphaned draft on the next load (#70).
-      if (!draftEntryId) return;
-      // If the user already stopped or discarded this session while the draft
-      // create was in flight, the completed entry (if any) was created via the
-      // no-draft path — this row would linger open (endTime null) and be
-      // restored as a phantom running timer on the next reload. Delete it.
-      const current = timerRef.current;
-      if (!current.isRunning || current.startTime !== newTimer.startTime) {
-        svc.deleteTimeEntry(draftEntryId).catch(() => { /* best effort */ });
-        return;
-      }
-      // applyTimer, not setTimer: the ref has to carry draftEntryId
-      // *synchronously* (see the invariant above). With a plain setTimer, a
-      // stop or cancel landing before React commits would read a ref with no
-      // draftEntryId and create a duplicate entry / strand the draft as a
-      // phantom running timer on the next reload.
-      const next: TimerState = { ...current, draftEntryId };
-      applyTimer(next);
-      persistTimer(next);
-    }).catch(() => { /* non-critical */ });
-  }, [persistTimer, applyTimer, toast]);
+  /**
+   * Re-open a discarded session on its original start time — the undo behind
+   * the idle prompt's "Discard session" (#105).
+   *
+   * The draft row was deleted by `cancel`, so this writes a fresh one; nothing
+   * else about the session changes, which is why the clock picks up where it
+   * left off instead of restarting from zero. Resolves false if it couldn't
+   * run, so the caller doesn't claim a restore that didn't happen.
+   */
+  const restore = useCallback(async (session: TimerState): Promise<boolean> => {
+    if (!session.startTime || !session.projectId) return false;
+    // Same ref-not-snapshot rule as start(). The realistic race here is a
+    // user who discards, starts something new, and only then reaches for
+    // Restore — the new session is the one they're in, so it wins.
+    const current = timerRef.current;
+    if (current.isRunning || current.pendingStopAt) {
+      toast("Timer is already running. Stop it first.", "error");
+      return false;
+    }
+    await beginSession({ ...session, isRunning: true, pendingStopAt: undefined, draftEntryId: undefined });
+    return true;
+  }, [beginSession, toast]);
 
   const stopAt = useCallback(async (endIso: string) => {
     // The ref, not the render snapshot: a draft create (or a description edit)
@@ -286,10 +327,13 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
 
   const stop = useCallback(() => stopAt(new Date().toISOString()), [stopAt]);
 
-  // Returns true if there was actually a session to discard, so callers can
-  // distinguish a real discard from a no-op (e.g. the idle modal firing after
-  // the timer was already stopped by the 12h safety net or another tab).
-  const cancel = useCallback(async (): Promise<boolean> => {
+  // Returns the session it discarded, or null if there was nothing to discard
+  // (e.g. the idle modal firing after the timer was already stopped by the 12h
+  // safety net or another tab). Callers need the distinction to avoid claiming
+  // a discard that didn't happen — and they need the session itself, because
+  // discarding is the one destructive action here whose undo has to rebuild
+  // what it deleted rather than reactivate it (#105).
+  const cancel = useCallback(async (): Promise<TimerState | null> => {
     // Ref for the same reason as stopAt: a draft id that arrived this tick
     // must still be deleted, or it lingers open as a phantom running timer.
     const active = timerRef.current;
@@ -303,7 +347,7 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
     if (draftId) {
       await svc.deleteTimeEntry(draftId).catch(() => { /* best effort */ });
     }
-    return hadSession;
+    return hadSession ? active : null;
   }, [applyTimer, persistTimer]);
 
   // Also applyTimer (see the invariant above): edits made here must be visible
@@ -316,5 +360,5 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
     if (next.isRunning) persistTimer(next);
   }, [applyTimer, persistTimer]);
 
-  return { timer, start, stop, stopAt, cancel, update };
+  return { timer, start, stop, stopAt, cancel, restore, update };
 }

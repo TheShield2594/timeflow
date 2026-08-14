@@ -222,7 +222,10 @@ describe("CalendarPage Outlook overlay", () => {
     expect(screen.getByRole("dialog", { name: "Log Time · 1 of 2" })).toBeTruthy();
     expect(markEventLogged).not.toHaveBeenCalled();
 
+    // The form has a project picked, so Cancel asks before throwing it away
+    // (#104); giving up means answering the question.
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
@@ -255,7 +258,10 @@ describe("CalendarPage Outlook overlay", () => {
     expect(screen.getByRole("dialog", { name: "Log Time · 1 of 2" })).toBeTruthy();
     expect(markEventLogged).not.toHaveBeenCalled();
 
+    // The form has a project picked, so Cancel asks before throwing it away
+    // (#104); giving up means answering the question.
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
