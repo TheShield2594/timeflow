@@ -52,8 +52,12 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       return RESET_TIMER;
     }
   });
-  const [elapsed, setElapsed] = useState(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // No elapsed-seconds counter lives here, deliberately. This hook is called
+  // in AppContent, so a 1 Hz tick in it re-rendered the whole page tree — on
+  // the Calendar, ~720 element diffs every second for the entire length of a
+  // tracked session, to update one span of text (#95). `startTime` is the
+  // whole state a countdown needs; whoever displays one derives it and ticks
+  // at its own level, where the re-render is confined to the digits.
 
   // Mirror of the latest timer state for async callbacks (e.g. the draft
   // create resolving after the user already stopped). The effect below keeps
@@ -146,21 +150,6 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (timer.isRunning && timer.startTime) {
-      const tick = () => {
-        const diff = Math.floor((Date.now() - new Date(timer.startTime!).getTime()) / 1000);
-        setElapsed(diff);
-      };
-      tick();
-      intervalRef.current = setInterval(tick, 1000);
-    } else {
-      setElapsed(0);
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    }
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [timer.isRunning, timer.startTime]);
-
   const start = useCallback((
     projectId: string,
     taskId: string | null,
@@ -172,7 +161,16 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       toast("Pick a project before starting the timer.", "error");
       return;
     }
-    if (timer.isRunning || timer.pendingStopAt) {
+    // The ref, not the render snapshot — the same rule stopAt/cancel/update
+    // follow, and for the same reason. Two start() calls inside one React
+    // batch (a double-click on Start, or a click racing the Ctrl+. handler)
+    // both read `isRunning: false` from the closed-over state, both pass this
+    // guard, and both create a draft row; the second applyTimer overwrites the
+    // first, stranding an open draft that comes back on the next reload as a
+    // phantom running timer (#94). A cancel() in the same tick had the mirror
+    // problem: the snapshot still said "running" and rejected the restart.
+    const current = timerRef.current;
+    if (current.isRunning || current.pendingStopAt) {
       toast("Timer is already running. Stop it first.", "error");
       return;
     }
@@ -221,7 +219,7 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       applyTimer(next);
       persistTimer(next);
     }).catch(() => { /* non-critical */ });
-  }, [persistTimer, applyTimer, toast, timer.isRunning, timer.pendingStopAt]);
+  }, [persistTimer, applyTimer, toast]);
 
   const stopAt = useCallback(async (endIso: string) => {
     // The ref, not the render snapshot: a draft create (or a description edit)
@@ -318,5 +316,5 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
     if (next.isRunning) persistTimer(next);
   }, [applyTimer, persistTimer]);
 
-  return { timer, elapsed, start, stop, stopAt, cancel, update };
+  return { timer, start, stop, stopAt, cancel, update };
 }

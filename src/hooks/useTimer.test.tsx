@@ -47,6 +47,46 @@ describe("useTimer", () => {
     );
   });
 
+  // The guard reads timerRef, not the render snapshot (#94): inside one React
+  // batch the closed-over state still says "not running" for both calls, so a
+  // snapshot guard let both through and both created a draft row. The second
+  // one won, and the first was left open — resurfacing on the next reload as a
+  // phantom running timer.
+  it("creates one draft, not two, for a double-click on Start", async () => {
+    const { result } = renderHook(() => useTimer(vi.fn()));
+
+    act(() => {
+      result.current.start("proj-1", null, "Working");
+      result.current.start("proj-1", null, "Working");
+    });
+
+    expect(svc.createDraftTimerEntry).toHaveBeenCalledTimes(1);
+    expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining("already running"), "error");
+    await waitFor(() => expect(result.current.timer.draftEntryId).toBe("draft-1"));
+    expect(svc.deleteTimeEntry).not.toHaveBeenCalled();
+  });
+
+  it("lets a session start again in the same tick it was discarded in", async () => {
+    const { result } = renderHook(() => useTimer(vi.fn()));
+
+    await act(async () => {
+      result.current.start("proj-1", null, "First");
+    });
+    await waitFor(() => expect(result.current.timer.draftEntryId).toBe("draft-1"));
+
+    // Discard and immediately restart — the snapshot guard rejected this with
+    // "Timer is already running" because `cancel` hadn't been committed yet.
+    await act(async () => {
+      const discarded = result.current.cancel();
+      result.current.start("proj-2", null, "Second");
+      await discarded;
+    });
+
+    expect(result.current.timer.isRunning).toBe(true);
+    expect(result.current.timer.projectId).toBe("proj-2");
+    expect(toastSpy).not.toHaveBeenCalledWith(expect.stringContaining("already running"), "error");
+  });
+
   it("refuses to start without a project and shows a toast instead", () => {
     const { result } = renderHook(() => useTimer(vi.fn()));
 
