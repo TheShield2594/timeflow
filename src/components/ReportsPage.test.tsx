@@ -32,13 +32,27 @@ function entry(date: string, minutes: number, projectId = "p1", taskId?: string)
   };
 }
 
-function renderReports(entries: TimeEntry[]) {
+function renderReports(entries: TimeEntry[], withProjects: Project[] = projects) {
   return render(
     <DataRangeProvider>
-      <ReportsPage entries={entries} projects={projects} tasks={tasks} />
+      <ReportsPage entries={entries} projects={withProjects} tasks={tasks} />
     </DataRangeProvider>
   );
 }
+
+const gamma: Project = { id: "p3", name: "Gamma", color: "#333333", isActive: true, createdAt: "" };
+
+/** A matrix row as the numbers a reader would actually add up: the project
+ *  name dropped, and an untracked dash read as the zero it stands for. */
+function printedRow(row: Element): number[] {
+  return [...row.querySelectorAll("td")]
+    .slice(1)
+    .map((c) => (c.textContent === "–" ? 0 : Number(c.textContent)));
+}
+
+/** Sum, with the binary-float dust swept up — 0.9 + 0.8 + 0.8 is not 2.5 to
+ *  a computer, but it is to the person reading the column. */
+const addUp = (values: number[]) => Number(values.reduce((s, v) => s + v, 0).toFixed(10));
 
 /** Read a KPI card's value by its label — the strip is the headline number
  *  users read, so assert on it the way they see it. */
@@ -136,6 +150,50 @@ describe("ReportsPage project × period matrix", () => {
     renderReports([]);
     expect(screen.queryByRole("table")).toBeNull();
   });
+
+  // Asserted on the rendered strings, not on the minutes behind them. The
+  // aggregation test that claimed to cover this checked that the *minutes*
+  // agreed — which they always did — while the figures on screen didn't (#93).
+  it("prints cells that add up to the totals printed beside and beneath them", () => {
+    // The reported case: three projects at 50 minutes in one bucket. Rounded
+    // one cell at a time that column reads 0.8 + 0.8 + 0.8 under a total of 2.5.
+    renderReports(
+      [entry(today, 50, "p1"), entry(today, 50, "p2"), entry(today, 50, "p3")],
+      [...projects, gamma],
+    );
+
+    const table = screen.getByRole("table");
+    const rows = [...table.querySelectorAll("tbody tr")].map(printedRow);
+    const footer = printedRow(table.querySelector("tfoot tr")!);
+
+    // Every column, the Total column included, is the sum of the cells above it.
+    footer.forEach((columnTotal, col) => {
+      expect(addUp(rows.map((r) => r[col]))).toBe(columnTotal);
+    });
+    // Every row is the sum of its own cells.
+    rows.forEach((cells) => {
+      expect(addUp(cells.slice(0, -1))).toBe(cells[cells.length - 1]);
+    });
+    expect(footer[footer.length - 1]).toBe(2.5);
+  });
+
+  it("keeps the hover title in exact minutes even where the printed hours are snapped", () => {
+    renderReports([entry(today, 50, "p1"), entry(today, 50, "p2"), entry(today, 50, "p3")],
+      [...projects, gamma]);
+
+    const table = screen.getByRole("table");
+    const alpha = within(table).getByRole("row", { name: /Alpha/ });
+    const cell = [...alpha.querySelectorAll("td")].find((c) => c.getAttribute("title"))!;
+    expect(cell.getAttribute("title")).toBe("50m");
+  });
+
+  it("does not print an empty bucket as time that was logged", () => {
+    renderReports([entry(yesterday, 55, "p1"), entry(today, 55, "p1")]);
+    const table = screen.getByRole("table");
+    const alpha = within(table).getByRole("row", { name: /Alpha/ });
+    const cells = [...alpha.querySelectorAll("td")].slice(1, -1).map((c) => c.textContent);
+    expect(cells.filter((c) => c !== "–")).toEqual(["0.9", "0.9"]);
+  });
 });
 
 describe("ReportsPage breakdowns", () => {
@@ -148,6 +206,17 @@ describe("ReportsPage breakdowns", () => {
     expect(screen.getByText("75%")).not.toBeNull();
     expect(screen.getByText("25%")).not.toBeNull();
     expect(screen.getByText("Build")).not.toBeNull();
+  });
+
+  it("shares out equal projects to 100%, not 99% (#113)", () => {
+    renderReports(
+      [entry(today, 60, "p1"), entry(today, 60, "p2"), entry(today, 60, "p3")],
+      [...projects, gamma],
+    );
+    const shown = [...document.querySelectorAll(".project-breakdown__pct")]
+      .map((el) => Number(el.textContent!.replace("%", "")));
+    expect(shown).toEqual([34, 33, 33]);
+    expect(addUp(shown)).toBe(100);
   });
 
   it("says so plainly when there are no tasks to rank", () => {

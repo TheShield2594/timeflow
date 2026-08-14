@@ -1,4 +1,5 @@
 import type { TimeEntry, Project, Task } from "../types";
+import { formatDecimalHours } from "../hooks/formatters";
 import { localDateStr } from "../utils/dates";
 
 /**
@@ -94,9 +95,11 @@ export function exportToCSV(
         ? applyRounding(e.durationMinutes, rounding)
         : undefined;
       // Defined-check, not truthy: a 0-minute duration exports as "0.00",
-      // only a missing duration leaves the cell blank.
+      // only a missing duration leaves the cell blank. Two decimals rather
+      // than the screen's one: this column is billed from under a rounding
+      // rule the user picked, and "Exact minutes" has to mean it (#93).
       const durationHours = roundedMinutes !== undefined
-        ? (roundedMinutes / 60).toFixed(2)
+        ? formatDecimalHours(roundedMinutes, 2)
         : "";
 
       return [

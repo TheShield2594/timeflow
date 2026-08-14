@@ -5,6 +5,7 @@ import {
   bucketKeysFor,
   buildChartData,
   buildMatrix,
+  buildMatrixDisplay,
   buildProjectBreakdown,
   buildTaskBreakdown,
   countActiveDays,
@@ -204,6 +205,33 @@ describe("buildProjectBreakdown", () => {
     const rows = buildProjectBreakdown([{ ...entry("2026-03-01", 0) }], projects, 0);
     expect(rows[0].percent).toBe(0);
   });
+
+  // These are rendered as one stack and get added up by eye (#113).
+  it("allocates the percentages so they sum to 100 rather than 99", () => {
+    const thirds = [
+      { id: "p1", name: "Alpha", color: "#111", isActive: true, createdAt: "" },
+      { id: "p2", name: "Beta", color: "#222", isActive: true, createdAt: "" },
+      { id: "p3", name: "Gamma", color: "#333", isActive: true, createdAt: "" },
+    ];
+    const entries = [
+      entry("2026-03-01", 60, "p1"),
+      entry("2026-03-01", 60, "p2"),
+      entry("2026-03-01", 60, "p3"),
+    ];
+    const rows = buildProjectBreakdown(entries, thirds, sumMinutes(entries));
+    expect(rows.map((r) => r.percent)).toEqual([34, 33, 33]);
+    expect(rows.reduce((s, r) => s + r.percent, 0)).toBe(100);
+  });
+
+  it("does not hand a vanished project's share to the projects that remain", () => {
+    const entries = [
+      entry("2026-03-01", 30, "p1"),
+      entry("2026-03-01", 30, "p2"),
+      entry("2026-03-01", 40, "gone"),
+    ];
+    const rows = buildProjectBreakdown(entries, projects, sumMinutes(entries));
+    expect(rows.map((r) => r.percent)).toEqual([30, 30]);
+  });
 });
 
 describe("buildChartData", () => {
@@ -274,6 +302,112 @@ describe("buildMatrix", () => {
     const { rows, colTotals } = buildMatrix([], projects, keys, "day");
     expect(rows).toEqual([]);
     expect(colTotals).toEqual([0, 0, 0]);
+  });
+});
+
+describe("buildMatrixDisplay", () => {
+  const threeProjects: Project[] = [
+    { id: "p1", name: "Alpha", color: "#111", isActive: true, createdAt: "" },
+    { id: "p2", name: "Beta", color: "#222", isActive: true, createdAt: "" },
+    { id: "p3", name: "Gamma", color: "#333", isActive: true, createdAt: "" },
+  ];
+
+  /** What the grid actually prints, at one decimal. */
+  const hours = (displayMinutes: number) => Number((displayMinutes / 60).toFixed(1));
+  const sum = (ns: number[]) => Number(ns.reduce((s, n) => s + n, 0).toFixed(10));
+
+  it("prints a column that adds up to the total under it (#93)", () => {
+    // The reported case: three projects at 50 minutes in one bucket. Rounded
+    // independently the cells read 0.8+0.8+0.8 = 2.4 under a total of 2.5.
+    const keys = bucketKeysFor(getDaysInRange("2026-03-01", "2026-03-01"), "day");
+    const { rows } = buildMatrix(
+      [entry("2026-03-01", 50, "p1"), entry("2026-03-01", 50, "p2"), entry("2026-03-01", 50, "p3")],
+      threeProjects, keys, "day",
+    );
+    const d = buildMatrixDisplay(rows, keys);
+
+    expect(d.cells.map((r) => hours(r[0]))).toEqual([0.9, 0.8, 0.8]);
+    expect(hours(d.colTotals[0])).toBe(2.5);
+    expect(sum(d.cells.map((r) => hours(r[0])))).toBe(hours(d.colTotals[0]));
+  });
+
+  it("adds up in every direction a reader can add it up in", () => {
+    const keys = bucketKeysFor(getDaysInRange("2026-03-01", "2026-03-04"), "day");
+    // Deliberately awkward minute counts — none of them land on a tenth.
+    const { rows } = buildMatrix(
+      [
+        entry("2026-03-01", 50, "p1"), entry("2026-03-02", 25, "p1"), entry("2026-03-04", 7, "p1"),
+        entry("2026-03-01", 50, "p2"), entry("2026-03-03", 95, "p2"),
+        entry("2026-03-01", 50, "p3"), entry("2026-03-02", 13, "p3"), entry("2026-03-03", 41, "p3"),
+      ],
+      threeProjects, keys, "day",
+    );
+    const d = buildMatrixDisplay(rows, keys);
+
+    // Each project row against its own total.
+    d.cells.forEach((row, i) => {
+      expect(sum(row.map(hours))).toBe(hours(d.rowTotals[i]));
+    });
+    // Each period column against the total under it.
+    keys.forEach((_, j) => {
+      expect(sum(d.cells.map((row) => hours(row[j])))).toBe(hours(d.colTotals[j]));
+    });
+    // And both margins against the grand total in the corner.
+    expect(sum(d.rowTotals.map(hours))).toBe(hours(d.grandTotal));
+    expect(sum(d.colTotals.map(hours))).toBe(hours(d.grandTotal));
+  });
+
+  it("keeps every printed figure within one 0.1h increment of the truth", () => {
+    const keys = bucketKeysFor(getDaysInRange("2026-03-01", "2026-03-04"), "day");
+    const { rows, colTotals } = buildMatrix(
+      [
+        entry("2026-03-01", 50, "p1"), entry("2026-03-02", 25, "p1"), entry("2026-03-04", 7, "p1"),
+        entry("2026-03-01", 50, "p2"), entry("2026-03-03", 95, "p2"),
+        entry("2026-03-01", 50, "p3"), entry("2026-03-02", 13, "p3"), entry("2026-03-03", 41, "p3"),
+      ],
+      threeProjects, keys, "day",
+    );
+    const d = buildMatrixDisplay(rows, keys);
+
+    rows.forEach((row, i) => {
+      keys.forEach((k, j) => {
+        expect(Math.abs(d.cells[i][j] - (row.cells.get(k) || 0))).toBeLessThan(6);
+      });
+      expect(Math.abs(d.rowTotals[i] - row.total)).toBeLessThan(6);
+    });
+    colTotals.forEach((exact, j) => {
+      expect(Math.abs(d.colTotals[j] - exact)).toBeLessThanOrEqual(6);
+    });
+    // 331 real minutes, snapped to the nearest 0.1h: 55 increments, 5.5 h.
+    expect(d.grandTotal).toBe(330);
+  });
+
+  it("never rounds an empty cell up into time nobody logged", () => {
+    const keys = bucketKeysFor(getDaysInRange("2026-03-01", "2026-03-03"), "day");
+    const { rows } = buildMatrix(
+      [entry("2026-03-01", 55, "p1"), entry("2026-03-03", 55, "p1")],
+      projects, keys, "day",
+    );
+    const d = buildMatrixDisplay(rows, keys);
+    expect(d.cells[0][1]).toBe(0);
+  });
+
+  it("totals only the projects the grid actually shows", () => {
+    const keys = bucketKeysFor(getDaysInRange("2026-03-01", "2026-03-01"), "day");
+    // 500 minutes against a project that no longer exists: buildMatrix drops
+    // the row, so the footer must not claim those hours either.
+    const { rows } = buildMatrix(
+      [entry("2026-03-01", 60, "p1"), entry("2026-03-01", 500, "gone")],
+      projects, keys, "day",
+    );
+    expect(buildMatrixDisplay(rows, keys).grandTotal).toBe(60);
+  });
+
+  it("is empty for a grid with no rows", () => {
+    const keys = bucketKeysFor(getDaysInRange("2026-03-01", "2026-03-02"), "day");
+    expect(buildMatrixDisplay([], keys)).toEqual({
+      cells: [], rowTotals: [], colTotals: [0, 0], grandTotal: 0,
+    });
   });
 });
 

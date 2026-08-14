@@ -10,6 +10,7 @@
 import type { Project, Task, TimeEntry } from "../types";
 import { localDateStr, weekStartStr } from "./dates";
 import { byId, indexById } from "./entityIndex";
+import { allocateLargestRemainder, allocatePercentages } from "./rounding";
 
 export type Bucket = "day" | "week" | "month";
 
@@ -161,14 +162,17 @@ export function buildProjectBreakdown(
   entries.forEach((e) => {
     map.set(e.projectId, (map.get(e.projectId) || 0) + (e.durationMinutes || 0));
   });
-  return [...map.entries()]
-    .map(([id, minutes]) => ({
-      project: projectById.get(id),
-      minutes,
-      percent: totalMinutes > 0 ? Math.round((minutes / totalMinutes) * 100) : 0,
-    }))
-    .filter((r): r is ProjectBreakdownRow => Boolean(r.project))
+  const rows = [...map.entries()]
+    .map(([id, minutes]) => ({ project: projectById.get(id), minutes }))
+    .filter((r): r is { project: Project; minutes: number } => Boolean(r.project))
     .sort((a, b) => b.minutes - a.minutes);
+  // Allocated across the surviving rows rather than rounded row by row: these
+  // percentages are rendered as one stack and get added up by eye, so three
+  // equal projects have to read 34/33/33 and not 33/33/33 (#113). Dropped
+  // rows are excluded *before* the allocation so their time isn't reassigned
+  // to projects it was never logged against.
+  const percents = allocatePercentages(rows.map((r) => r.minutes), totalMinutes);
+  return rows.map((r, i) => ({ ...r, percent: percents[i] }));
 }
 
 export interface ChartPoint {
@@ -219,6 +223,55 @@ export function buildMatrix(
     .sort((a, b) => b.total - a.total);
   const colTotals = bucketKeys.map((k) => rows.reduce((s, r) => s + (r.cells.get(k) || 0), 0));
   return { rows, colTotals };
+}
+
+/** The 0.1-hour grid the matrix is printed on, in minutes. */
+const DISPLAY_STEP_MIN = 6;
+
+export interface MatrixDisplay {
+  /** Display minutes per project row, aligned to `bucketKeys`. */
+  cells: number[][];
+  rowTotals: number[];
+  colTotals: number[];
+  grandTotal: number;
+}
+
+/**
+ * The matrix as it is actually *printed*: every figure snapped to the 0.1-hour
+ * display grid, allocated so that every addition a reader can perform on
+ * screen comes out right — each project row against its total, each period
+ * column against its total, and both margins against the grand total (#93).
+ *
+ * Rows are allocated first and columns fall out as sums of the printed cells,
+ * rather than the other way round, for two reasons: a project's total over the
+ * range is the figure that gets transcribed onto an invoice, so it is the one
+ * worth anchoring to the truth; and the drift that has to land *somewhere*
+ * lands on the margin summed over projects, which is the shorter of the two
+ * axes (a range wide enough to have many columns has already been re-bucketed
+ * to weeks or months). Every printed number stays within one 0.1h increment of
+ * its true value, and the exact minutes are on hover either way.
+ *
+ * Takes the matrix's own total, not the report's: rows for vanished projects
+ * are already gone by here, and borrowing the page-level total would hand
+ * their time to whoever is left.
+ */
+export function buildMatrixDisplay(rows: MatrixRow[], bucketKeys: string[]): MatrixDisplay {
+  const steps = (minutes: number) => minutes / DISPLAY_STEP_MIN;
+  const grandSteps = Math.round(steps(rows.reduce((s, r) => s + r.total, 0)));
+
+  const rowTotalSteps = allocateLargestRemainder(rows.map((r) => steps(r.total)), grandSteps);
+  const cellSteps = rows.map((r, i) =>
+    allocateLargestRemainder(bucketKeys.map((k) => steps(r.cells.get(k) || 0)), rowTotalSteps[i])
+  );
+  const colTotalSteps = bucketKeys.map((_, j) => cellSteps.reduce((s, row) => s + row[j], 0));
+
+  const toMinutes = (n: number) => n * DISPLAY_STEP_MIN;
+  return {
+    cells: cellSteps.map((row) => row.map(toMinutes)),
+    rowTotals: rowTotalSteps.map(toMinutes),
+    colTotals: colTotalSteps.map(toMinutes),
+    grandTotal: toMinutes(grandSteps),
+  };
 }
 
 export interface TaskBreakdownRow {
