@@ -3,6 +3,12 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "jsdom",
+    // Off by default, and with it off a `styles.css?raw` import resolves to an
+    // empty string rather than the stylesheet — which is what the contrast
+    // assertions in styles.contrast.test.ts read. Nothing under src/components
+    // imports CSS (only main.tsx does, and it isn't tested), so turning this on
+    // costs the rest of the suite nothing.
+    css: true,
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     // CI machines run in UTC, where every day is exactly 24 hours and the
     // clock never moves — so the whole class of DST bugs (#87) is invisible
