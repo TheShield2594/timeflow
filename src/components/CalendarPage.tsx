@@ -493,11 +493,15 @@ const OutlookGhostBlock = React.memo<GhostBlockProps>(({ event, startMin, endMin
 OutlookGhostBlock.displayName = "OutlookGhostBlock";
 
 interface GapBlockProps {
+  /** Passed through to `onFill` so the handler can be one stable function for
+   *  the whole grid — closing over the day per cell handed this memo a fresh
+   *  `onFill` on every render and it never once hit (#95). */
+  date: string;
   startMin: number;
   endMin: number;
   rowTopMin: number;
   dayLabel: string;
-  onFill: (startMin: number, endMin: number) => void;
+  onFill: (date: string, startMin: number, endMin: number) => void;
 }
 
 /**
@@ -510,7 +514,7 @@ interface GapBlockProps {
  * on the empty parts of a thin day. So: drag anywhere to log a span you
  * choose, or click the label to fill the whole gap in one go.
  */
-const UntrackedGapBlock = React.memo<GapBlockProps>(({ startMin, endMin, rowTopMin, dayLabel, onFill }) => {
+const UntrackedGapBlock = React.memo<GapBlockProps>(({ date, startMin, endMin, rowTopMin, dayLabel, onFill }) => {
   const top = (startMin - rowTopMin) * PX_PER_MIN;
   const height = Math.max((endMin - startMin) * PX_PER_MIN - 2, MIN_ENTRY_PX);
   const duration = formatMinutes(endMin - startMin);
@@ -526,7 +530,7 @@ const UntrackedGapBlock = React.memo<GapBlockProps>(({ startMin, endMin, rowTopM
         title={`${duration} untracked, ${timeLabel} — click to fill it in`}
         // Stop the cell's drag-to-create from also arming on this press.
         onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => { e.stopPropagation(); onFill(startMin, endMin); }}
+        onClick={(e) => { e.stopPropagation(); onFill(date, startMin, endMin); }}
       >
         + {duration} untracked
       </button>
@@ -816,7 +820,9 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
   // Open the create modal for a day, starting at the given minutes-of-day.
   // A click (or keyboard Enter) on a single slot has no explicit end, so it
   // defaults to a 1-hour block; a drag passes its own dragged-out end.
-  const openCreate = (dayStr: string, startTotalMins: number, endTotalMinsArg?: number) => {
+  // Stable: it reads nothing but its arguments, and the gap blocks take it as
+  // a prop through React.memo.
+  const openCreate = useCallback((dayStr: string, startTotalMins: number, endTotalMinsArg?: number) => {
     const hour = Math.floor(startTotalMins / 60);
     const minute = startTotalMins % 60;
     const endTotalMins = endTotalMinsArg !== undefined
@@ -840,7 +846,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
         ratio: "",
       },
     });
-  };
+  }, []);
 
   // ── Drag-to-create ──────────────────────────────────────────────────
   // Pointer-captured drag across slot cells in a single day column: press
@@ -868,9 +874,16 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     setDragCreate({ dayStr, dayIdx: col, fromRow: row, toRow: row });
   };
 
+  // Every drag handler below returns the previous state object unchanged when
+  // the pointer hasn't crossed into a new slot, which makes React bail out of
+  // the render entirely. A pointermove fires at 60–120 Hz and each one used to
+  // re-render the whole 672-div grid, but the value being dragged only moves
+  // once per snap increment — a few pixels apart — so the overwhelming
+  // majority of those renders were re-drawing an identical grid.
   const handleSlotPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragCreate) return;
-    setDragCreate((prev) => (prev ? { ...prev, toRow: rowFromClientY(e.clientY) } : prev));
+    const toRow = rowFromClientY(e.clientY);
+    setDragCreate((prev) => (prev && prev.toRow !== toRow ? { ...prev, toRow } : prev));
   };
 
   const handleSlotPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -921,7 +934,11 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     const minutes = edge === "start"
       ? Math.max(0, Math.min(raw, endMinutes - MIN_RESIZE_DURATION_MIN))
       : Math.max(startMinutes + MIN_RESIZE_DURATION_MIN, Math.min(raw, 24 * 60));
-    setResizePreview({ entryId: entry.id, edge, minutes });
+    setResizePreview((prev) =>
+      prev && prev.entryId === entry.id && prev.edge === edge && prev.minutes === minutes
+        ? prev
+        : { entryId: entry.id, edge, minutes }
+    );
   }, [minutesFromClientY]);
 
   const handleResizeCancel = useCallback(() => {
@@ -1064,7 +1081,15 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
       startMin: clampMoveStart(snapped, state.durationMin),
     };
     state.target = target;
-    setMovePreview({ entryId: state.entry.id, durationMin: state.durationMin, ...target });
+    setMovePreview((prev) =>
+      prev
+        && prev.entryId === state.entry.id
+        && prev.date === target.date
+        && prev.startMin === target.startMin
+        && prev.durationMin === state.durationMin
+        ? prev
+        : { entryId: state.entry.id, durationMin: state.durationMin, ...target }
+    );
   }, [weekDays]);
 
   const handleMoveCancel = useCallback(() => {
@@ -1176,34 +1201,40 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
   }, [entriesByCell]);
 
   // Untracked gaps (P2-15), grouped into slot cells the same way. Computed
-  // per visible day from entries already in memory — no extra fetch. `tick`
-  // is a dependency so today's trailing gap keeps pace with the clock rather
-  // than freezing at whatever minute the week was rendered.
-  const gapsByCell = useMemo(() => {
+  // per visible day from entries already in memory — no extra fetch.
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+  const collectGaps = useCallback((target: Map<string, Gap[]>, date: string, upTo: number | undefined, atMinutes: number) => {
+    findUntrackedGaps({ entries, date, nowMinutes: atMinutes, upperBoundMin: upTo }).forEach((gap) => {
+      const row = Math.max(0, Math.min(Math.floor(gap.startMin / 30), TOTAL_SLOTS - 1));
+      const key = `${date}-${row}`;
+      const list = target.get(key);
+      if (list) list.push(gap);
+      else target.set(key, [gap]);
+    });
+  }, [entries]);
+
+  // A finished day can't grow a new gap, so the six of them are memoized on
+  // the data alone. Only today's trailing gap has to keep pace with the clock,
+  // and folding it in separately is what stops the minute tick from rescanning
+  // every entry seven times over (#95).
+  const pastGapsByCell = useMemo(() => {
     const m = new Map<string, Gap[]>();
-    const nowMinutes = now.getHours() * 60 + now.getMinutes();
     weekDays.forEach((day) => {
       const date = localDateStr(day);
-      // Future days have nothing to be missing yet; today stops at now.
-      if (date > today) return;
-      const gaps = findUntrackedGaps({
-        entries,
-        date,
-        nowMinutes,
-        upperBoundMin: date === today ? nowMinutes : undefined,
-      });
-      gaps.forEach((gap) => {
-        const row = Math.max(0, Math.min(Math.floor(gap.startMin / 30), TOTAL_SLOTS - 1));
-        const key = `${date}-${row}`;
-        const list = m.get(key);
-        if (list) list.push(gap);
-        else m.set(key, [gap]);
-      });
+      // Future days have nothing to be missing yet; today is handled below.
+      if (date >= today) return;
+      collectGaps(m, date, undefined, MINUTES_PER_DAY);
     });
     return m;
-  // `now` is derived from tick; listing tick keeps the dependency honest.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entries, weekDays, today, tick]);
+  }, [weekDays, today, collectGaps]);
+
+  const gapsByCell = useMemo(() => {
+    if (!weekDays.some((day) => localDateStr(day) === today)) return pastGapsByCell;
+    const m = new Map(pastGapsByCell);
+    collectGaps(m, today, nowMinutes, nowMinutes);
+    return m;
+  }, [pastGapsByCell, weekDays, today, nowMinutes, collectGaps]);
 
   // Escape drops an in-progress drag-create, drag-resize or drag-move
   // instead of letting the eventual pointerup commit a change the user
@@ -1552,12 +1583,14 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
         const dayGhosts = outlookEvents
           .filter((ev) => localDateStr(new Date(ev.startTime)) === ds)
           .sort((a, b) => a.startTime.localeCompare(b.startTime));
-        const nowMins = now.getHours() * 60 + now.getMinutes();
+        // Same reading as the grid: only today is cut off at the current
+        // minute, and a past day closes a still-running entry at its own end
+        // rather than at a time of day that belongs to a different date.
         const dayGaps = ds > today ? [] : findUntrackedGaps({
           entries,
           date: ds,
-          nowMinutes: nowMins,
-          upperBoundMin: ds === today ? nowMins : undefined,
+          nowMinutes: ds === today ? nowMinutes : MINUTES_PER_DAY,
+          upperBoundMin: ds === today ? nowMinutes : undefined,
         });
         return (
           <div className="cal-mobile-list">
@@ -1765,11 +1798,12 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
                     {gapsByCell.get(`${ds}-${row}`)?.map((gap) => (
                       <UntrackedGapBlock
                         key={`gap-${gap.startMin}`}
+                        date={ds}
                         startMin={gap.startMin}
                         endMin={gap.endMin}
                         rowTopMin={row * 30}
                         dayLabel={day.toLocaleDateString("en", { weekday: "long", month: "long", day: "numeric" })}
-                        onFill={(startMin, endMin) => openCreate(ds, startMin, endMin)}
+                        onFill={openCreate}
                       />
                     ))}
                     {/* Ghosts render before (so behind) the tracked entries. */}

@@ -688,6 +688,30 @@ describe("CalendarPage untracked gaps (P2-15)", () => {
     expect((screen.getByLabelText("End") as HTMLInputElement).value).toBe("11:30");
   });
 
+  // Past days are scanned once and cached, so they no longer see the current
+  // time of day at all (#95) — which is the honest reading anyway.
+  it("closes a still-running entry at the end of its own day, not at today's clock", () => {
+    vi.useFakeTimers();
+    // A fixed midweek day, so "yesterday" is in the rendered week whatever day
+    // the suite actually runs on.
+    vi.setSystemTime(new Date("2026-08-12T10:00:00"));
+    renderCalendarWith([
+      {
+        id: "overnight", projectId: "p1", description: "overnight",
+        startTime: "2026-08-11T09:00:00",
+        date: "2026-08-11", userId: "u1", userDisplayName: "U",
+      },
+    ]);
+
+    // Only 08:00→09:00 is untracked. Reading today's 10:00 onto yesterday
+    // would invent an untracked afternoon the timer was in fact running for.
+    const yesterdayGaps = gapButtons()
+      .map((b) => b.getAttribute("aria-label") ?? "")
+      .filter((label) => label.includes("August 11"));
+    expect(yesterdayGaps).toHaveLength(1);
+    expect(yesterdayGaps[0]).toContain("8:00 AM – 9:00 AM");
+  });
+
   it("does not offer gaps on a day that hasn't happened yet", () => {
     const ds = freezeAt(17);
     // Tomorrow is in the same rendered week for six days out of seven; on the

@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState } from "react";
 import type { TimeEntry, Project, Task } from "../types";
-import { formatMinutes } from "../hooks";
+import { formatDecimalHours, formatMinutes } from "../hooks";
 import { useRangeRequest } from "../contexts/DataRangeContext";
 import { useToday } from "../hooks/useToday";
 import {
@@ -12,6 +12,7 @@ import {
   bucketKeysFor,
   buildChartData,
   buildMatrix,
+  buildMatrixDisplay,
   buildProjectBreakdown,
   buildTaskBreakdown,
   countActiveDays,
@@ -134,6 +135,22 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, rangeLo
   const matrix = useMemo(
     () => buildMatrix(filtered, projects, bucketKeys, bucket),
     [filtered, projects, bucketKeys, bucket]
+  );
+
+  // What the grid actually prints. Kept apart from `matrix`, which stays in
+  // exact minutes for the hover titles — the rounding lives on the display
+  // side only, so nothing downstream can mistake a snapped figure for data.
+  const display = useMemo(
+    () => buildMatrixDisplay(matrix.rows, bucketKeys),
+    [matrix.rows, bucketKeys]
+  );
+
+  // The grid's own total, which is `totalMinutes` less any time logged against
+  // a project that no longer exists — those rows never make it into the
+  // matrix, so its footer must not claim their hours.
+  const matrixTotalMinutes = useMemo(
+    () => matrix.rows.reduce((s, r) => s + r.total, 0),
+    [matrix.rows]
   );
 
   // Days that actually have logged time — the average people expect.
@@ -300,21 +317,26 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, rangeLo
                   </tr>
                 </thead>
                 <tbody>
-                  {matrix.rows.map(({ project, cells, total }) => (
+                  {matrix.rows.map(({ project, cells, total }, r) => (
                     <tr key={project!.id}>
                       <td className="matrix__proj-col">
                         <span className="project-breakdown__dot" style={{ background: project!.color }} />
                         {project!.name}
                       </td>
-                      {bucketKeys.map((k) => {
+                      {bucketKeys.map((k, c) => {
+                        // "–" tracks the real minutes, not the printed ones: a
+                        // couple of minutes rounds down to 0.0 on this grid,
+                        // and a dash there would claim nothing was logged.
                         const mins = cells.get(k) || 0;
                         return (
                           <td key={k} className={mins ? "" : "matrix__zero"} title={mins ? formatMinutes(mins) : undefined}>
-                            {mins ? (mins / 60).toFixed(1) : "–"}
+                            {mins ? formatDecimalHours(display.cells[r][c]) : "–"}
                           </td>
                         );
                       })}
-                      <td className="matrix__total-col" title={formatMinutes(total)}>{(total / 60).toFixed(1)}</td>
+                      <td className="matrix__total-col" title={formatMinutes(total)}>
+                        {formatDecimalHours(display.rowTotals[r])}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -323,10 +345,12 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, rangeLo
                     <td className="matrix__proj-col">Total</td>
                     {matrix.colTotals.map((mins, i) => (
                       <td key={bucketKeys[i]} className={mins ? "" : "matrix__zero"} title={mins ? formatMinutes(mins) : undefined}>
-                        {mins ? (mins / 60).toFixed(1) : "–"}
+                        {mins ? formatDecimalHours(display.colTotals[i]) : "–"}
                       </td>
                     ))}
-                    <td className="matrix__total-col" title={formatMinutes(totalMinutes)}>{(totalMinutes / 60).toFixed(1)}</td>
+                    <td className="matrix__total-col" title={formatMinutes(matrixTotalMinutes)}>
+                      {formatDecimalHours(display.grandTotal)}
+                    </td>
                   </tr>
                 </tfoot>
               </table>

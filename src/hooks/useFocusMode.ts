@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getCurrentUser } from "../services/userService";
 import { localDateStr } from "../utils/dates";
 
@@ -80,12 +80,20 @@ function persistSessionsToday(count: number): void {
   } catch { /* storage unavailable */ }
 }
 
-export function useFocusMode(isRunning: boolean, elapsed: number): {
+/**
+ * Takes the timer's `startTime` rather than a seconds counter, and schedules
+ * its transitions on the boundaries themselves instead of watching a 1 Hz
+ * tick. This hook is called in AppContent, so any state it updates every
+ * second re-renders the entire page tree (#95) — and the only thing that
+ * genuinely happens every second is a label, which the component drawing it
+ * can tick for itself from `endsAt`.
+ */
+export function useFocusMode(isRunning: boolean, startTime: string | null): {
   enabled: boolean;
   settings: FocusSettings;
   phase: FocusPhase;
-  /** Seconds left in the current focus block or break; 0 outside both. */
-  remainingSeconds: number;
+  /** Instant the current focus block or break ends; null outside both. */
+  endsAt: number | null;
   sessionsToday: number;
   toggleEnabled: () => void;
   updateSettings: (patch: Partial<FocusSettings>) => void;
@@ -100,14 +108,15 @@ export function useFocusMode(isRunning: boolean, elapsed: number): {
   const [stored, setStored] = useState<StoredSettings>(readSettings);
   const [phase, setPhase] = useState<FocusPhase>("off");
   const [sessionsToday, setSessionsToday] = useState<number>(readSessionsToday);
-  // Elapsed-seconds value at which the current focus block started — non-zero
-  // after "keep going", so the next prompt lands a full block later.
-  const anchorRef = useRef(0);
+  // Instant the current focus block began — the session's own start, or the
+  // moment "keep going" was pressed, so the next prompt lands a full block
+  // later. The block's *end* is derived rather than stored, which is what lets
+  // editing the interval mid-block move the boundary you're counting down to.
+  const [blockStartedAt, setBlockStartedAt] = useState<number | null>(null);
   const [breakEndsAt, setBreakEndsAt] = useState<number | null>(null);
-  // Ticker for the break countdown (the focus countdown rides on `elapsed`).
-  const [now, setNow] = useState(() => Date.now());
 
   const { enabled, focusMinutes, breakMinutes } = stored;
+  const blockEndsAt = blockStartedAt === null ? null : blockStartedAt + focusMinutes * 60_000;
 
   // Persistence happens in effects keyed on the settled state, never inside
   // setState updater functions — React may replay updaters (StrictMode,
@@ -120,12 +129,12 @@ export function useFocusMode(isRunning: boolean, elapsed: number): {
     if (sessionsToday > 0) persistSessionsToday(sessionsToday);
   }, [sessionsToday]);
 
-  // Each new running session starts its focus countdown from zero elapsed.
-  // (Ref write lives here, not in a setPhase updater, for the same
-  // replay-safety reason as the persistence effects above.)
+  // Each new running session anchors its focus countdown to its own start, so
+  // a block measures tracked time and not time-since-this-component-mounted.
   useEffect(() => {
-    if (isRunning) anchorRef.current = 0;
-  }, [isRunning]);
+    if (isRunning && startTime) setBlockStartedAt(new Date(startTime).getTime());
+    else if (!isRunning) setBlockStartedAt(null);
+  }, [isRunning, startTime]);
 
   // Enter/leave the focus phase as the timer starts/stops. A manual stop
   // mid-block (or disabling the mode) drops any pending prompt — the user
@@ -133,6 +142,7 @@ export function useFocusMode(isRunning: boolean, elapsed: number): {
   useEffect(() => {
     if (!enabled) {
       setPhase("off");
+      setBlockStartedAt(null);
       setBreakEndsAt(null);
       return;
     }
@@ -144,32 +154,42 @@ export function useFocusMode(isRunning: boolean, elapsed: number): {
     }
   }, [enabled, isRunning]);
 
-  // Focus block complete → prompt, and count the completed block.
-  const focusRemaining = Math.max(0, focusMinutes * 60 - (elapsed - anchorRef.current));
+  // Focus block complete → prompt, and count the completed block. Scheduled on
+  // the boundary rather than re-checked every second: the only moment worth a
+  // render between here and the end of the block is the end of the block.
   useEffect(() => {
-    if (phase !== "focus" || !isRunning) return;
-    if (focusRemaining > 0) return;
-    setPhase("prompt-break");
-    setSessionsToday((prev) => prev + 1);
-  }, [phase, isRunning, focusRemaining]);
+    if (phase !== "focus" || !isRunning || blockEndsAt === null) return;
+    const reachBoundary = () => {
+      setPhase("prompt-break");
+      setSessionsToday((prev) => prev + 1);
+    };
+    const delay = blockEndsAt - Date.now();
+    // Already past it (a restored session, or an interval edited down below
+    // what's already elapsed) — prompt now instead of scheduling the past.
+    if (delay <= 0) {
+      reachBoundary();
+      return;
+    }
+    const handle = setTimeout(reachBoundary, delay);
+    return () => clearTimeout(handle);
+  }, [phase, isRunning, blockEndsAt]);
 
-  // Break countdown.
-  useEffect(() => {
-    if (phase !== "break") return;
-    const handle = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(handle);
-  }, [phase]);
-
-  const breakRemaining = phase === "break" && breakEndsAt
-    ? Math.max(0, Math.ceil((breakEndsAt - now) / 1000))
-    : 0;
-
+  // Break over → prompt. Same shape, and the reason the break no longer needs
+  // a 1 Hz interval of its own.
   useEffect(() => {
     if (phase !== "break" || breakEndsAt === null) return;
-    if (breakRemaining > 0) return;
-    setBreakEndsAt(null);
-    setPhase("prompt-resume");
-  }, [phase, breakEndsAt, breakRemaining]);
+    const reachBoundary = () => {
+      setBreakEndsAt(null);
+      setPhase("prompt-resume");
+    };
+    const delay = breakEndsAt - Date.now();
+    if (delay <= 0) {
+      reachBoundary();
+      return;
+    }
+    const handle = setTimeout(reachBoundary, delay);
+    return () => clearTimeout(handle);
+  }, [phase, breakEndsAt]);
 
   const toggleEnabled = useCallback(() => {
     setStored((prev) => ({ ...prev, enabled: !prev.enabled }));
@@ -184,14 +204,15 @@ export function useFocusMode(isRunning: boolean, elapsed: number): {
   }, []);
 
   const keepGoing = useCallback(() => {
-    anchorRef.current = elapsed;
+    setBlockStartedAt(Date.now());
     setPhase("focus");
-  }, [elapsed]);
+  }, []);
 
+  // The break's end is pinned when it starts, unlike a focus block's: a break
+  // is a promise about when you come back, so editing the interval mid-break
+  // shouldn't move it.
   const beginBreak = useCallback(() => {
-    const endsAt = Date.now() + breakMinutes * 60 * 1000;
-    setNow(Date.now());
-    setBreakEndsAt(endsAt);
+    setBreakEndsAt(Date.now() + breakMinutes * 60_000);
     setPhase("break");
   }, [breakMinutes]);
 
@@ -203,7 +224,7 @@ export function useFocusMode(isRunning: boolean, elapsed: number): {
     enabled,
     settings: { focusMinutes, breakMinutes },
     phase,
-    remainingSeconds: phase === "break" ? breakRemaining : phase === "focus" ? focusRemaining : 0,
+    endsAt: phase === "break" ? breakEndsAt : phase === "focus" ? blockEndsAt : null,
     sessionsToday,
     toggleEnabled,
     updateSettings,

@@ -13,10 +13,50 @@ const NEW_TASK_OPTION = "__new_task__";
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPod|iPad/.test(navigator.platform);
 const SHORTCUT_HINT = IS_MAC ? "⌘." : "Ctrl+.";
 
+/**
+ * Seconds remaining until `endsAt`, re-rendering only this subtree once a
+ * second. `endsAt` is an instant rather than a countdown so the tick can live
+ * here: a counter held higher up re-rendered every page in the app once a
+ * second for the whole length of a session (#95).
+ */
+function useCountdown(endsAt: number | null): number {
+  const [remaining, setRemaining] = useState(() =>
+    endsAt === null ? 0 : Math.max(0, Math.ceil((endsAt - Date.now()) / 1000))
+  );
+  useEffect(() => {
+    if (endsAt === null) {
+      setRemaining(0);
+      return;
+    }
+    const tick = () => setRemaining(Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)));
+    tick();
+    const handle = setInterval(tick, 1000);
+    return () => clearInterval(handle);
+  }, [endsAt]);
+  return remaining;
+}
+
+/** Seconds since `startTime`, ticked here for the same reason. */
+function useElapsed(startTime: string | null, isRunning: boolean): number {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!isRunning || !startTime) {
+      setElapsed(0);
+      return;
+    }
+    const startMs = new Date(startTime).getTime();
+    const tick = () => setElapsed(Math.floor((Date.now() - startMs) / 1000));
+    tick();
+    const handle = setInterval(tick, 1000);
+    return () => clearInterval(handle);
+  }, [startTime, isRunning]);
+  return elapsed;
+}
+
 export interface FocusControlState {
   enabled: boolean;
   phase: FocusPhase;
-  remainingSeconds: number;
+  endsAt: number | null;
   settings: FocusSettings;
   sessionsToday: number;
   onToggle: () => void;
@@ -29,7 +69,8 @@ interface Props {
   isRunning: boolean;
   /** ISO timestamp when stop failed — enables retry flow (#32). */
   pendingStopAt?: string;
-  elapsed: number;
+  /** ISO instant the running session began; the elapsed clock derives from it. */
+  startTime: string | null;
   currentProjectId: string | null;
   currentTaskId: string | null;
   description: string;
@@ -59,7 +100,8 @@ function mmss(totalSeconds: number): string {
 /** Focus (Pomodoro) chip: toggles the mode, counts down the current focus
  *  block or break, and hides an interval editor behind a pencil. */
 const FocusControl: React.FC<{ focus: FocusControlState }> = ({ focus }) => {
-  const { enabled, phase, remainingSeconds, settings, sessionsToday, onToggle, onUpdateSettings } = focus;
+  const { enabled, phase, endsAt, settings, sessionsToday, onToggle, onUpdateSettings } = focus;
+  const remainingSeconds = useCountdown(endsAt);
   const [editing, setEditing] = useState(false);
   const [focusInput, setFocusInput] = useState("");
   const [breakInput, setBreakInput] = useState("");
@@ -143,10 +185,11 @@ const FocusControl: React.FC<{ focus: FocusControlState }> = ({ focus }) => {
 
 
 export const TimerBar: React.FC<Props> = ({
-  projects, tasks, isRunning, pendingStopAt, elapsed,
+  projects, tasks, isRunning, pendingStopAt, startTime,
   currentProjectId, currentTaskId, description, ratio, jiraTicket, focus,
   onStart, onStop, onRetryStop, onUpdate, onAddTask, onLoadTasksForProject,
 }) => {
+  const elapsed = useElapsed(startTime, isRunning);
   const [selectedProject, setSelectedProject] = useState(currentProjectId || "");
   const [selectedTask, setSelectedTask] = useState(currentTaskId || "");
   const [desc, setDesc] = useState(description);

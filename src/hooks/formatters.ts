@@ -14,6 +14,23 @@ export function formatMinutes(minutes: number): string {
 }
 
 /**
+ * Decimal hours — the unit timesheets and invoices are read in, and the one
+ * duration format that had grown a copy per surface (#93).
+ *
+ * One decimal is the on-screen default because 0.1h is the standard billing
+ * increment, and it is the grid the Reports matrix allocates its rounding
+ * onto. The CSV export passes 2 deliberately: its duration columns are the
+ * ones people bill from, its rounding rule is the user's own choice, and
+ * quantizing an "Exact minutes" export to 6-minute buckets would throw away
+ * information the screen never needed to carry.
+ */
+export const DECIMAL_HOURS_DIGITS = 1;
+
+export function formatDecimalHours(minutes: number, digits = DECIMAL_HOURS_DIGITS): string {
+  return (minutes / 60).toFixed(digits);
+}
+
+/**
  * Ratio is a billing account identifier, not a multiplier (#71) — hence the
  * rounding to a non-negative whole number rather than accepting fractions
  * like 0.5. See the note on `Project.ratio` in src/types.

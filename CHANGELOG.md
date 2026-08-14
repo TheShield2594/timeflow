@@ -55,6 +55,21 @@ Findings from the [2026-08-12 application review](docs/reviews/2026-08-12-multi-
   ([#108](https://github.com/TheShield2594/timeflow/issues/108)).
 - Projects and tasks are indexed by id instead of scanned per row
   ([#96](https://github.com/TheShield2594/timeflow/issues/96)).
+- Reports matrix columns now add up to the totals printed under them, and rows
+  to the totals beside them, instead of each cell rounding on its own
+  ([#93](https://github.com/TheShield2594/timeflow/issues/93)).
+- The By Project breakdown sums to 100%, not 99%
+  ([#113](https://github.com/TheShield2594/timeflow/issues/113)).
+- A double-click on Start no longer strands an open draft row that comes back
+  as a phantom running timer on the next reload
+  ([#94](https://github.com/TheShield2594/timeflow/issues/94)).
+
+### Performance
+
+- A running timer no longer re-renders every page once a second — the elapsed
+  and focus clocks tick inside the timer bar, page components are memoized, and
+  calendar drags only re-render when the pointer crosses a slot
+  ([#95](https://github.com/TheShield2594/timeflow/issues/95)).
 
 ### Security
 

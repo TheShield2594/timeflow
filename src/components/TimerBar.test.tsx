@@ -24,7 +24,7 @@ function renderBar(overrides: Partial<React.ComponentProps<typeof TimerBar>> = {
       projects={projects}
       tasks={tasks}
       isRunning={false}
-      elapsed={0}
+      startTime={null}
       currentProjectId={null}
       currentTaskId={null}
       description=""
@@ -100,10 +100,26 @@ describe("TimerBar Start button", () => {
     expect(screen.queryByText("Pick a project first")).toBeNull();
   });
 
+  // The bar derives the clock from the session's start rather than being
+  // handed a counter, so that the once-a-second render stays inside it (#95).
   it("shows the elapsed time inside the running button rather than beside it", () => {
-    renderBar({ isRunning: true, elapsed: 4521, currentProjectId: "p1" });
-    const stop = screen.getByRole("button", { name: "Stop timer" });
-    expect(stop.textContent).toContain("01:15:21");
+    vi.useFakeTimers();
+    try {
+      const now = new Date("2026-08-14T12:00:00.000Z").getTime();
+      vi.setSystemTime(now);
+      renderBar({
+        isRunning: true,
+        startTime: new Date(now - 4521 * 1000).toISOString(),
+        currentProjectId: "p1",
+      });
+      const stop = screen.getByRole("button", { name: "Stop timer" });
+      expect(stop.textContent).toContain("01:15:21");
+
+      act(() => { vi.advanceTimersByTime(1000); });
+      expect(stop.textContent).toContain("01:15:22");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
