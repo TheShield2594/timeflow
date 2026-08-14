@@ -985,7 +985,8 @@ input, select { font-family: inherit; }
 
 .new-project-form { background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius); padding: 22px; margin-bottom: 22px; display: flex; flex-direction: column; gap: 12px; box-shadow: var(--shadow); }
 .new-project-form__title { font-size: 14px; font-weight: 700; margin-bottom: 2px; }
-.new-project-form__actions { display: flex; gap: 8px; }
+.new-project-form__actions { display: flex; gap: 8px; align-items: center; }
+.new-project-form__confirm { margin-right: auto; font-size: 12.5px; font-weight: 600; color: var(--text); }
 
 .form-input { background: var(--surface-2); border: 1.5px solid var(--border); border-radius: var(--radius-sm); padding: 9px 13px; color: var(--text); font-size: 13.5px; outline: none; width: 100%; transition: border-color 0.15s, box-shadow 0.15s; }
 .form-input:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--focus-glow); }
@@ -1456,8 +1457,18 @@ input, select { font-family: inherit; }
   border-top: 1px solid var(--border);
   background: var(--surface-2);
 }
+.cal-modal__footer-actions { display: flex; gap: 8px; align-items: center; }
+/* A floor under the gap between Save/Cancel and Delete. `margin-left: auto`
+   alone puts Delete at the far end only while there is slack to give it; once
+   the modal is narrow the two collapse to the 8px row gap. */
+.cal-modal__footer-actions--spaced { margin-right: 28px; }
+.cal-modal__confirm {
+  margin-right: auto;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
 .cal-modal__delete {
-  margin-left: auto;
   font-size: 12px;
   font-weight: 600;
   color: var(--ev-pumpkin-text);
@@ -1467,6 +1478,7 @@ input, select { font-family: inherit; }
   background: var(--danger-soft);
   transition: background 0.15s;
 }
+.cal-modal__delete { margin-left: auto; }
 .cal-modal__delete:hover { background: var(--danger-mid); }
 
 /* =====================================================================

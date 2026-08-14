@@ -134,3 +134,89 @@ describe("EntryModal overnight split — UTC+ timezone", () => {
     expect(dates).toEqual(["2026-07-07", "2026-07-08", "2026-07-08"]);
   });
 });
+
+describe("EntryModal unsaved-work guard", () => {
+  const cleanDraft: EntryDraft = { ...baseDraft, endTime: "23:00" };
+
+  function renderModal(onClose = vi.fn()) {
+    const { container } = render(
+      <EntryModal
+        title="Log Time"
+        initial={cleanDraft}
+        projects={projects}
+        tasks={[]}
+        onSave={vi.fn()}
+        onClose={onClose}
+      />
+    );
+    const backdrop = container.querySelector(".cal-modal-overlay") as HTMLElement;
+    const type = (text: string) =>
+      fireEvent.change(screen.getByLabelText("Description"), { target: { value: text } });
+    return { onClose, backdrop, type };
+  }
+
+  it("closes on a backdrop click while the form is untouched", () => {
+    const { onClose, backdrop } = renderModal();
+    fireEvent.click(backdrop);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a backdrop click once something has been typed", () => {
+    const { onClose, backdrop, type } = renderModal();
+    type("Reviewing the Q3 numbers");
+
+    fireEvent.click(backdrop);
+    expect(onClose).not.toHaveBeenCalled();
+    // Not even a prompt: a brushed backdrop is not an instruction.
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByLabelText("Description")).toHaveProperty("value", "Reviewing the Q3 numbers");
+  });
+
+  it("asks before Escape throws away a filled-in form", () => {
+    const { onClose, type } = renderModal();
+    type("Reviewing the Q3 numbers");
+
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("Discard");
+
+    fireEvent.click(screen.getByText("Discard"));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns to the form with its values intact when the discard is declined", () => {
+    const { onClose, type } = renderModal();
+    type("Reviewing the Q3 numbers");
+    fireEvent.click(screen.getByText("Cancel"));
+
+    fireEvent.click(screen.getByText("Keep editing"));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText("Save")).toBeTruthy();
+    expect(screen.getByLabelText("Description")).toHaveProperty("value", "Reviewing the Q3 numbers");
+  });
+
+  it("treats Escape at the confirmation as backing out of the question, not the entry", () => {
+    const { onClose, type } = renderModal();
+    type("Reviewing the Q3 numbers");
+    fireEvent.keyDown(document.body, { key: "Escape" });
+
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText("Save")).toBeTruthy();
+  });
+
+  it("still closes without a prompt when nothing was typed", () => {
+    const { onClose } = renderModal();
+    fireEvent.click(screen.getByText("Cancel"));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts a project change as work worth keeping, not just typed text", () => {
+    const { onClose } = renderModal();
+    fireEvent.change(screen.getByLabelText("Project"), { target: { value: "" } });
+
+    fireEvent.click(screen.getByText("Cancel"));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toBeTruthy();
+  });
+});

@@ -3,6 +3,7 @@ import type { Project, Task } from "../types";
 import { formatMinutes, parseRatioInput } from "../hooks";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import { addDaysStr } from "../utils/dates";
+import { isDirtyDraft } from "../utils/forms";
 import { HelpTip } from "./HelpTip";
 import { IconX } from "./Icons";
 
@@ -73,21 +74,49 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
     if (draft.projectId) onLoadTasksForProject?.(draft.projectId);
   }, [draft.projectId, onLoadTasksForProject]);
 
+  // The draft as it was when the form opened. A ref, not the `initial` prop:
+  // the prop is re-created by the parent on every render, and `draft` is seeded
+  // from it exactly once, so this is the only stable pristine copy.
+  const pristine = useRef(initial);
+  const dirty = isDirtyDraft(draft, pristine.current);
+
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+  const keepEditingRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (confirmingDiscard) keepEditingRef.current?.focus(); }, [confirmingDiscard]);
+
   // While a save is in flight, ignore every close/dismiss path so the modal
-  // can't be torn down (or the entry deleted) mid-request.
-  const safeClose = () => { if (!saving) onClose(); };
+  // can't be torn down (or the entry deleted) mid-request. Once anything has
+  // been typed, the same guard extends to closing: a filled-in form is work,
+  // and every other destructive action in this app asks or offers an undo
+  // before it throws work away (#104).
+  const safeClose = () => {
+    if (saving) return;
+    if (dirty) setConfirmingDiscard(true);
+    else onClose();
+  };
+
+  // A backdrop click on a dirty form does nothing at all — no dialog, no
+  // close. It's the one dismiss path the user never *aims*: it's what a
+  // mis-aimed click at the form's edge lands on, so the right answer to it is
+  // to be inert rather than to ask a question the user didn't intend to raise.
+  const handleBackdropClick = () => { if (!dirty) safeClose(); };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") safeClose();
+      if (e.key !== "Escape") return;
+      // Escape out of the confirmation returns to the form. Escape is the
+      // "back out of this" key, and here the thing being backed out of is the
+      // question, not the entry.
+      if (confirmingDiscard) setConfirmingDiscard(false);
+      else safeClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  // safeClose is re-created every render but reads nothing beyond onClose and
-  // saving, both listed — depending on it would just re-bind the listener on
-  // every keystroke in the form.
+  // safeClose is re-created every render but reads nothing beyond onClose,
+  // saving and dirty, all listed — depending on it would just re-bind the
+  // listener on every keystroke in the form.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onClose, saving]);
+  }, [onClose, saving, dirty, confirmingDiscard]);
 
   const startDt = draft.date && draft.startTime ? new Date(`${draft.date}T${draft.startTime}:00`) : null;
 
@@ -196,7 +225,7 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
   };
 
   return (
-    <div className="cal-modal-overlay" onClick={safeClose}>
+    <div className="cal-modal-overlay" onClick={handleBackdropClick}>
       <div className="cal-modal" ref={modalRef} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
         <div className="cal-modal__header">
           <h3 className="cal-modal__title">{title}</h3>
@@ -333,12 +362,35 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
           </div>
         </div>
         <div className="cal-modal__footer">
-          <button className="btn-primary" onClick={handleSave} disabled={!canSave}>
-            {saving ? "Saving…" : "Save"}
-          </button>
-          <button className="btn-ghost" onClick={safeClose} disabled={saving}>Cancel</button>
-          {onDelete && (
-            <button className="cal-modal__delete" onClick={() => { if (!saving) onDelete(); }} disabled={saving} aria-label="Delete entry">Delete</button>
+          {confirmingDiscard ? (
+            <>
+              <p className="cal-modal__confirm" role="alert">Discard what you've typed?</p>
+              <div className="cal-modal__footer-actions">
+                {/* Keep editing is the primary and takes focus: the question is
+                    only ever raised on a form with work in it. */}
+                <button className="btn-primary" ref={keepEditingRef} onClick={() => setConfirmingDiscard(false)}>
+                  Keep editing
+                </button>
+                <button className="btn-ghost" onClick={onClose}>Discard</button>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Save and Cancel are one group; Delete is deliberately not in
+                  it. It used to be separated from Cancel by nothing but the
+                  auto margin, which collapses to the row gap on a narrow
+                  modal and put an immediate, unprompted delete one slip away
+                  from the button next to it (#104). */}
+              <div className="cal-modal__footer-actions cal-modal__footer-actions--spaced">
+                <button className="btn-primary" onClick={handleSave} disabled={!canSave}>
+                  {saving ? "Saving…" : "Save"}
+                </button>
+                <button className="btn-ghost" onClick={safeClose} disabled={saving}>Cancel</button>
+              </div>
+              {onDelete && (
+                <button className="cal-modal__delete" onClick={() => { if (!saving) onDelete(); }} disabled={saving} aria-label="Delete entry">Delete</button>
+              )}
+            </>
           )}
         </div>
       </div>
