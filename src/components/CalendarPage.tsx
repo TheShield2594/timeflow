@@ -30,6 +30,7 @@ import { formatMinutes } from "../hooks";
 import { useRangeRequest } from "../contexts/DataRangeContext";
 import { useWeeklyTarget } from "../hooks/useWeeklyTarget";
 import { EntryModal, EntryDraft, EntrySaveData } from "./EntryModal";
+import { HelpTip } from "./HelpTip";
 import { IconCheck, IconChevronLeft, IconChevronRight, IconPencil, IconX } from "./Icons";
 import { RangeSpinner } from "./RangeSpinner";
 
@@ -1520,6 +1521,14 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
             {rangeLoading && <RangeSpinner label="Loading this week's entries…" />}
           </div>
           <div className="calendar__nav">
+            {/* The whole drag / resize / Shift+arrow instruction set used to
+                live in a `title` on each entry block, where a keyboard user
+                could never reach it — and the keyboard half is precisely what
+                that user needs (#106). */}
+            <HelpTip
+              label="How do I move entries?"
+              text="Click a block to edit it. Drag it to reschedule, or drag its top or bottom edge to resize. From the keyboard: Tab to a block, then Shift + arrow keys to move it — up and down by 15 minutes, left and right by a day. Click an empty slot, or drag down it, to log new time."
+            />
             <button className="cal-nav-btn" onClick={prevWeek} aria-label="Previous week">
               <IconChevronLeft />
             </button>

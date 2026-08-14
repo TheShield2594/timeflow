@@ -87,3 +87,31 @@ describe("EntryRow", () => {
     expect(screen.getByRole("button", { name: /Continue/ }).hasAttribute("disabled")).toBe(true);
   });
 });
+
+describe("EntryRow — why Continue is unavailable (#106)", () => {
+  it("states the reason somewhere a screen reader can reach it", () => {
+    const { rerender } = render(
+      <EntryRow entry={entry} project={project} timerBusy onContinue={vi.fn()} />
+    );
+
+    const button = screen.getByLabelText(/^Continue working on/);
+    expect(button.hasAttribute("disabled")).toBe(true);
+    const describedBy = button.getAttribute("aria-describedby")!;
+    expect(document.getElementById(describedBy)!.textContent).toBe("Timer already running");
+
+    rerender(
+      <EntryRow entry={entry} project={{ ...project, isActive: false }} onContinue={vi.fn()} />
+    );
+    const archived = screen.getByLabelText(/^Continue working on/);
+    expect(
+      document.getElementById(archived.getAttribute("aria-describedby")!)!.textContent
+    ).toBe("Project is archived");
+  });
+
+  it("describes nothing when Continue is available", () => {
+    render(<EntryRow entry={entry} project={project} onContinue={vi.fn()} />);
+    const button = screen.getByLabelText(/^Continue working on/);
+    expect(button.hasAttribute("disabled")).toBe(false);
+    expect(button.getAttribute("aria-describedby")).toBeNull();
+  });
+});

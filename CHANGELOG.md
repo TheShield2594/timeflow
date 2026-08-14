@@ -63,6 +63,27 @@ Findings from the [2026-08-12 application review](docs/reviews/2026-08-12-multi-
 - A double-click on Start no longer strands an open draft row that comes back
   as a phantom running timer on the next reload
   ([#94](https://github.com/TheShield2594/timeflow/issues/94)).
+- Escape or a stray backdrop click no longer throws away a filled-in entry or
+  project form without asking
+  ([#104](https://github.com/TheShield2594/timeflow/issues/104)).
+- "Discard session" on the idle prompt is undoable — the toast offers Restore,
+  which re-opens the session on its original start time
+  ([#105](https://github.com/TheShield2594/timeflow/issues/105)).
+
+### Accessibility
+
+- `--text-faint` now meets WCAG AA on every surface in both themes. It carried
+  the calendar's hour labels, the Project × Period column headers, "No matches"
+  and "No data for this period" at 2.46:1; decoration keeps the old value under
+  a separate `--text-decor`
+  ([#88](https://github.com/TheShield2594/timeflow/issues/88)).
+- The Project × Period matrix is a navigable table — scoped headers, the project
+  name as a row header, a caption, and each cell's exact duration in its
+  accessible name instead of a hover-only `title`. The same round moved the
+  calendar's keyboard-reschedule instructions, the CSV rounding note, the
+  focus-mode summary, what Archive does and why Continue is disabled onto
+  affordances a keyboard can reach
+  ([#106](https://github.com/TheShield2594/timeflow/issues/106)).
 
 ### Performance
 

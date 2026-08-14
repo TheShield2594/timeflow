@@ -3,6 +3,7 @@ import type { Project, Task, TimeEntry } from "../types";
 import { formatMinutes, parseRatioInput } from "../hooks";
 import { useToday } from "../hooks/useToday";
 import { addDaysStr } from "../utils/dates";
+import { isDirtyDraft } from "../utils/forms";
 import { HelpTip } from "./HelpTip";
 import { Sparkline } from "./Sparkline";
 import { IconArchive, IconCheck, IconPencil, IconPlus, IconUndo, IconX } from "./Icons";
@@ -134,15 +135,23 @@ const CardMenu: React.FC<{ project: Project; onEdit: () => void; onArchive: () =
           >
             <IconPencil size={13} /> Edit
           </button>
+          {/* What Archive does used to be a `title` and nothing else, which
+              left the one irreversible-looking item in this menu explained
+              only to a hovering mouse (#106). It's short enough to just say. */}
           <button
             type="button"
             role="menuitem"
-            className="card-menu__item card-menu__item--danger"
+            className="card-menu__item card-menu__item--danger card-menu__item--stacked"
             disabled={pending}
-            title={pending ? "Project is saving…" : "Removes it from pickers, keeps its history"}
             onClick={() => { setOpen(false); onArchive(); }}
           >
-            <IconArchive size={13} /> Archive
+            <IconArchive size={13} />
+            <span className="card-menu__item-text">
+              Archive
+              <span className="card-menu__item-hint">
+                {pending ? "Project is still saving…" : "Removes it from pickers, keeps its history"}
+              </span>
+            </span>
           </button>
         </div>
       )}
@@ -155,6 +164,10 @@ export const ProjectsPage: React.FC<Props> = ({
   onArchiveProject, onRestoreProject, onAddTask, onDeleteTask, onRenameTask, onLoadTasksForProject,
 }) => {
   const [draft, setDraft] = useState<FormDraft | null>(null);
+  // The draft as the form opened, so Cancel can tell a half-filled project
+  // from an untouched one (#104).
+  const [pristine, setPristine] = useState<FormDraft | null>(null);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [saving, setSaving] = useState(false);
   const [addingTaskFor, setAddingTaskFor] = useState<string | null>(null);
   const [newTaskName, setNewTaskName] = useState("");
@@ -222,8 +235,19 @@ export const ProjectsPage: React.FC<Props> = ({
     });
   }, [projects, onLoadTasksForProject]);
 
-  const startNew = () => setDraft({ ...EMPTY_DRAFT });
-  const startEdit = (p: Project) => setDraft({
+  const openForm = (d: FormDraft) => {
+    setDraft(d);
+    setPristine(d);
+    setConfirmingCancel(false);
+  };
+  const closeForm = () => {
+    setDraft(null);
+    setPristine(null);
+    setConfirmingCancel(false);
+  };
+
+  const startNew = () => openForm({ ...EMPTY_DRAFT });
+  const startEdit = (p: Project) => openForm({
     editingId: p.id,
     name: p.name,
     description: p.description ?? "",
@@ -232,6 +256,14 @@ export const ProjectsPage: React.FC<Props> = ({
     ratio: p.ratio !== undefined ? String(p.ratio) : "",
     jiraTicket: p.jiraTicket ?? "",
   });
+
+  // Cancel on an untouched form just closes it — a confirm there is the
+  // annoying half of this pattern, and the form is opened by accident far more
+  // often than it's filled in.
+  const handleCancel = () => {
+    if (draft && pristine && isDirtyDraft(draft, pristine)) setConfirmingCancel(true);
+    else closeForm();
+  };
 
   const handleSave = async () => {
     if (!draft || !draft.name.trim() || saving) return;
@@ -250,7 +282,7 @@ export const ProjectsPage: React.FC<Props> = ({
       } else {
         await onAddProject(payload);
       }
-      setDraft(null);
+      closeForm();
     } catch {
       // The data hooks already toast the failure; keep the form open for retry.
     } finally {
@@ -350,10 +382,22 @@ export const ProjectsPage: React.FC<Props> = ({
             </div>
           </div>
           <div className="new-project-form__actions">
-            <button className="btn-primary" onClick={handleSave} disabled={saving}>
-              {saving ? "Saving…" : draft.editingId ? "Save Changes" : "Create"}
-            </button>
-            <button className="btn-ghost" onClick={() => setDraft(null)} disabled={saving}>Cancel</button>
+            {confirmingCancel ? (
+              <>
+                <p className="new-project-form__confirm" role="alert">Discard this project?</p>
+                <button className="btn-primary" onClick={() => setConfirmingCancel(false)} autoFocus>
+                  Keep editing
+                </button>
+                <button className="btn-ghost" onClick={closeForm}>Discard</button>
+              </>
+            ) : (
+              <>
+                <button className="btn-primary" onClick={handleSave} disabled={saving}>
+                  {saving ? "Saving…" : draft.editingId ? "Save Changes" : "Create"}
+                </button>
+                <button className="btn-ghost" onClick={handleCancel} disabled={saving}>Cancel</button>
+              </>
+            )}
           </div>
         </div>
       )}

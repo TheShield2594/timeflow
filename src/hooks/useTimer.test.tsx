@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, cleanup, waitFor } from "@testing-library/react";
 import { useTimer } from "./useTimer";
 import * as svc from "../services/dataverseService";
-import type { TimeEntry } from "../types";
+import type { TimeEntry, TimerState } from "../types";
 
 const toastSpy = vi.fn();
 vi.mock("../contexts/ToastContext", () => ({ useToast: () => toastSpy }));
@@ -154,26 +154,27 @@ describe("useTimer", () => {
     });
     expect(result.current.timer.isRunning).toBe(true);
 
-    let discarded: boolean | undefined;
+    let discarded: TimerState | null | undefined;
     await act(async () => {
       discarded = await result.current.cancel();
     });
 
-    expect(discarded).toBe(true);
+    // The discarded session comes back so the caller can offer to restore it.
+    expect(discarded).toMatchObject({ projectId: "proj-1", description: "Working" });
     expect(result.current.timer.isRunning).toBe(false);
     expect(localStorage.getItem(TIMER_STORAGE_KEY)).toBeNull();
     expect(onStop).not.toHaveBeenCalled();
   });
 
-  it("cancel reports false when there is no session to discard", async () => {
+  it("cancel reports nothing discarded when there was no session", async () => {
     const { result } = renderHook(() => useTimer(vi.fn()));
 
-    let discarded: boolean | undefined;
+    let discarded: TimerState | null | undefined;
     await act(async () => {
       discarded = await result.current.cancel();
     });
 
-    expect(discarded).toBe(false);
+    expect(discarded).toBeNull();
     expect(svc.deleteTimeEntry).not.toHaveBeenCalled();
   });
 
@@ -421,5 +422,76 @@ describe("useTimer", () => {
       }));
     });
     expect(result.current.timer.isRunning).toBe(false);
+  });
+});
+
+describe("useTimer restore", () => {
+  it("re-opens a discarded session on its original start time, not on now", async () => {
+    const { result } = renderHook(() => useTimer(vi.fn()));
+
+    await act(async () => {
+      result.current.start("proj-1", "task-1", "Working", 2, "PROJ-9");
+    });
+    await waitFor(() => expect(result.current.timer.draftEntryId).toBe("draft-1"));
+    const startedAt = result.current.timer.startTime;
+
+    let discarded: TimerState | null | undefined;
+    await act(async () => { discarded = await result.current.cancel(); });
+
+    vi.mocked(svc.createDraftTimerEntry).mockResolvedValueOnce("draft-2");
+    let restored: boolean | undefined;
+    await act(async () => { restored = await result.current.restore(discarded!); });
+
+    expect(restored).toBe(true);
+    expect(result.current.timer.isRunning).toBe(true);
+    // The whole point of the undo: the clock picks up where it was. A restore
+    // that re-stamped startTime would silently shorten the session it claims
+    // to have brought back.
+    expect(result.current.timer.startTime).toBe(startedAt);
+    expect(result.current.timer.projectId).toBe("proj-1");
+    expect(result.current.timer.taskId).toBe("task-1");
+    expect(result.current.timer.ratio).toBe(2);
+    expect(result.current.timer.jiraTicket).toBe("PROJ-9");
+    expect(JSON.parse(localStorage.getItem(TIMER_STORAGE_KEY)!).startTime).toBe(startedAt);
+  });
+
+  it("writes a fresh draft row, since cancel deleted the old one", async () => {
+    const { result } = renderHook(() => useTimer(vi.fn()));
+
+    await act(async () => { result.current.start("proj-1", null, "Working"); });
+    await waitFor(() => expect(result.current.timer.draftEntryId).toBe("draft-1"));
+
+    let discarded: TimerState | null | undefined;
+    await act(async () => { discarded = await result.current.cancel(); });
+    expect(svc.deleteTimeEntry).toHaveBeenCalledWith("draft-1");
+
+    vi.mocked(svc.createDraftTimerEntry).mockResolvedValueOnce("draft-2");
+    await act(async () => { await result.current.restore(discarded!); });
+
+    // Stamped with the original start time, so the restored row spans the same
+    // minutes the discarded one did.
+    expect(svc.createDraftTimerEntry).toHaveBeenLastCalledWith(
+      expect.objectContaining({ projectId: "proj-1", startTime: discarded!.startTime })
+    );
+    await waitFor(() => expect(result.current.timer.draftEntryId).toBe("draft-2"));
+  });
+
+  it("refuses to restore over a session the user has already started since", async () => {
+    const { result } = renderHook(() => useTimer(vi.fn()));
+
+    await act(async () => { result.current.start("proj-1", null, "First"); });
+    let discarded: TimerState | null | undefined;
+    await act(async () => { discarded = await result.current.cancel(); });
+
+    await act(async () => { result.current.start("proj-2", null, "Second"); });
+    vi.mocked(svc.createDraftTimerEntry).mockClear();
+
+    let restored: boolean | undefined;
+    await act(async () => { restored = await result.current.restore(discarded!); });
+
+    expect(restored).toBe(false);
+    expect(result.current.timer.projectId).toBe("proj-2");
+    expect(svc.createDraftTimerEntry).not.toHaveBeenCalled();
+    expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining("already running"), "error");
   });
 });
