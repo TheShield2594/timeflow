@@ -5,6 +5,7 @@ import { useTeamEntries } from "../hooks/useTeam";
 import { formatMinutes } from "../hooks";
 import { addDaysStr, localDateStr, weekStartStr } from "../utils/dates";
 import { indexById } from "../utils/entityIndex";
+import { DEFAULT_PROJECT_COLOR } from "../utils/colors";
 import {
   exportToCSV, RoundingRule, ROUNDING_LABELS,
 } from "../services/csvExport";
@@ -61,7 +62,7 @@ export const TeamPage: React.FC<Props> = ({ teamContext, projects, tasks }) => {
     try { localStorage.setItem(TEAM_ROUNDING_STORAGE_KEY, rule); } catch { /* in-memory only */ }
   };
 
-  const { entries, loading, error, refresh } = useTeamEntries(weekStart, weekEnd);
+  const { entries, loading, error, refresh } = useTeamEntries(weekStart, weekEnd, teamContext);
 
   // Exports exactly what the table shows for the visible week (every member
   // row, including the manager's own) so a manager can hand this straight to
@@ -144,7 +145,7 @@ export const TeamPage: React.FC<Props> = ({ teamContext, projects, tasks }) => {
           projectId,
           minutes,
           name: project?.name || "Unassigned",
-          color: project?.color || "#9aaa94",
+          color: project?.color || DEFAULT_PROJECT_COLOR,
         };
       })
       .filter((p) => p.minutes > 0)

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import type { TimeEntry } from "../types";
 import * as svc from "../services/dataverseService";
 import { getCurrentUser } from "../services/userService";
+import { reportTelemetry } from "../services/telemetry";
 import { useToast } from "../contexts/ToastContext";
 import { tempId, isTempId, errMsg } from "./_shared";
 
@@ -42,10 +43,21 @@ export function useTimeEntries(from?: string, to?: string) {
         const warningKey = isolationWarningKey(currentUser.environmentId, currentUser.id);
         if (!sessionStorage.getItem(warningKey) && svc.hasForeignUserEntries(data, currentUser.id)) {
           sessionStorage.setItem(warningKey, "1");
-          console.error(
-            "[security] getTimeEntries() returned time entries belonging to other users. " +
-            "Dataverse row-level security for ever_timeentries is misconfigured — see README \"Dataverse Security Configuration\"."
-          );
+          // Reported, not just logged. This is the one signal in the app that
+          // means the whole company's time data may be cross-visible, and until
+          // #111 it reached exactly one person: whoever happened to be looking
+          // at their own console when it fired.
+          reportTelemetry({
+            name: "data_isolation_personal",
+            severity: "error",
+            message:
+              "getTimeEntries() returned time entries belonging to other users — Dataverse row-level " +
+              "security for ever_timeentries is misconfigured (see README \"Dataverse Security Configuration\")",
+            props: {
+              rowsReturned: data.length,
+              foreignRows: data.filter((e) => e.userId && e.userId !== currentUser.id).length,
+            },
+          });
           toast("Data isolation warning: you may be seeing other users' time entries. Contact your administrator.", "error");
         }
       } catch {

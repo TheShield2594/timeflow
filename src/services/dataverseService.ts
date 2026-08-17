@@ -29,6 +29,8 @@
 import type { Project, Task, TimeEntry } from "../types";
 import { getCurrentUser, isPowerAppsHost, getDataverseOrgUrl } from "./userService";
 import { MicrosoftDataverseService } from "../generated";
+import { DEFAULT_PROJECT_COLOR } from "../utils/colors";
+import { reportTelemetry } from "./telemetry";
 
 // ---------------------------------------------------------------------------
 // Entity logical names (FetchXML, $filter on lookups) vs entity SET names
@@ -73,28 +75,72 @@ function orgUrl(): string {
 }
 
 // ---------------------------------------------------------------------------
-// Retry helper — wraps write operations with exponential backoff for transient
-// Dataverse errors (429 rate limit, 503 service unavailable).
+// Retry helper — wraps reads and writes with exponential backoff for transient
+// Dataverse failures.
+//
+// Transience comes in two flavours, and the difference decides whether a WRITE
+// may be replayed (#97):
+//
+//   "rejected"  — 429 / 503. The service refused the request before acting on
+//                 it, so nothing was applied and anything may be replayed.
+//   "ambiguous" — a dropped connection (fetch rejects with a TypeError and no
+//                 status at all), a 502 / 504 from a gateway, or the browser
+//                 reporting itself offline. The request may well have reached
+//                 Dataverse and been applied; only the answer was lost.
+//
+// Replaying an ambiguous failure is safe for reads, and for the updates and
+// deletes in this file — a PATCH with If-Match: "*" re-sends the same fields,
+// and deleteRecord() already treats a 404 as success for exactly this reason.
+// It is NOT safe for a create: a POST that landed and lost its response would
+// be written a second time, and a duplicated time entry is a wrong number on
+// someone's invoice — worse than the error toast the caller shows today. So the
+// create paths pass `idempotent: false` and keep their existing manual retry
+// (the timer's pendingStopAt latch; a toast plus a re-submit everywhere else).
+//
+// Before this split only 429 and 503 counted, which meant the single most
+// common real-world failure — a dropped connection, which carries no status —
+// was thrown straight through on the first attempt.
 // ---------------------------------------------------------------------------
-async function retryWithBackoff<T>(fn: () => Promise<T>, maxAttempts = 3): Promise<T> {
+type Transience = "rejected" | "ambiguous" | "fatal";
+
+function classifyError(err: unknown): Transience {
+  // A network-level fetch failure is a bare TypeError with no status: the
+  // request never completed, but we can't tell how far it got.
+  if (err instanceof TypeError) return "ambiguous";
+  if (!err || typeof err !== "object") return "fatal";
+  const e = err as Record<string, unknown>;
+  const status = typeof e.status === "number" ? e.status
+    : typeof e.statusCode === "number" ? e.statusCode
+    : 0;
+  // Some SDK errors carry the status in the message string instead.
+  const msg = typeof e.message === "string" ? e.message : "";
+  const has = (code: number) => status === code || msg.includes(String(code));
+
+  if (has(429) || has(503)) return "rejected";
+  if (has(502) || has(504)) return "ambiguous";
+  // Nothing recognizable, but the browser says there's no network — the error
+  // is almost certainly the outage rather than anything Dataverse decided.
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return "ambiguous";
+  return "fatal";
+}
+
+interface RetryOptions {
+  maxAttempts?: number;
+  /** False for creates: an ambiguous failure must not be replayed. */
+  idempotent?: boolean;
+}
+
+async function retryWithBackoff<T>(fn: () => Promise<T>, opts: RetryOptions = {}): Promise<T> {
+  const { maxAttempts = 3, idempotent = true } = opts;
   let delay = 1000;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       return await fn();
     } catch (err: unknown) {
-      const isTransient = (() => {
-        if (!err || typeof err !== "object") return false;
-        const e = err as Record<string, unknown>;
-        const status = typeof e.status === "number" ? e.status
-          : typeof e.statusCode === "number" ? e.statusCode
-          : 0;
-        if (status === 429 || status === 503) return true;
-        // Some SDK errors carry the status in the message string.
-        const msg = typeof e.message === "string" ? e.message : "";
-        return msg.includes("429") || msg.includes("503");
-      })();
+      const transience = classifyError(err);
+      const retryable = transience === "rejected" || (transience === "ambiguous" && idempotent);
 
-      if (!isTransient || attempt === maxAttempts) throw err;
+      if (!retryable || attempt === maxAttempts) throw err;
 
       // Respect Retry-After header when available (SDK may surface it as retryAfter).
       const retryAfterSec = (() => {
@@ -245,6 +291,13 @@ function decodeXmlAttr(value: string): string {
 // Hard ceiling so a misbehaving nextLink/paging-cookie can never loop forever.
 const MAX_PAGES = 20;
 
+// Just the message, for telemetry props — an Error's stack is noise in a
+// dashboard and a raw object stringifies to "[object Object]".
+function errText(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return typeof err === "string" ? err : JSON.stringify(err ?? {});
+}
+
 // Module-level warning sink. Wire up via setPaginationWarningHandler() so the
 // service can surface non-fatal partial-load warnings to the UI without
 // importing React or hooks.
@@ -299,8 +352,15 @@ async function listAllPages(
         // First page failure is fatal — there's nothing useful to return.
         throw err;
       }
-      // Mid-pagination error: return what we have and warn the user.
-      console.error(`Pagination error on page ${page} of ${entitySet}:`, err);
+      // Mid-pagination error: return what we have and warn the user. Reported
+      // too — the user's toast says "some entries may not be shown", which
+      // nobody can act on without knowing which table and which page (#111).
+      reportTelemetry({
+        name: "pagination_truncated",
+        severity: "error",
+        message: `Pagination failed on page ${page} of ${entitySet}`,
+        props: { entitySet, page, rowsSoFar: rows.length, reason: "page_error", error: errText(err) },
+      });
       paginationWarningHandler?.(
         "Some entries may not be shown — try narrowing your date range"
       );
@@ -331,7 +391,12 @@ async function listAllPages(
   if (morePages) {
     // Exceeded MAX_PAGES — return partial data with a warning rather than
     // throwing, so the user sees what was loaded instead of a blank page.
-    console.error(`Loading ${entitySet} exceeded ${MAX_PAGES} pages; partial data returned.`);
+    reportTelemetry({
+      name: "pagination_truncated",
+      severity: "error",
+      message: `Loading ${entitySet} exceeded ${MAX_PAGES} pages; partial data returned`,
+      props: { entitySet, page: MAX_PAGES, rowsSoFar: rows.length, reason: "max_pages" },
+    });
     paginationWarningHandler?.(
       "Some entries may not be shown — try narrowing your date range"
     );
@@ -430,7 +495,7 @@ function mapProject(r: Raw): Project {
   return {
     id: (str(r, "ever_projectsid") ?? str(r, "id")) as string,
     name: str(r, "ever_name") ?? "",
-    color: str(r, "ever_color") ?? "#6366f1",
+    color: str(r, "ever_color") ?? DEFAULT_PROJECT_COLOR,
     description: str(r, "ever_description"),
     ratio: num(r, "ever_ratio"),
     jiraTicket: str(r, "ever_jiraticket"),
@@ -569,7 +634,7 @@ export async function createProject(data: Omit<Project, "id" | "createdAt">): Pr
     orgUrl(),
     SETS.projects,
     projectToDataverse(data),
-  ));
+  ), { idempotent: false }); // POST — see retryWithBackoff's note on ambiguous failures
   // id stays "" when the connector drops the response body — see the note by
   // mergeResponseRow for what callers must do with that.
   const inputAsProject: Project = { ...data, id: "", createdAt: new Date().toISOString() };
@@ -630,7 +695,7 @@ export async function createTask(data: Omit<Task, "id">): Promise<Task> {
     orgUrl(),
     SETS.tasks,
     taskToDataverse(data),
-  ));
+  ), { idempotent: false });
   const inputAsTask: Task = { ...data, id: "" };
   const row = unwrapRow(unwrap(result, "Create task"));
   return mergeResponseRow(inputAsTask, row, mapTask(row));
@@ -821,7 +886,7 @@ export async function createTimeEntry(data: Omit<TimeEntry, "id">): Promise<Time
     orgUrl(),
     SETS.entries,
     entryToDataverse(owned),
-  ));
+  ), { idempotent: false }); // a replayed create is a duplicated billable entry
   const inputAsEntry: TimeEntry = { ...owned, id: "" };
   const merged = mergeOver(inputAsEntry, mapEntry(unwrapRow(unwrap(result, "Create entry"))));
   if (!merged.userDisplayName) merged.userDisplayName = user.displayName;
@@ -906,7 +971,7 @@ export async function createDraftTimerEntry(data: {
   if (data.taskId) raw[`ever_workitem@odata.bind`] = `/${SETS.tasks}(${data.taskId})`;
   const result = await retryWithBackoff(() => MicrosoftDataverseService.CreateRecordWithOrganization(
     PREFER_RETURN, ACCEPT, orgUrl(), SETS.entries, raw,
-  ));
+  ), { idempotent: false });
   const row = unwrapRow(unwrap(result, "Create draft timer entry"));
   const id = str(row, "ever_timeentriesid") ?? str(row, "id");
   if (id) return id;

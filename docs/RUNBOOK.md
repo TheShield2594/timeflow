@@ -61,6 +61,14 @@ git push origin v1.2.0
 5. **No "Data isolation warning" toast.** If one appears, stop and go to
    [§5.5](#55-a-user-reports-a-data-isolation-warning-toast) — that is a P0.
 
+**After a solution import** (not needed for a code-only `pac code push`), the
+smoke test is not enough: run
+[the data-isolation UAT checklist](UAT-DATA-ISOLATION.md) with two real accounts
+and file the filled-in copy with the deploy record. An import can carry a
+security role that replaces the verified one, and every check above still passes
+while the table is Organization-owned — the app's own filters hide it
+([#91](https://github.com/TheShield2594/timeflow/issues/91)).
+
 ---
 
 ## 3. Rollback
@@ -246,8 +254,10 @@ The toast means `hasForeignUserEntries()` found a row belonging to someone other
 than the signed-in user in a personal-page read, which the server-side
 `eq-userid` filter should make impossible.
 
-1. Get a screenshot and the browser console output — the detail is logged there
-   and nowhere else.
+1. Get a screenshot and the browser console output. If telemetry is configured
+   (README § Production telemetry) the same event is in the sink as
+   `data_isolation_personal`, with the row counts — check there first, and check
+   whether other users have reported it too.
 2. Verify `ever_timeentries` ownership is **User or Team**, not Organization
    (maker portal → Tables → `ever_timeentries` → Settings → Advanced options).
    Organization ownership is the failure that produces this.
@@ -255,6 +265,15 @@ than the signed-in user in a personal-page read, which the server-side
    `ever_timeentries`, not Organization scope.
 4. Until it's understood, assume every user can read every user's entries and
    decide with the data owner whether to keep the app available.
+5. Once fixed, re-run [the data-isolation UAT checklist](UAT-DATA-ISOLATION.md)
+   in full before telling anyone it's resolved — row 6 is the only check that
+   tests the boundary rather than the app's own filtering.
+
+A `data_isolation_team` event in the sink is **not** this incident: it fires when
+a Team read returned a row owned by someone who isn't a direct report, which
+indirect reports do legitimately at hierarchy depth > 1. Compare
+`unexpectedOwners` against `directReports` — a couple is the hierarchy, a large
+share of `rowsReturned` is the misconfiguration above.
 
 ### 5.6 "The Team page is missing" (a manager can't see their reports)
 
@@ -313,15 +332,32 @@ both operations. Do not redo those steps. What remains per environment:
       non-manager doesn't. (Local dev preview:
       `localStorage.setItem("tt_mock_team", "1")`.)
 
-### Row security (do this before any real data lands)
+### Row security (do this before any real data lands, and after every import)
 
 - [ ] `ever_timeentries` ownership is **User or Team**; role grants Basic
       (user-scope) Create/Read/Write/Delete.
 - [ ] `ever_projects` and `ever_workitems` are Organization-owned with Basic
       privileges — shared data, deliberately.
-- [ ] Two-account UAT sign-off: A cannot see B's entries, no isolation toast,
-      Team shows only direct reports
-      ([#91](https://github.com/TheShield2594/timeflow/issues/91)).
+- [ ] **[Two-account UAT sign-off](UAT-DATA-ISOLATION.md)** filled in and filed
+      with the deploy record: A cannot see B's entries in any view or export, no
+      isolation toast, Team shows only direct reports, and an unfiltered
+      connector call from devtools returns only the caller's own rows
+      ([#91](https://github.com/TheShield2594/timeflow/issues/91)). This is the
+      release gate — the three settings above are what you'd *expect* to be
+      true; the checklist is what proves it.
+
+### Telemetry
+
+- [ ] Set `VITE_APPINSIGHTS_CONNECTION_STRING` (or `VITE_TELEMETRY_ENDPOINT`) in
+      the build environment, so error-boundary catches, the isolation canaries
+      and truncated loads reach someone other than the affected user — see
+      README § Production telemetry
+      ([#111](https://github.com/TheShield2594/timeflow/issues/111)). Unset, the
+      app still works and still logs to the console; nobody on the project hears
+      about anything.
+- [ ] Verify: one event lands in the sink. Easiest deliberate trigger is a
+      truncated load — narrow `MAX_PAGES` locally, or check for
+      `pagination_truncated` after a very wide date range on a busy environment.
 
 ### Focus mode
 
@@ -344,8 +380,13 @@ change to the deploy, rollback, schema or security-role story.
 
 Honest list, so nobody discovers these mid-incident:
 
-- **No prod telemetry** ([#111](https://github.com/TheShield2594/timeflow/issues/111)) —
-  first line depends on the user reading their own console.
+- **Telemetry exists but may not be wired up** — `src/services/telemetry.ts`
+  routes error-boundary catches, both isolation canaries, truncated loads and a
+  failed bootstrap task load to a sink
+  ([#111](https://github.com/TheShield2594/timeflow/issues/111)), but with
+  neither environment variable set it is console-only and first line is back to
+  depending on the user reading their own console. Confirm §6 § Telemetry is
+  ticked for this environment.
 - **No schema rollback** until [#54](https://github.com/TheShield2594/timeflow/issues/54).
 - **Backup retention and auditing are unverified** — the checkboxes in §4 have
   never been filled in.

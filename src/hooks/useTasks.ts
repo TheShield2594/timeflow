@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import type { Task } from "../types";
 import * as svc from "../services/dataverseService";
+import { reportTelemetry } from "../services/telemetry";
 import { useToast } from "../contexts/ToastContext";
 import { tempId, isTempId, errMsg } from "./_shared";
 
@@ -28,10 +29,20 @@ export function useTasks() {
         return next;
       });
     }).catch((err) => {
-      // Non-fatal: the per-project lazy loads below still cover the pickers.
-      console.error("Bulk task load failed:", err);
+      // Non-fatal for the pickers — the per-project lazy loads below still
+      // cover those. But it is NOT invisible: until the lazy loads happen to
+      // fire, task names render blank across the timesheet, calendar, reports
+      // and the CSV export, and this used to be swallowed to console.error with
+      // no signal to the user and none to us (#111).
+      reportTelemetry({
+        name: "bulk_task_load_failed",
+        severity: "error",
+        message: "getAllTasks() failed at bootstrap; task names will be missing until lazily loaded",
+        props: { error: errMsg(err) },
+      });
+      toast("Some task names may be missing — reload if they don't appear.", "error");
     });
-  }, []);
+  }, [toast]);
 
   const loadTasksForProject = useCallback(async (projectId: string) => {
     if (!projectId || tasksByProject.has(projectId) || loadingRef.current.has(projectId)) return;

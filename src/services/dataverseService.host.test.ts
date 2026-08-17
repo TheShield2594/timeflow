@@ -14,6 +14,9 @@ const sdk = vi.hoisted(() => ({
   DeleteRecordWithOrganization: vi.fn(),
 }));
 
+const telemetry = vi.hoisted(() => ({ reportTelemetry: vi.fn() }));
+vi.mock("./telemetry", () => telemetry);
+
 const ORG = "https://contoso.crm.dynamics.com";
 
 vi.mock("./userService", () => ({
@@ -141,6 +144,88 @@ describe("reads retry transient failures", () => {
 
     await expect(getProjects()).rejects.toThrow();
     expect(sdk.ListRecordsWithOrganization).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #97: a dropped connection carries no status at all, and used to be thrown
+// straight through on the first attempt — the single most common real failure
+// was the one case with no retry.
+// ---------------------------------------------------------------------------
+describe("network-level failures count as transient (#97)", () => {
+  it.each([
+    ["a dropped connection (TypeError, no status)", new TypeError("Failed to fetch")],
+    ["a 502 from the gateway", httpError(502)],
+    ["a 504 gateway timeout", httpError(504)],
+  ])("retries a read after %s", async (_label, err) => {
+    vi.useFakeTimers();
+    sdk.ListRecordsWithOrganization
+      .mockRejectedValueOnce(err)
+      .mockResolvedValueOnce(page([{ ever_projectsid: "p1", ever_name: "Alpha", statecode: 0 }]));
+
+    const pending = getProjects();
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect((await pending).map((p) => p.id)).toEqual(["p1"]);
+    expect(sdk.ListRecordsWithOrganization).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries an update, which re-sends the same fields under If-Match", async () => {
+    vi.useFakeTimers();
+    sdk.UpdateOnlyRecordWithOrganization
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(ok({ ever_timeentriesid: "e1" }));
+
+    const pending = updateTimeEntry("e1", { description: "Did stuff" });
+    await vi.advanceTimersByTimeAsync(2000);
+    await pending;
+
+    expect(sdk.UpdateOnlyRecordWithOrganization).toHaveBeenCalledTimes(2);
+  });
+
+  // The whole point of the two-tier classification: a create that may already
+  // have landed must not be replayed, because the duplicate is a billable hour
+  // nobody worked.
+  it("does NOT retry a create after an ambiguous failure", async () => {
+    vi.useFakeTimers();
+    sdk.CreateRecordWithOrganization.mockRejectedValue(new TypeError("Failed to fetch"));
+
+    const pending = createProject({ name: "Alpha", color: "#719500", isActive: true });
+    const assertion = expect(pending).rejects.toThrow();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await assertion;
+
+    expect(sdk.CreateRecordWithOrganization).toHaveBeenCalledTimes(1);
+  });
+
+  // 429/503 are different: the service said it refused the request, so nothing
+  // was written and a create is safe to replay.
+  it("still retries a create after an explicit 429", async () => {
+    vi.useFakeTimers();
+    sdk.CreateRecordWithOrganization
+      .mockRejectedValueOnce(httpError(429))
+      .mockResolvedValueOnce(ok({ ever_projectsid: "p9", ever_name: "Alpha" }));
+
+    const pending = createProject({ name: "Alpha", color: "#719500", isActive: true });
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect((await pending).id).toBe("p9");
+    expect(sdk.CreateRecordWithOrganization).toHaveBeenCalledTimes(2);
+  });
+
+  it("treats an unrecognizable failure as transient while the browser reports itself offline", async () => {
+    vi.useFakeTimers();
+    const onLine = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    sdk.ListRecordsWithOrganization
+      .mockRejectedValueOnce(new Error("something went wrong"))
+      .mockResolvedValueOnce(page([{ ever_projectsid: "p1", ever_name: "Alpha", statecode: 0 }]));
+
+    const pending = getProjects();
+    await vi.advanceTimersByTimeAsync(2000);
+    await pending;
+
+    expect(sdk.ListRecordsWithOrganization).toHaveBeenCalledTimes(2);
+    onLine.mockRestore();
   });
 });
 
@@ -348,6 +433,18 @@ describe("FetchXML paging (#69)", () => {
     expect(sdk.ListRecordsWithOrganization).toHaveBeenCalledTimes(20);
     expect(entries).toHaveLength(20 * FETCH_PAGE_SIZE);
     expect(warnings).toHaveLength(1);
+    // The user's toast says "some entries may not be shown", which nobody can
+    // act on without knowing which table and how far it got (#111).
+    expect(telemetry.reportTelemetry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "pagination_truncated",
+        props: expect.objectContaining({
+          entitySet: "ever_timeentrieses",
+          reason: "max_pages",
+          rowsSoFar: 20 * FETCH_PAGE_SIZE,
+        }),
+      })
+    );
   });
 
   it("keeps the rows already read when a later page fails", async () => {
@@ -359,6 +456,12 @@ describe("FetchXML paging (#69)", () => {
 
     expect(entries).toHaveLength(FETCH_PAGE_SIZE);
     expect(warnings).toHaveLength(1);
+    expect(telemetry.reportTelemetry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "pagination_truncated",
+        props: expect.objectContaining({ reason: "page_error", page: 1 }),
+      })
+    );
   });
 
   it("still pages $skiptoken-style reads off @odata.nextLink", async () => {

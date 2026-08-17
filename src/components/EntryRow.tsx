@@ -2,6 +2,7 @@ import React from "react";
 import type { TimeEntry, Project, Task } from "../types";
 import { formatMinutes } from "../hooks";
 import { IconPencil, IconPlay, IconX } from "./Icons";
+import { DEFAULT_PROJECT_COLOR } from "../utils/colors";
 
 interface Props {
   entry: TimeEntry;
@@ -51,7 +52,7 @@ export const EntryRow: React.FC<Props> = ({ entry, project, task, timerBusy, onC
   <div className="entry-row">
     <div
       className="entry-row__accent"
-      style={{ background: project?.color || "#6366f1" }}
+      style={{ background: project?.color || DEFAULT_PROJECT_COLOR }}
     />
     <div className="entry-row__main">
       <span className="entry-row__desc">

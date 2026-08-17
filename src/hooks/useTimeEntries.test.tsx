@@ -5,7 +5,9 @@ import * as svc from "../services/dataverseService";
 import type { TimeEntry } from "../types";
 
 const toastSpy = vi.fn();
+const telemetrySpy = vi.fn();
 vi.mock("../contexts/ToastContext", () => ({ useToast: () => toastSpy }));
+vi.mock("../services/telemetry", () => ({ reportTelemetry: (e: unknown) => telemetrySpy(e) }));
 vi.mock("../services/userService", () => ({
   getCurrentUser: () => ({ id: "user-1", email: "user1@example.com", displayName: "User One", environmentId: "env-1" }),
 }));
@@ -124,7 +126,6 @@ describe("useTimeEntries", () => {
   });
 
   it("warns once when the server returns another user's entries (row security misconfigured)", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const foreign = makeEntry({ id: "e1", userId: "user-2" });
     vi.mocked(svc.getTimeEntries).mockResolvedValue([foreign]);
     vi.mocked(svc.hasForeignUserEntries).mockReturnValue(true);
@@ -134,13 +135,20 @@ describe("useTimeEntries", () => {
 
     expect(svc.hasForeignUserEntries).toHaveBeenCalledWith([foreign], "user-1");
     expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining("isolation"), "error");
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("row-level security"));
+    // The canary has to leave the browser, not just the render — this is the
+    // one signal that means the whole company's time data may be visible (#111).
+    expect(telemetrySpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "data_isolation_personal",
+        severity: "error",
+        message: expect.stringContaining("row-level security"),
+        props: expect.objectContaining({ foreignRows: 1, rowsReturned: 1 }),
+      })
+    );
 
     toastSpy.mockClear();
     await act(async () => { await result.current.refresh(); });
     expect(toastSpy).not.toHaveBeenCalled(); // only warns once per session
-
-    errorSpy.mockRestore();
   });
 
   it("does not warn when hasForeignUserEntries reports no foreign entries", async () => {

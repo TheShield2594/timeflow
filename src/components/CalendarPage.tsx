@@ -11,6 +11,7 @@ import {
 } from "../utils/dates";
 import { Gap, findUntrackedGaps } from "../utils/gaps";
 import { byId, indexById } from "../utils/entityIndex";
+import { DEFAULT_PROJECT_COLOR } from "../utils/colors";
 import {
   ColumnRect,
   MINUTES_PER_DAY,
@@ -1413,7 +1414,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
         moving={movePreview?.entryId === entry.id}
         col={col}
         cols={cols}
-        color={project?.color || "#6366f1"}
+        color={project?.color || DEFAULT_PROJECT_COLOR}
         projectName={project?.name || "Untitled"}
         taskName={task?.name}
         onClick={handleEntryClick}
@@ -1667,7 +1668,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
                   };
               return (
                 <div key={entry.id} className="cal-mobile-entry" {...interactiveProps}>
-                  <div className="cal-mobile-entry__bar" style={{ background: project?.color || "#6366f1" }} />
+                  <div className="cal-mobile-entry__bar" style={{ background: project?.color || DEFAULT_PROJECT_COLOR }} />
                   <div className="cal-mobile-entry__info">
                     <div className="cal-mobile-entry__name">{entry.description || project?.name || "Untitled"}</div>
                     <div className="cal-mobile-entry__time">

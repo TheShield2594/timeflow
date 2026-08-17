@@ -39,6 +39,14 @@ against user-visible behaviour, as described in
 - Light and dark themes; reduced-motion support.
 - Dataverse backend via the `@microsoft/power-apps` SDK, with a localStorage
   mock for local development.
+- Production telemetry: error-boundary catches, both data-isolation canaries,
+  truncated Dataverse loads and a failed bootstrap task load now reach a sink
+  (Application Insights or any JSON webhook) instead of dying in the affected
+  user's console. Optional — unconfigured, the app behaves exactly as before
+  ([#111](https://github.com/TheShield2594/timeflow/issues/111)).
+- An offline banner. Nothing is disabled: a save attempted during an outage
+  still goes through the retry path
+  ([#97](https://github.com/TheShield2594/timeflow/issues/97)).
 
 ### Fixed
 
@@ -69,6 +77,22 @@ Findings from the [2026-08-12 application review](docs/reviews/2026-08-12-multi-
 - "Discard session" on the idle prompt is undoable — the toast offers Restore,
   which re-opens the session on its original start time
   ([#105](https://github.com/TheShield2594/timeflow/issues/105)).
+- Dropped connections, 502s and 504s are retried. Only 429 and 503 counted as
+  transient before, so the most common real-world failure — a connection that
+  drops, carrying no status code at all — was thrown through on the first
+  attempt. Creates are deliberately excluded from the new class: a POST that
+  landed and lost its response would be written twice, and a duplicated time
+  entry is a wrong number on an invoice
+  ([#97](https://github.com/TheShield2594/timeflow/issues/97)).
+- A render crash on one page no longer blanks the whole app, including the
+  running timer. The error boundary moved above `useAppBootstrap` and `useTheme`
+  (which could previously throw straight past it to a white screen), each page
+  got its own, and the screen leads with a plain sentence instead of a raw
+  exception message ([#111](https://github.com/TheShield2594/timeflow/issues/111)).
+- A failed bootstrap task load says so. It was swallowed to `console.error`,
+  leaving task names blank across the timesheet, calendar, reports and CSV
+  export with no signal at all
+  ([#111](https://github.com/TheShield2594/timeflow/issues/111)).
 
 ### Accessibility
 
@@ -84,6 +108,21 @@ Findings from the [2026-08-12 application review](docs/reviews/2026-08-12-multi-
   focus-mode summary, what Archive does and why Continue is disabled onto
   affordances a keyboard can reach
   ([#106](https://github.com/TheShield2594/timeflow/issues/106)).
+- `--warn` is a real token, defined per theme. Five rules referenced it as
+  `var(--warn, #b45309)` while nothing defined it, so all five resolved to the
+  literal in both themes — 3.25:1 on the dark surface, and carried by exactly
+  the text a manager scans for ("3 missing days"). The inline fallbacks are gone
+  so the next missing definition fails visibly
+  ([#101](https://github.com/TheShield2594/timeflow/issues/101)).
+- Token hygiene in the same round: dropped `--accent`/`--accent-hover`, which
+  were defined and referenced nowhere while the real accent lived elsewhere;
+  stopped re-hardcoding `--sidebar-active-text`; gave `.entry-row__task` and
+  `.timesheet__load-more` the CSS rules their markup had always assumed; and
+  replaced seven scattered default-project-colour literals (six of them an
+  indigo that isn't in the Everence palette) with one `DEFAULT_PROJECT_COLOR`
+  — a neutral that clears 3:1 in both themes, so a project with no colour set
+  reads as exactly that
+  ([#101](https://github.com/TheShield2594/timeflow/issues/101)).
 
 ### Performance
 
@@ -96,6 +135,12 @@ Findings from the [2026-08-12 application review](docs/reviews/2026-08-12-multi-
 
 - Cleared 15 npm advisories in dev tooling and added Dependabot so new ones
   don't pile up ([#107](https://github.com/TheShield2594/timeflow/issues/107)).
+- The Team read has an isolation assertion of its own. `hasForeignUserEntries()`
+  only ever covered the personal path; `findUnexpectedOwners()` now flags any
+  owner who is neither the caller nor a direct report. It logs rather than
+  blocks, and warns rather than alarms, because indirect reports trip it
+  legitimately at hierarchy depth > 1
+  ([#91](https://github.com/TheShield2594/timeflow/issues/91)).
 
 ### Documentation
 
@@ -105,6 +150,11 @@ Findings from the [2026-08-12 application review](docs/reviews/2026-08-12-multi-
 - Added this changelog, [CONTRIBUTING](CONTRIBUTING.md) and a release/tagging
   process.
 - Added [`docs/DECISIONS.md`](docs/DECISIONS.md) for settled and open decisions.
+- Added a [data-isolation UAT sign-off checklist](docs/UAT-DATA-ISOLATION.md),
+  including the unfiltered devtools read that tests the Dataverse boundary
+  itself rather than the app's own filtering, and made the README's role table a
+  release gate re-verified after every solution import rather than a one-time
+  setup note ([#91](https://github.com/TheShield2594/timeflow/issues/91)).
 - Reconstructed what could be recovered of the
   [July design-review register](docs/reviews/design-review-register.md), and
   adopted `P0`/`P1`/`P2` issue labels so commits and the tracker share one

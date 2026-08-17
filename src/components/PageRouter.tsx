@@ -5,6 +5,7 @@ import { CalendarPage } from "./CalendarPage";
 import { ReportsPage } from "./ReportsPage";
 import { ProjectsPage } from "./ProjectsPage";
 import { TeamPage } from "./TeamPage";
+import { ErrorBoundary } from "./ErrorBoundary";
 import type { TeamContext } from "../services/teamService";
 import type { TimeEntry, Project, Task } from "../types";
 
@@ -81,7 +82,18 @@ interface Props {
   teamContext?: TeamContext | null;
 }
 
-export const PageRouter: React.FC<Props> = ({
+/**
+ * One boundary per page rather than one for the app: a render crash in Reports
+ * used to blank the entire app, including the running timer, and the only way
+ * back was a reload (#111). Keyed on `page` so navigating away clears it.
+ */
+export const PageRouter: React.FC<Props> = (props) => (
+  <ErrorBoundary scope={props.page} resetKey={props.page}>
+    <PageContent {...props} />
+  </ErrorBoundary>
+);
+
+const PageContent: React.FC<Props> = ({
   page, loading, rangeLoading, entries, projects, tasks, timerBusy,
   onDelete, onEdit, onCreate, onContinue, onAddProject, onEditProject,
   onArchiveProject, onRestoreProject, onAddTask, onDeleteTask, onRenameTask, onLoadTasksForProject, onGoToProjects,

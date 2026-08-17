@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect, useRef, Component } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { TimerBar } from "./components/TimerBar";
 import { IdleModal } from "./components/IdleModal";
 import { FocusModal } from "./components/FocusModal";
@@ -8,6 +8,7 @@ import { IconHome, IconTimesheet, IconCalendar, IconChart, IconFolder, IconMoon,
 import { formatMinutes, useProjects, useTasks, useTimeEntries, useTimer } from "./hooks";
 import { useTeamContext } from "./hooks/useTeam";
 import { useIdleGuard } from "./hooks/useIdleGuard";
+import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { useAppBootstrap } from "./hooks/useAppBootstrap";
 import { useTheme, Theme } from "./hooks/useTheme";
 import { setPaginationWarningHandler } from "./services/dataverseService";
@@ -16,46 +17,6 @@ import { DataRangeProvider, useDataRange } from "./contexts/DataRangeContext";
 
 import type { TimeEntry, Task, Project } from "./types";
 import logoUrl from "./everence-logo.png";
-
-// ---------------------------------------------------------------------------
-// ErrorBoundary — catches render errors and shows a recovery screen instead
-// of leaving the user on a blank white page (issue #31).
-// ---------------------------------------------------------------------------
-interface EBState { error: Error | null }
-class ErrorBoundary extends Component<{ children: React.ReactNode }, EBState> {
-  constructor(props: { children: React.ReactNode }) {
-    super(props);
-    this.state = { error: null };
-  }
-
-  static getDerivedStateFromError(error: Error): EBState {
-    return { error };
-  }
-
-  componentDidCatch(error: Error, info: React.ErrorInfo): void {
-    console.error("[ErrorBoundary]", error, info.componentStack);
-  }
-
-  render() {
-    if (this.state.error) {
-      return (
-        <div className="error-boundary">
-          <div className="error-boundary__card">
-            <h2 className="error-boundary__title">Something went wrong</h2>
-            <p className="error-boundary__detail">{this.state.error.message}</p>
-            <button
-              className="btn-primary"
-              onClick={() => window.location.reload()}
-            >
-              Reload app
-            </button>
-          </div>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
 
 const NAV_ITEMS: { key: Page; label: string; icon: React.ReactNode }[] = [
   { key: "overview", label: "Overview", icon: <IconHome /> },
@@ -82,14 +43,14 @@ const App: React.FC = () => {
     return <div className="loading">Signing in…</div>;
   }
 
+  // The error boundary lives in main.tsx now, above this component — see the
+  // note there.
   return (
-    <ErrorBoundary>
-      <ToastProvider>
-        <DataRangeProvider>
-          <AppContent theme={theme} onToggleTheme={toggleTheme} />
-        </DataRangeProvider>
-      </ToastProvider>
-    </ErrorBoundary>
+    <ToastProvider>
+      <DataRangeProvider>
+        <AppContent theme={theme} onToggleTheme={toggleTheme} />
+      </DataRangeProvider>
+    </ToastProvider>
   );
 };
 
@@ -97,6 +58,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
   const [page, setPage] = useState<Page>("overview");
   const toast = useToast();
   const { from, to } = useDataRange();
+  const online = useOnlineStatus();
 
   useEffect(() => {
     setPaginationWarningHandler((msg) => toast(msg, "error"));
@@ -264,6 +226,24 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
       </aside>
 
       <div className="main">
+        {/* Says the outage out loud instead of letting it surface as a failed
+            save the user blames on the app (#97). Nothing is disabled: a save
+            attempted while this is up still goes through the retry path, and
+            `navigator.onLine === true` is no promise that Dataverse is up
+            either.
+
+            The region is rendered unconditionally and only its text is
+            conditional — assistive technology only announces a live region that
+            was already in the accessibility tree when its content changed, the
+            same rule the toast container documents (#100). */}
+        <div className="offline-banner" role="status" data-offline={!online}>
+          {!online && (
+            <>
+              You appear to be offline. The timer keeps running locally, but
+              saves won&rsquo;t reach Dataverse until the connection is back.
+            </>
+          )}
+        </div>
         <TimerBar
           projects={projects}
           tasks={tasks}

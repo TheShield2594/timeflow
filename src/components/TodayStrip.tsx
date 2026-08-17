@@ -3,6 +3,7 @@ import type { TimeEntry, Project } from "../types";
 import { formatMinutes } from "../hooks";
 import { WORK_DAY_START_MIN, WORK_DAY_END_MIN, findUntrackedGaps, spanOnDate } from "../utils/gaps";
 import { indexById } from "../utils/entityIndex";
+import { DEFAULT_PROJECT_COLOR } from "../utils/colors";
 
 interface Block {
   start: number;
@@ -54,7 +55,7 @@ export const TodayStrip: React.FC<Props> = ({ entries, projects, date, nowMinute
         return {
           start,
           end,
-          color: project?.color || "#6366f1",
+          color: project?.color || DEFAULT_PROJECT_COLOR,
           label: `${project?.name || "Untracked project"} · ${formatClock(start)}–${formatClock(end)} · ${formatMinutes(end - start)}`,
         };
       })

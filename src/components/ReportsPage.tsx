@@ -23,6 +23,7 @@ import {
   resolveEffectiveRange,
   sumMinutes,
 } from "../utils/reportAggregations";
+import { DEFAULT_PROJECT_COLOR } from "../utils/colors";
 import { HelpTip } from "./HelpTip";
 import { IconChart, IconDownload } from "./Icons";
 import { SvgBarChart } from "./SvgBarChart";
@@ -427,7 +428,7 @@ export const ReportsPage: React.FC<Props> = ({ entries, projects, tasks, rangeLo
           <div className="task-breakdown">
             {taskBreakdown.map(({ task, project, minutes }) => (
               <div key={task!.id} className="task-breakdown__row">
-                <div className="task-breakdown__dot" style={{ background: project?.color || "#6366f1" }} />
+                <div className="task-breakdown__dot" style={{ background: project?.color || DEFAULT_PROJECT_COLOR }} />
                 <div className="task-breakdown__info">
                   <div className="task-breakdown__name">{task!.name}</div>
                   <div className="task-breakdown__project">{project?.name}</div>
