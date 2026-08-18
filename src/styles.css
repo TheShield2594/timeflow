@@ -129,8 +129,9 @@
   --text-faint:     #5f6d5c;
   --text-decor:     #9aaa94;
 
-  --accent:         var(--ev-green);
-  --accent-hover:   var(--ev-green-dark);
+  /* --accent / --accent-hover used to live here, defined and referenced
+     nowhere: a token claiming to be *the* accent while the actual accent came
+     from --accent-solid and --ev-green-dark is worse than no token at all. */
   --accent-soft:    var(--ev-green-soft);
 
   /* Fill for SOLID white-on-green controls — the primary button, the Start
@@ -154,6 +155,16 @@
 
   --danger:         #CC4F00;
   --success:        #358450;
+
+  /* Amber for "needs attention but nothing failed" — missing team days, a
+     break in progress, an Outlook overlay that couldn't load. Five rules
+     referenced this as `var(--warn, #b45309)` while the token itself was never
+     defined, so every one of them resolved to the literal in both themes:
+     5.0:1 on white, but 3.25:1 on the dark --surface, failing WCAG 1.4.3 on
+     the very text a manager scans for ("3 missing days"). Defined per theme
+     here like --ev-pumpkin-text, and the inline fallbacks are gone so the next
+     missing definition fails visibly instead of silently (#101). */
+  --warn:           #8a5a00;  /* ≥4.9:1 on every light surface */
 
   /* Tinted danger/success surfaces as tokens (were rgba literals scattered
      through the file). The literals assumed a white substrate and went
@@ -316,14 +327,14 @@ input, select { font-family: inherit; }
   background: rgba(113,149,0,0.15);
   border: 1px solid rgba(113,149,0,0.28);
   border-radius: var(--radius-sm);
-  color: #b8d430;
+  color: var(--sidebar-active-text);
   font-size: 12px;
   font-weight: 600;
 }
 .sidebar__running-dot {
   width: 7px; height: 7px;
   border-radius: 50%;
-  background: #b8d430;
+  background: var(--sidebar-active-text);
   flex-shrink: 0;
   animation: blink 1.2s ease-in-out infinite;
 }
@@ -344,6 +355,23 @@ input, select { font-family: inherit; }
   padding: 28px 36px;
   display: flex;
   flex-direction: column;
+}
+/* Above the timer bar, so it reads as a condition the whole app is under
+   rather than a property of any one control. --warn, not --danger: nothing has
+   failed yet. */
+.offline-banner {
+  flex-shrink: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--warn);
+}
+/* Empty while online (see the note in App — the live region has to already
+   exist to be announced), so it takes no space and paints nothing until it
+   has something to say. */
+.offline-banner[data-offline="true"] {
+  padding: 8px 36px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
 }
 .loading {
   display: flex; align-items: center; justify-content: center;
@@ -626,6 +654,10 @@ input, select { font-family: inherit; }
 }
 .timesheet__day-total { font-weight: 700; }
 .timesheet__entries { display: flex; flex-direction: column; gap: 6px; }
+/* Wrapper around the "Load more (N more days)" button. Also had no rule until
+   #101, which left the button flush left against the last day group with no
+   separation from it. */
+.timesheet__load-more { display: flex; justify-content: center; margin-top: 4px; }
 
 /* One grid, five tracks: the 4px accent stripe, then what it was / when /
    how long / actions. The duration gets a column of its own so a day's
@@ -662,6 +694,11 @@ input, select { font-family: inherit; }
 .entry-row__meta > * + *::before { content: "·"; margin-right: 5px; color: var(--text-decor); }
 .entry-row__project { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; }
 .entry-row__dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+/* The task sits between the project (which leads, in --text) and the quieter
+   ticket/ratio detail, so it takes the meta line's --text-muted and only the
+   ellipsis behaviour it needs — a long task name shouldn't push the ticket
+   and ratio off the row. It had no rule at all until #101. */
+.entry-row__task { color: var(--text-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .entry-row__ticket { font-family: var(--mono); font-size: 11px; }
 .entry-row__ratio { color: var(--text-faint); }
 
@@ -1950,8 +1987,25 @@ input, select { font-family: inherit; }
 .error-boundary__detail {
   font-size: 13px;
   color: var(--text-muted);
-  margin-bottom: 24px;
+  margin-bottom: 16px;
 }
+/* The per-page boundary sits inside .main__content, so it must not claim the
+   viewport the way the app-level one does — the sidebar and timer bar are still
+   there and still working. */
+.error-boundary--page { min-height: 0; padding: 28px 0; align-items: flex-start; background: transparent; }
+.error-boundary--page .error-boundary__card { padding: 28px 32px; }
+
+.error-boundary__raw { font-size: 12px; color: var(--text-muted); margin-bottom: 20px; }
+.error-boundary__raw summary { cursor: pointer; color: var(--text-faint); }
+.error-boundary__raw-text {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  text-align: left;
+  word-break: break-word;
+}
+.error-boundary__actions { display: flex; gap: 8px; justify-content: center; }
 
 /* =====================================================================
    THEME TOGGLE (sidebar footer)
@@ -2181,6 +2235,7 @@ input, select { font-family: inherit; }
 
   --danger:  #e87a45;
   --success: #5cae7f;
+  --warn:    #f0b34a;  /* ≥6.7:1 on every dark surface */
 
   /* Danger/success tints re-based on the lightened dark-theme hues —
      the light-theme literals were tuned for a white substrate. */
@@ -2350,7 +2405,7 @@ input, select { font-family: inherit; }
 }
 .cal-outlook-toggle:hover { color: var(--ev-green-dark); border-color: var(--ev-green); }
 .cal-outlook-toggle--active { border-style: solid; color: var(--ev-green-dark); border-color: var(--ev-green); }
-.cal-outlook-toggle--warn { color: var(--warn, #b45309); border-color: currentcolor; }
+.cal-outlook-toggle--warn { color: var(--warn); border-color: currentcolor; }
 
 /* Mobile day-list rows for meetings */
 .cal-mobile-ghost {
@@ -2386,7 +2441,7 @@ input, select { font-family: inherit; }
 .team__week-total { font-size: 12.5px; color: var(--text-muted); font-family: var(--mono); }
 .team__missing-badge {
   font-size: 11.5px; font-weight: 700;
-  color: var(--warn, #b45309);
+  color: var(--warn);
   border: 1px solid currentcolor; border-radius: 20px; padding: 2px 10px;
 }
 .team__nav { display: flex; gap: 6px; }
@@ -2416,9 +2471,9 @@ input, select { font-family: inherit; }
   color: var(--ev-green-dark); border: 1px solid var(--ev-green); border-radius: 20px;
   padding: 0 6px;
 }
-.team__member-missing { display: block; font-size: 11px; color: var(--warn, #b45309); font-weight: 600; margin-top: 2px; }
+.team__member-missing { display: block; font-size: 11px; color: var(--warn); font-weight: 600; margin-top: 2px; }
 .team__cell { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--text-muted); }
-.team__cell--missing { color: var(--warn, #b45309); }
+.team__cell--missing { color: var(--warn); }
 .team__cell--total { font-weight: 700; color: var(--text); }
 .team__day--today { background: var(--ev-green-soft); }
 .team__empty { text-align: center !important; color: var(--text-muted); padding: 28px 0 !important; }
@@ -2451,7 +2506,7 @@ input, select { font-family: inherit; }
 }
 .focus-chip:hover { color: var(--ev-green-dark); border-color: var(--ev-green); }
 .focus-chip--on { border-style: solid; color: var(--ev-green-dark); border-color: var(--ev-green); }
-.focus-chip--break { color: var(--warn, #b45309); border-color: currentcolor; }
+.focus-chip--break { color: var(--warn); border-color: currentcolor; }
 .focus-chip__edit {
   color: var(--text-faint); padding: 2px; line-height: 1;
   background: transparent; border: none; cursor: pointer;

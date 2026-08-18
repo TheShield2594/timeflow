@@ -5,6 +5,7 @@ import { formatElapsed, parseRatioInput } from "../hooks";
 import { HelpTip } from "./HelpTip";
 import { Combobox } from "./Combobox";
 import { IconCheck, IconPencil, IconPlay, IconStop, IconX } from "./Icons";
+import { DEFAULT_PROJECT_COLOR } from "../utils/colors";
 
 const NEW_TASK_OPTION = "__new_task__";
 
@@ -454,7 +455,7 @@ export const TimerBar: React.FC<Props> = ({
             <div className="timer-bar__active-project">
               <span
                 className="timer-bar__dot"
-                style={{ background: activeProject?.color || "#6366f1" }}
+                style={{ background: activeProject?.color || DEFAULT_PROJECT_COLOR }}
               />
               {activeProject?.name}
             </div>

@@ -209,6 +209,15 @@ Correct table-level security role configuration is required to keep each user's 
 | `ever_projects` | Organization | Basic (Create / Read / Write / Delete) |
 | `ever_workitems` | Organization | Basic (Create / Read / Write / Delete) |
 
+> **This table is a release gate, not a setup note.** Re-verify it after **every
+> solution import into every environment** — an import can bring a security role
+> that replaces the one you checked last time, and nothing in the app will say
+> so. The sign-off procedure, including the two-account UAT and the unfiltered
+> devtools read that tests the boundary itself rather than the app's own
+> filtering, is [docs/UAT-DATA-ISOLATION.md](docs/UAT-DATA-ISOLATION.md)
+> ([#91](https://github.com/TheShield2594/timeflow/issues/91)). A deploy without
+> a filled-in checklist has not verified isolation; it has assumed it.
+
 **Why this matters:** Without user-scope ownership on `ever_timeentries`, the app's `eq-userid` read filter (see "Row security matters" above) has no per-user `ownerid` to match against, and every user can read every other user's time entries.
 
 **How to verify in the maker portal:**
@@ -216,6 +225,7 @@ Correct table-level security role configuration is required to keep each user's 
 2. Open **Settings** → **Advanced options** → confirm *Ownership* is set to **User or Team**.
 3. In your Security Role, confirm the `ever_timeentries` row is set to **User** scope for Read/Write/Create/Delete.
 4. Repeat for `ever_projects` and `ever_workitems` (Organization scope for shared data is correct).
+5. Run [the data-isolation UAT checklist](docs/UAT-DATA-ISOLATION.md) with two real accounts. Steps 1–4 confirm the *settings*; that checklist confirms the *behaviour*, which is the thing that actually protects the data.
 
 #### Manager Team view (hierarchy security)
 
@@ -247,15 +257,53 @@ set by hand or their manager silently loses visibility with no error
 `ever_timeentries` in its table list. In local dev, preview the page with
 `localStorage.setItem("tt_mock_team", "1")`.
 
-**Runtime detection (UAT sign-off check):** as defense in depth, on the first
-entries refresh `useTimeEntries` calls `hasForeignUserEntries()` to check
-whether any returned row belongs to someone other than the signed-in user.
-This should never trip given the `eq-userid` read filter above, but if it
-ever does, the UI shows a "Data isolation warning" toast and logs detail to
-the console — a signal that something is seriously wrong (e.g. an
-unexpected Dataverse behavior) and step 2/3 above need to be revisited
-before going to production. The check only runs once per page load (a guard
-flag skips it on later refreshes) so the toast doesn't repeat on every poll.
+**Runtime detection (defense in depth):** two checks watch for the boundary
+having already failed. Neither is the boundary — see
+[the UAT checklist](docs/UAT-DATA-ISOLATION.md) for that.
+
+- **Personal path:** on the first entries refresh, `useTimeEntries` calls
+  `hasForeignUserEntries()` to check whether any returned row belongs to someone
+  other than the signed-in user. This should never trip given the `eq-userid`
+  read filter above; if it does, the UI shows a "Data isolation warning" toast
+  and the event is reported as `data_isolation_personal`. Something is seriously
+  wrong and steps 2/3 above need revisiting before going to production.
+- **Team path:** `findUnexpectedOwners()` flags any owner in a Team read who is
+  neither the caller nor one of their direct reports, reported as
+  `data_isolation_team` ([#91](https://github.com/TheShield2594/timeflow/issues/91)).
+  It logs rather than alarms and shows the user nothing, because it has a benign
+  expected cause: `eq-useroruserhierarchy` resolves to the caller's whole
+  subtree, so a manager of managers legitimately sees rows owned by indirect
+  reports, who aren't in the direct-reports probe. The counts in the report
+  separate that from the dangerous cause — a couple of unexpected owners is the
+  hierarchy; a large share of the result set is a misconfiguration.
+
+Each fires once per session, scoped per environment + user, so a repeated
+refresh doesn't repeat the signal.
+
+#### Production telemetry
+
+Every failure signal used to terminate in the affected user's browser — worst of
+all the isolation canary above, which told the one person who couldn't act on it
+and nobody else ([#111](https://github.com/TheShield2594/timeflow/issues/111)).
+`src/services/telemetry.ts` is the one place a signal can leave: error-boundary
+catches, both isolation checks, partial/truncated loads, and a failed bootstrap
+task load.
+
+Both sinks are optional and read at build time. With neither set the module is
+console-only, which is what `npm run dev` wants and what an unconfigured
+environment gets:
+
+| Variable | Effect |
+|---|---|
+| `VITE_APPINSIGHTS_CONNECTION_STRING` | POSTs classic Track envelopes to that Application Insights resource. No SDK, so nothing extra ships in the bundle. |
+| `VITE_TELEMETRY_ENDPOINT` | POSTs JSON to any URL — a Logic App, a Power Automate HTTP trigger. Used when there's no connection string. |
+
+One resource can serve Dev, QA and Prod: every event carries `environmentId` and
+`userId`. Events carry ids, counts and error messages only — never entry
+descriptions, project or task names, Jira tickets or durations, since the
+description field is the one users type prose into. Identical events collapse to
+the first and a session stops sending past a cap, so a crash inside a render
+loop is one report rather than thousands.
 
 #### Entity Relationship Diagram
 

@@ -47,7 +47,7 @@ const SURFACES = ["bg", "surface", "surface-2", "surface-3"];
 describe.each(THEMES)("$name theme", ({ scope }) => {
   // 4.5:1 is WCAG 1.4.3 for body text. None of these tokens are reserved for
   // large text, so the large-text exemption doesn't apply to any of them.
-  it.each(["text", "text-muted", "text-faint"])(
+  it.each(["text", "text-muted", "text-faint", "warn"])(
     "--%s reads at AA on every surface",
     (name) => {
       const fg = token(scope, name);
@@ -68,6 +68,47 @@ describe.each(THEMES)("$name theme", ({ scope }) => {
     const decor = token(scope, "text-decor");
     expect(decor).not.toBe(token(scope, "text-faint"));
     expect(contrast(decor, token(scope, "surface"))).toBeGreaterThan(2);
+  });
+});
+
+// Declarations only. These assertions are about what the stylesheet *does*, and
+// the comments here quote the very patterns being banned.
+const rules = css.replace(/\/\*[\s\S]*?\*\//g, "");
+
+describe("token definitions", () => {
+  // The bug in #101 wasn't a badly chosen colour, it was five rules leaning on
+  // an inline fallback for a token nobody had defined — which resolved to the
+  // literal in *both* themes and so failed AA in dark mode while looking fine
+  // in review. A fallback is what let that stay invisible, so the rule is that
+  // custom properties are referenced bare.
+  it("no var() reference carries an inline fallback colour", () => {
+    const offenders = rules
+      .split("\n")
+      .filter((line: string) => /var\(\s*--[\w-]+\s*,/.test(line))
+      // A fallback that names another token is a documented alias, not a
+      // hardcoded colour hiding a missing definition.
+      .filter((line: string) => !/var\(\s*--[\w-]+\s*,\s*var\(/.test(line));
+    expect(offenders).toEqual([]);
+  });
+
+  // Every semantic token should be reachable from a rule. An unused one is
+  // either dead weight or, worse, a lie about where a colour comes from —
+  // --accent and --accent-hover claimed to be the app's accent while the actual
+  // accent lived in --accent-solid and --ev-green-dark (#101).
+  //
+  // The --ev-* block is exempt: it declares the Everence palette in full, as a
+  // reference, and stays complete whether or not every brand colour is in use.
+  it("defines no semantic token that nothing references", () => {
+    const defined = new Set(
+      [...rules.matchAll(/^\s*(--[\w-]+):/gm)].map((m) => m[1])
+    );
+    const referenced = new Set(
+      [...rules.matchAll(/var\(\s*(--[\w-]+)/g)].map((m) => m[1])
+    );
+    const unused = [...defined].filter(
+      (t) => !referenced.has(t) && !t.startsWith("--ev-")
+    );
+    expect(unused).toEqual([]);
   });
 });
 

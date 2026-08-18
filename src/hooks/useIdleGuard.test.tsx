@@ -54,7 +54,14 @@ function lastToastAction(toast: ReturnType<typeof setup>["toast"]): ToastAction 
   return withAction[withAction.length - 1][2]!;
 }
 
-beforeEach(() => { vi.useFakeTimers({ shouldAdvanceTime: true }); });
+// The clock is pinned just after RUNNING.startTime, not left at the real
+// "now". The safety monitor compares Date.now() against the timer's start, so
+// with a real clock these fixtures aged into a >12h session and every idle test
+// tripped the 12-hour auto-stop instead — the file passed when it was written
+// and started failing days later with no code change.
+beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date("2026-08-14T09:05:00.000Z") });
+});
 afterEach(() => {
   vi.useRealTimers();
   cleanup();
