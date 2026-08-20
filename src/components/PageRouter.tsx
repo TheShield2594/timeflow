@@ -3,7 +3,7 @@ import { OverviewPage } from "./OverviewPage";
 import { TimesheetPage } from "./TimesheetPage";
 import { ErrorBoundary } from "./ErrorBoundary";
 import type { TeamContext } from "../services/teamService";
-import type { TimeEntry, Project, Task } from "../types";
+import type { NewTimeEntry, Project, Task, TimeEntry } from "../types";
 
 export type Page = "overview" | "timesheet" | "calendar" | "reports" | "projects" | "team";
 
@@ -79,7 +79,7 @@ interface Props {
   timerBusy: boolean;
   onDelete: (id: string) => void;
   onEdit: (id: string, data: Partial<TimeEntry>) => Promise<TimeEntry>;
-  onCreate: (data: Omit<TimeEntry, "id">) => Promise<TimeEntry>;
+  onCreate: (data: NewTimeEntry) => Promise<TimeEntry>;
   onContinue: (entry: TimeEntry) => void;
   onAddProject: (data: Omit<Project, "id" | "createdAt">) => Promise<Project>;
   onEditProject: (id: string, data: Partial<Project>) => Promise<Project>;

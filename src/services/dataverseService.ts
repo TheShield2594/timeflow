@@ -26,7 +26,7 @@
  * see "Row security matters" in README.md. Make sure initCurrentUser() has
  * resolved before calling any of these.
  */
-import type { Project, Task, TimeEntry } from "../types";
+import type { NewTimeEntry, Project, Task, TimeEntry } from "../types";
 import { getCurrentUser, isPowerAppsHost, getDataverseOrgUrl } from "./userService";
 import { MicrosoftDataverseService } from "../generated";
 import { DEFAULT_PROJECT_COLOR } from "../utils/colors";
@@ -646,7 +646,7 @@ function taskToDataverse(t: Omit<Task, "id"> | Partial<Task>): Raw {
   return out;
 }
 
-export function entryToDataverse(e: Omit<TimeEntry, "id"> | Partial<TimeEntry>): Raw {
+export function entryToDataverse(e: NewTimeEntry | Partial<TimeEntry>): Raw {
   const out: Raw = {};
   if (e.description !== undefined) out.ever_description = e.description ?? null;
   if (e.startTime !== undefined) out.ever_starttime = e.startTime;
@@ -957,7 +957,7 @@ export function hasForeignUserEntries(entries: TimeEntry[], currentUserId: strin
   return entries.some((e) => e.userId && e.userId !== currentUserId);
 }
 
-export async function createTimeEntry(data: Omit<TimeEntry, "id">): Promise<TimeEntry> {
+export async function createTimeEntry(data: NewTimeEntry): Promise<TimeEntry> {
   const user = getCurrentUser();
   const owned = { ...data, userId: user.id, userDisplayName: user.displayName };
   if (!isPowerAppsHost()) {

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { TimeEntry } from "../types";
+import type { NewTimeEntry, TimeEntry } from "../types";
 import * as svc from "../services/dataverseService";
 import { getCurrentUser } from "../services/userService";
 import { reportTelemetry } from "../services/telemetry";
@@ -108,8 +108,14 @@ export function useTimeEntries(from?: string, to?: string) {
     }
   }, [toast]);
 
-  const createEntry = useCallback(async (data: Omit<TimeEntry, "id">) => {
-    const optimistic: TimeEntry = { ...data, id: tempId() };
+  const createEntry = useCallback(async (data: NewTimeEntry) => {
+    // Ownership is the service's to stamp, but the optimistic row has to
+    // render before the service replies — so it borrows the resolved user
+    // here rather than making every caller pass a copy (#115).
+    const user = getCurrentUser();
+    const optimistic: TimeEntry = {
+      ...data, id: tempId(), userId: user.id, userDisplayName: user.displayName,
+    };
     setEntries((prev) => [optimistic, ...prev]);
     try {
       const real = await svc.createTimeEntry(data);

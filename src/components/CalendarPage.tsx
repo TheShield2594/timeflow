@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { TimeEntry, Project, Task, OutlookEvent } from "../types";
-import { getCurrentUser } from "../services/userService";
+import type { NewTimeEntry, OutlookEvent, Project, Task, TimeEntry } from "../types";
 import {
   clearMutedSubjects, markEventLogged, muteSubject,
   readLoggedEventIds, readMutedSubjects, subjectKey,
@@ -9,6 +8,7 @@ import { useOutlookEvents } from "../hooks/useOutlookEvents";
 import {
   addDaysStr, dateAtMinutes, localDateStr, minutesBetween, minutesOfDay, toTimeInput,
 } from "../utils/dates";
+import { getCurrentUser } from "../services/userService";
 import { Gap, findUntrackedGaps } from "../utils/gaps";
 import { byId, indexById } from "../utils/entityIndex";
 import { DEFAULT_PROJECT_COLOR } from "../utils/colors";
@@ -40,7 +40,7 @@ interface Props {
   projects: Project[];
   tasks: Task[];
   rangeLoading?: boolean;
-  onCreateEntry: (data: Omit<TimeEntry, "id">) => Promise<TimeEntry>;
+  onCreateEntry: (data: NewTimeEntry) => Promise<TimeEntry>;
   onEdit: (id: string, data: Partial<TimeEntry>) => Promise<TimeEntry>;
   onDelete: (id: string) => void;
   onLoadTasksForProject?: (projectId: string) => void;
@@ -1363,8 +1363,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     if (modal?.editingId) {
       await onEdit(modal.editingId, data);
     } else {
-      const user = getCurrentUser();
-      await onCreateEntry({ ...data, userId: user.id, userDisplayName: user.displayName });
+      await onCreateEntry(data);
     }
   };
 

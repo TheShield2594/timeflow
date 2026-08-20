@@ -43,6 +43,18 @@ export interface TimeEntry {
   userDisplayName: string;
 }
 
+/**
+ * A time entry as a *caller* supplies it: no id, and no ownership.
+ *
+ * `userId` / `userDisplayName` are stamped by dataverseService from the
+ * resolved current user, and it overwrites whatever a caller passed anyway.
+ * Components used to call `getCurrentUser()` purely to fill these in — a
+ * reach past the hooks into a service singleton that throws if the user
+ * hasn't resolved, producing a copy of the ownership that was dead weight the
+ * moment the service wrote its own (#115).
+ */
+export type NewTimeEntry = Omit<TimeEntry, "id" | "userId" | "userDisplayName">;
+
 export interface TimerState {
   isRunning: boolean;
   startTime: string | null;

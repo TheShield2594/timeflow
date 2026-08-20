@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { TimeEntry, TimerState } from "../types";
+import type { NewTimeEntry, TimeEntry, TimerState } from "../types";
 import * as svc from "../services/dataverseService";
 import { getCurrentUser } from "../services/userService";
 import { useToast } from "../contexts/ToastContext";
@@ -279,7 +279,9 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
     applyTimer(stoppedTimer);
     persistTimer(stoppedTimer);
 
-    const completed: Omit<TimeEntry, "id"> = {
+    // No userId/userDisplayName: the service stamps ownership from the
+    // resolved current user and overwrites anything passed here (#115).
+    const completed: NewTimeEntry = {
       projectId: activeTimer.projectId,
       taskId: activeTimer.taskId || undefined,
       description: activeTimer.description,
@@ -289,8 +291,6 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       ratio: activeTimer.ratio,
       jiraTicket: activeTimer.jiraTicket,
       date: localDateStr(new Date(activeTimer.startTime)),
-      userId: user.id,
-      userDisplayName: user.displayName,
     };
 
     try {
@@ -323,7 +323,7 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       toast("Failed to save entry. Press Stop to retry.", "error");
       throw err;
     }
-  }, [onStop, persistTimer, applyTimer, user.id, user.displayName, toast]);
+  }, [onStop, persistTimer, applyTimer, toast]);
 
   const stop = useCallback(() => stopAt(new Date().toISOString()), [stopAt]);
 

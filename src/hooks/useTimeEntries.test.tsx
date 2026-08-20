@@ -81,8 +81,6 @@ describe("useTimeEntries", () => {
         projectId: "proj-1",
         startTime: "2024-06-01T09:00:00Z",
         date: "2024-06-01",
-        userId: "user-1",
-        userDisplayName: "User One",
       });
     });
 
@@ -95,6 +93,42 @@ describe("useTimeEntries", () => {
     });
 
     expect(result.current.entries).toEqual([real]);
+  });
+
+  it("stamps ownership on the optimistic row so callers never pass it (#115)", async () => {
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([]));
+    let resolveCreate!: (e: TimeEntry) => void;
+    vi.mocked(svc.createTimeEntry).mockReturnValue(new Promise((res) => { resolveCreate = res; }));
+
+    const { result } = renderHook(() => useTimeEntries());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => {
+      // NewTimeEntry — no userId, no userDisplayName. Components used to
+      // supply both by calling getCurrentUser() themselves, and the service
+      // overwrote them anyway.
+      void result.current.createEntry({
+        projectId: "proj-1",
+        startTime: "2024-06-01T09:00:00Z",
+        date: "2024-06-01",
+      });
+    });
+
+    // The optimistic row still renders as the user's own, before any reply.
+    expect(result.current.entries[0]).toMatchObject({
+      userId: "user-1",
+      userDisplayName: "User One",
+    });
+    // The service received exactly what the caller passed — no ownership.
+    expect(svc.createTimeEntry).toHaveBeenCalledWith({
+      projectId: "proj-1",
+      startTime: "2024-06-01T09:00:00Z",
+      date: "2024-06-01",
+    });
+
+    await act(async () => {
+      resolveCreate({ id: "real-1", projectId: "proj-1", startTime: "2024-06-01T09:00:00Z", date: "2024-06-01", userId: "user-1", userDisplayName: "User One" });
+    });
   });
 
   it("rolls back the optimistic entry and toasts on create failure", async () => {
@@ -110,8 +144,6 @@ describe("useTimeEntries", () => {
           projectId: "proj-1",
           startTime: "2024-06-01T09:00:00Z",
           date: "2024-06-01",
-          userId: "user-1",
-          userDisplayName: "User One",
         })
       ).rejects.toThrow("network down");
     });
@@ -196,8 +228,6 @@ describe("useTimeEntries with a dropped response body (#70)", () => {
         projectId: "proj-1",
         startTime: "2024-06-01T09:00:00Z",
         date: "2024-06-01",
-        userId: "user-1",
-        userDisplayName: "User One",
       });
     });
 
@@ -224,8 +254,6 @@ describe("useTimeEntries with a dropped response body (#70)", () => {
         projectId: "proj-1",
         startTime: "2024-06-01T09:00:00Z",
         date: "2024-06-01",
-        userId: "user-1",
-        userDisplayName: "User One",
       });
     });
 

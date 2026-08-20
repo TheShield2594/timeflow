@@ -1,8 +1,7 @@
 import React, { useCallback, useMemo, useState } from "react";
-import type { TimeEntry, Project, Task } from "../types";
+import type { NewTimeEntry, Project, Task, TimeEntry } from "../types";
 import { formatMinutes } from "../hooks";
 import { useRangeRequest } from "../contexts/DataRangeContext";
-import { getCurrentUser } from "../services/userService";
 import { useToday } from "../hooks/useToday";
 import { useWeeklyTarget } from "../hooks/useWeeklyTarget";
 import { addDaysStr, weekStartStr } from "../utils/dates";
@@ -20,7 +19,7 @@ interface Props {
   tasks: Task[];
   timerBusy?: boolean;
   onContinue?: (entry: TimeEntry) => void;
-  onCreate?: (data: Omit<TimeEntry, "id">) => Promise<TimeEntry>;
+  onCreate?: (data: NewTimeEntry) => Promise<TimeEntry>;
   onLoadTasksForProject?: (projectId: string) => void;
   onGoToProjects?: () => void;
 }
@@ -141,8 +140,7 @@ export const OverviewPage: React.FC<Props> = ({
 
   const handleSaveGap = useCallback(async (data: EntrySaveData) => {
     if (!onCreate) return;
-    const user = getCurrentUser();
-    await onCreate({ ...data, userId: user.id, userDisplayName: user.displayName });
+    await onCreate(data);
   }, [onCreate]);
 
   if (entries.length === 0) {
