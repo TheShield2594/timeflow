@@ -1,9 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, createEvent, fireEvent, within } from "@testing-library/react";
+import { render, screen, cleanup, createEvent, fireEvent, waitFor, within } from "@testing-library/react";
 import { CalendarPage } from "./CalendarPage";
 import { DataRangeProvider } from "../contexts/DataRangeContext";
 
-vi.mock("../services/userService", () => ({
+// The SDK's app entrypoint has an extensionless internal import that Node's
+// ESM resolver can't follow, which is why userService used to be replaced
+// wholesale here. Stubbing just that one module lets the real userService
+// load, so the mock below can spread it.
+vi.mock("@microsoft/power-apps/app", () => ({ getContext: vi.fn() }));
+vi.mock("../services/userService", async (importOriginal) => ({
+  // Spread the real module: replacing it wholesale left isPowerAppsHost
+  // undefined, and the resulting TypeError was swallowed into a hook
+  // error state that the assertions never looked at (#114).
+  ...(await importOriginal<typeof import("../services/userService")>()),
   getCurrentUser: () => ({ id: "user-1", email: "user1@example.com", displayName: "User One", environmentId: "env-1" }),
 }));
 // The hooks barrel re-exports hooks that transitively import the generated
@@ -862,5 +871,22 @@ describe("CalendarPage across a DST transition (#87)", () => {
       endTime: iso("2026-11-02", "00:00"),
       durationMinutes: 60,
     });
+  });
+});
+
+describe("Outlook overlay under the real service (#114)", () => {
+  it("loads the overlay instead of failing into an error state", async () => {
+    // This file deliberately does *not* mock outlookService, so the overlay
+    // exercises the real mock-mode path. It used to throw on the first call
+    // (the userService mock had no isPowerAppsHost), and useOutlookEvents
+    // caught that into status: "error" — which nothing here asserted on, so
+    // the whole suite passed while covering less than it looked like.
+    renderCalendar();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /^Outlook: (on|faded)$/ })).toBeTruthy();
+    });
+    // The error affordance is the tell: if it's on screen, the load threw.
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Outlook: not connected" })).toBeNull();
   });
 });

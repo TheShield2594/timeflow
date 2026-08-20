@@ -41,7 +41,6 @@ export interface TimeEntry {
   date: string;
   userId: string;
   userDisplayName: string;
-  tags?: string[];
 }
 
 export interface TimerState {
@@ -56,22 +55,6 @@ export interface TimerState {
   draftEntryId?: string;
   /** ISO timestamp recorded when a stop attempt fails, enabling retry (#32). */
   pendingStopAt?: string;
-}
-
-export interface DailyReport {
-  date: string;
-  totalMinutes: number;
-  entries: TimeEntry[];
-  projectBreakdown: { projectId: string; projectName: string; minutes: number; color: string }[];
-}
-
-export interface ProjectReport {
-  projectId: string;
-  projectName: string;
-  color: string;
-  totalMinutes: number;
-  entryCount: number;
-  tasks: { taskId: string; taskName: string; minutes: number }[];
 }
 
 export interface CurrentUser {
