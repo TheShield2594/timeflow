@@ -252,7 +252,9 @@ Environment setup (full checklist in
 (`parentsystemuserid`) is the only thing the app reads; the M365/Entra org
 chart is not consulted and does not sync into it, so every new hire needs it
 set by hand or their manager silently loses visibility with no error
-([#131](https://github.com/TheShield2594/timeflow/issues/131)). Then enable
+([#131](https://github.com/TheShield2594/timeflow/issues/131) — the recurring
+joiner/mover/leaver list and an Entra reconciliation recipe are in
+[runbook §7](docs/RUNBOOK.md#7-joiners-movers-and-leavers)). Then enable
 **Hierarchy security** with the Manager hierarchy and include
 `ever_timeentries` in its table list. In local dev, preview the page with
 `localStorage.setItem("tt_mock_team", "1")`.

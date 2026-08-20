@@ -290,8 +290,8 @@ Almost always one of two admin settings, not code — see §6:
    (`parentsystemuserid`). **The M365/Entra org chart does not sync into this
    field.** Every new hire needs it set by hand, or their manager silently loses
    visibility with no error anywhere — see
-   [#131](https://github.com/TheShield2594/timeflow/issues/131). Add it to the
-   joiner checklist.
+   [#131](https://github.com/TheShield2594/timeflow/issues/131) and the joiner
+   checklist in [§7](#7-joiners-movers-and-leavers).
 2. Hierarchy security is off, or `ever_timeentries` isn't in its table list.
 
 ---
@@ -326,7 +326,9 @@ both operations. Do not redo those steps. What remains per environment:
 - [ ] **Set Manager on each Power Apps user profile** (admin center →
       Environments → (env) → Settings → Users → open the report → Manager).
       This field — `systemuser.parentsystemuserid` — is the only thing the app
-      reads. See the sync gap in §5.6.
+      reads, and nothing populates it automatically. Setting it once here
+      covers today's people; [§7](#7-joiners-movers-and-leavers) is what keeps
+      it true for everyone who joins after.
 - [ ] **Enable Hierarchy security** ((env) → Settings → Users + permissions →
       Hierarchy security): Enable Hierarchy Modeling **On**, type **Manager
       hierarchy**, depth **1** (raise it if managers-of-managers should see
@@ -374,6 +376,90 @@ is open, because a Code App has no OS-level presence.
 
 ---
 
+## 7. Joiners, movers and leavers
+
+§6 is the one-time setup for the app. This is the recurring, per-person list —
+the thing that has to happen every time somebody joins the environment, changes
+manager, or leaves.
+
+### When someone joins
+
+- [ ] **Set their Manager** on the Power Apps user profile (admin center →
+      Environments → (env) → Settings → Users → open the user → Manager).
+
+      This is the whole reason this section exists. The M365 / Entra org chart
+      **does not sync into `systemuser.parentsystemuserid`**, and Dataverse
+      never populates it on its own
+      ([#131](https://github.com/TheShield2594/timeflow/issues/131)). Until
+      somebody sets it by hand:
+
+      - their manager's Team view silently omits them,
+      - nothing raises an error — the page renders normally with one fewer
+        person on it,
+      - and a manager reviewing their reports' week has no way to notice
+        unless they count.
+
+      The failure is quiet and it **under-reports**, which is the wrong
+      direction for a billable-time record.
+
+- [ ] If the new joiner *is* a manager, set Manager on each of their reports
+      too — the field lives on the report, not on the manager.
+- [ ] Confirm they hold the security role from §6 (row security) and, if they
+      manage people, that hierarchy depth still covers them.
+- [ ] Tell them about the one-time Office 365 Outlook consent prompt on first
+      launch, if the overlay is wired up in this environment.
+
+### When someone changes manager
+
+- [ ] Update Manager on **their** profile. Nothing else moves: their existing
+      time entries stay theirs, and the old manager loses visibility of the
+      week from the moment the field changes. Historical reports are unaffected
+      — Team reads by hierarchy at query time, so it shows the *current* shape
+      of the org, not the one in force when the time was logged.
+
+### When someone leaves
+
+- [ ] Disable the user in the environment rather than deleting them. Deleting a
+      `systemuser` orphans the ownership on their time entries, and those rows
+      are the billable record.
+- [ ] Reassign their reports' Manager field, or those people fall out of every
+      Team view at once.
+
+### Reconciling against Entra, because the checklist will be missed
+
+A checklist is only as good as the person following it, and this one fails
+silently. Run a periodic comparison so the gap surfaces as a report somebody
+reads instead of as a manager's quiet under-count:
+
+1. Pull Dataverse's view of the hierarchy — every enabled user and their
+   manager:
+
+   ```
+   GET {org}/api/data/v9.2/systemusers
+       ?$select=systemuserid,fullname,internalemailaddress,_parentsystemuserid_value
+       &$filter=isdisabled eq false and islicensed eq true
+   ```
+
+2. Pull Entra's view of the same people (`GET /users/{id}/manager` in Graph, or
+   the `Manager` column of an Entra user export).
+
+3. Report the rows where they disagree — Dataverse blank but Entra set is the
+   common case and the one that costs visibility; the two set to *different*
+   people is rarer and worse.
+
+Cheapest implementation is a scheduled Power Automate flow that emails the diff
+weekly to whoever owns the environment; a manual quarterly export and
+spreadsheet comparison is enough to start, and is strictly better than nothing.
+Anything that turns "nobody noticed" into "somebody got a list" is the win here.
+
+**Not in scope: changing what the app reads.** `parentsystemuserid` is what
+Dataverse hierarchy security itself filters on, so reading anything else would
+mean the nav gating and the server-side filter disagree — a manager could see a
+Team nav item that returns nothing, or worse, believe a list is complete when
+the security filter trimmed it.
+
+---
+
 ## Bus factor
 
 One person knows all of the above. Everything in this document exists so that a
@@ -401,3 +487,7 @@ Honest list, so nobody discovers these mid-incident:
   procedure, not a rehearsed one. It should be rehearsed once, before it is
   needed for real.
 - **Support contact is a person, not a channel.**
+- **The Entra reconciliation in §7 is a procedure, not a running job.** Until
+  somebody schedules it, the only thing standing between a new hire and a
+  manager's silently short Team view is whoever remembers the joiner checklist
+  ([#131](https://github.com/TheShield2594/timeflow/issues/131)).
