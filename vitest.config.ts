@@ -26,10 +26,10 @@ export default defineConfig({
       // trip them, and low enough to be a ratchet rather than a target. Raise
       // them when the floor rises; never lower them to make a build pass.
       thresholds: {
-        statements: 76,
-        branches: 65,
-        functions: 74,
-        lines: 79,
+        statements: 80,
+        branches: 68,
+        functions: 77,
+        lines: 83,
       },
       include: ["src/**/*.{ts,tsx}"],
       exclude: [

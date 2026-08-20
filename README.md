@@ -450,6 +450,7 @@ src/
     userService.ts         — Current user; decides host-vs-mock for everything
     csvExport.ts           — CSV export helper (rounding, escaping, BOM)
   contexts/
+    DataContext.tsx        — Entries/projects/tasks + the mutations over them
     DataRangeContext.tsx   — Which date range the pages currently need loaded
     ToastContext.tsx       — Toast notifications with undo
   hooks/                   — one hook per file; index.ts re-exports the main four
@@ -460,7 +461,11 @@ src/
     useTimer.ts            — Running timer: persistence, multi-tab sync, drafts
     useTimerSafety.ts      — Activity tracking, idle detection, 12h auto-stop
     useFocusMode.ts        — Pomodoro cadence layered on the timer
-    useOutlookEvents.ts    — Meeting overlay state, muting, logged marks
+    useOutlookEvents.ts    — The Outlook read itself, per range
+    useOutlookOverlay.ts   — Overlay mode, muting, logged marks, ghost placement
+    useCalendarDrag.ts     — Drag to create / resize / move, and the keyboard nudge
+    useGridRovingFocus.ts  — The calendar grid's single-tabbable-cell cursor
+    useUndoableMutations.ts— Delete/archive wrapped in the toast that undoes them
     useTeam.ts             — Team context: does this user have direct reports
     useTheme.ts            — Light/dark, applied before sign-in resolves
     useToday.ts            — "Today" that survives the app being open past midnight
@@ -471,7 +476,7 @@ src/
   utils/
     dates.ts               — Local-timezone date helpers (never toISOString for dates)
     gaps.ts                — Untracked-gap detection shared by Calendar + Overview
-    calendarGeometry.ts    — Calendar pointer maths (slots, snapping, day columns)
+    calendarGeometry.ts    — Calendar maths: slots, snapping, day columns, layout
     reportAggregations.ts  — Pure aggregation behind the Reports dashboard
     entityIndex.ts         — id→record Maps so render loops don't scan
   components/
