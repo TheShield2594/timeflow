@@ -34,9 +34,14 @@ export function useTimeEntries(from?: string, to?: string) {
     const seq = ++seqRef.current;
     setIsFetching(true);
     try {
-      const data = await svc.getTimeEntries({ from, to });
+      const { items: data, truncated } = await svc.getTimeEntries({ from, to });
       if (seq !== seqRef.current) return;
       setEntries(data);
+      // Handed back by the read rather than pushed through a module-global
+      // handler the app wired up on mount — that global was last-writer-wins
+      // and wasn't guaranteed to be set during bootstrap, which is exactly
+      // when the first (widest) read happens (#115).
+      if (truncated) toast(truncated.message, "error");
       try {
         const currentUser = getCurrentUser();
         sessionStorage.removeItem(`tt_isolation_warned:${currentUser.id}`);

@@ -299,13 +299,48 @@ function errText(err: unknown): string {
   return typeof err === "string" ? err : JSON.stringify(err ?? {});
 }
 
-// Module-level warning sink. Wire up via setPaginationWarningHandler() so the
-// service can surface non-fatal partial-load warnings to the UI without
-// importing React or hooks.
-type WarningHandler = (message: string) => void;
-let paginationWarningHandler: WarningHandler | null = null;
-export function setPaginationWarningHandler(fn: WarningHandler | null): void {
-  paginationWarningHandler = fn;
+/**
+ * Why a paged read stopped early, when it did.
+ *
+ * This used to be a module-global callback the UI registered on mount
+ * (`setPaginationWarningHandler`) — a workaround for "a service can't import
+ * React". Being process-global, it was last-writer-wins, it leaked between
+ * test files, and nothing guaranteed it was set when a partial load happened
+ * during bootstrap: the read that most wants to warn is the first one, and
+ * the first one is the one that can race the wiring. Returning it makes the
+ * possibility of a partial load visible in the type of every read that can
+ * produce one, and hands it to the hook that issued the read — the only place
+ * that knows which surface is waiting on it (#115).
+ */
+export interface Truncation {
+  reason: "page_error" | "max_pages";
+  entitySet: string;
+  rowsLoaded: number;
+  /** Ready to show. The wording lives here so every surface says the same thing. */
+  message: string;
+}
+
+/** A paged read: what came back, and whether that is all of it. */
+export interface Paged<T> {
+  items: T[];
+  /** Null when the read completed. Non-null means rows are missing. */
+  truncated: Truncation | null;
+}
+
+const TRUNCATION_MESSAGE = "Some entries may not be shown — try narrowing your date range";
+
+function truncation(reason: Truncation["reason"], entitySet: string, rowsLoaded: number): Truncation {
+  return { reason, entitySet, rowsLoaded, message: TRUNCATION_MESSAGE };
+}
+
+/** Map the rows of a paged read while carrying its truncation through. */
+function mapPaged<T>(paged: Paged<Raw>, fn: (row: Raw) => T): Paged<T> {
+  return { items: paged.items.map(fn), truncated: paged.truncated };
+}
+
+/** A read that completed, for the mock paths — which never page. */
+function complete<T>(items: T[]): Paged<T> {
+  return { items, truncated: null };
 }
 
 async function listAllPages(
@@ -313,7 +348,8 @@ async function listAllPages(
   filter: string | undefined,
   orderby: string | undefined,
   fetchXml?: string,
-): Promise<Raw[]> {
+  prefer?: string,
+): Promise<Paged<Raw>> {
   const rows: Raw[] = [];
   let skiptoken: string | undefined;
   let pagingCookie: string | undefined;
@@ -334,7 +370,7 @@ async function listAllPages(
         const result = await MicrosoftDataverseService.ListRecordsWithOrganization(
           orgUrl(),
           entitySet,
-          undefined, // prefer
+          prefer,
           ACCEPT,
           undefined, // x-ms-odata-metadata-full
           undefined, // MSCRM.IncludeMipSensitivityLabel
@@ -362,10 +398,7 @@ async function listAllPages(
         message: `Pagination failed on page ${page} of ${entitySet}`,
         props: { entitySet, page, rowsSoFar: rows.length, reason: "page_error", error: errText(err) },
       });
-      paginationWarningHandler?.(
-        "Some entries may not be shown — try narrowing your date range"
-      );
-      return rows;
+      return { items: rows, truncated: truncation("page_error", entitySet, rows.length) };
     }
     const items = env?.value ?? [];
     for (const item of items) rows.push(unwrapRow(item));
@@ -398,11 +431,27 @@ async function listAllPages(
       message: `Loading ${entitySet} exceeded ${MAX_PAGES} pages; partial data returned`,
       props: { entitySet, page: MAX_PAGES, rowsSoFar: rows.length, reason: "max_pages" },
     });
-    paginationWarningHandler?.(
-      "Some entries may not be shown — try narrowing your date range"
-    );
+    return { items: rows, truncated: truncation("max_pages", entitySet, rows.length) };
   }
-  return rows;
+  return { items: rows, truncated: null };
+}
+
+/**
+ * The paged list primitive, for the one other service that needs it.
+ *
+ * teamService used to carry its own single-page `listRecords` — no
+ * `$skiptoken`, no paging cookie, no retry, no MAX_PAGES — while importing
+ * `escapeXmlAttr` and `mapEntry` from here. A manager's week won't hit 5,000
+ * rows, so the truncation was theoretical; the asymmetry was not. It
+ * truncated with no warning at all, and a transient 429 during a Team load
+ * surfaced as a hard error where the same failure on the timesheet would have
+ * been retried (#115).
+ */
+export function listAllRecords(
+  entitySet: string,
+  opts: { filter?: string; orderby?: string; fetchXml?: string; prefer?: string } = {},
+): Promise<Paged<Raw>> {
+  return listAllPages(entitySet, opts.filter, opts.orderby, opts.fetchXml, opts.prefer);
 }
 
 // The SDK wraps Dataverse rows (both list items and create/update responses)
@@ -649,13 +698,13 @@ function uuid(): string {
 // ---------------------------------------------------------------------------
 // Includes archived (inactive) projects so historical entries can always
 // resolve their project name and color; pickers filter on isActive.
-export async function getProjects(): Promise<Project[]> {
+export async function getProjects(): Promise<Paged<Project>> {
   if (!isPowerAppsHost()) {
-    return load<Project>(STORAGE_KEYS.projects)
-      .sort((a, b) => a.name.localeCompare(b.name));
+    return complete(
+      load<Project>(STORAGE_KEYS.projects).sort((a, b) => a.name.localeCompare(b.name))
+    );
   }
-  const rows = await listAllPages(SETS.projects, undefined, "ever_name asc");
-  return rows.map(mapProject);
+  return mapPaged(await listAllPages(SETS.projects, undefined, "ever_name asc"), mapProject);
 }
 
 export async function createProject(data: Omit<Project, "id" | "createdAt">): Promise<Project> {
@@ -703,20 +752,19 @@ export async function updateProject(id: string, data: Partial<Project>): Promise
 // Task reads include inactive (soft-deleted) tasks so historical time entries
 // can still resolve their task names in the timesheet, reports and CSV export.
 // Pickers filter on isActive client-side.
-export async function getTasksForProject(projectId: string): Promise<Task[]> {
+export async function getTasksForProject(projectId: string): Promise<Paged<Task>> {
   if (!isPowerAppsHost()) {
-    return load<Task>(STORAGE_KEYS.tasks).filter((t) => t.projectId === projectId);
+    return complete(load<Task>(STORAGE_KEYS.tasks).filter((t) => t.projectId === projectId));
   }
-  const rows = await listAllPages(SETS.tasks, `_ever_project_value eq ${odataGuid(projectId)}`, "ever_name asc");
-  return rows.map(mapTask);
+  const filter = `_ever_project_value eq ${odataGuid(projectId)}`;
+  return mapPaged(await listAllPages(SETS.tasks, filter, "ever_name asc"), mapTask);
 }
 
-export async function getAllTasks(): Promise<Task[]> {
+export async function getAllTasks(): Promise<Paged<Task>> {
   if (!isPowerAppsHost()) {
-    return load<Task>(STORAGE_KEYS.tasks);
+    return complete(load<Task>(STORAGE_KEYS.tasks));
   }
-  const rows = await listAllPages(SETS.tasks, undefined, "ever_name asc");
-  return rows.map(mapTask);
+  return mapPaged(await listAllPages(SETS.tasks, undefined, "ever_name asc"), mapTask);
 }
 
 export async function createTask(data: Omit<Task, "id">): Promise<Task> {
@@ -847,7 +895,7 @@ export function escapeXmlAttr(value: string): string {
     .replace(/'/g, "&apos;");
 }
 
-export async function getTimeEntries(opts: { from?: string; to?: string } = {}): Promise<TimeEntry[]> {
+export async function getTimeEntries(opts: { from?: string; to?: string } = {}): Promise<Paged<TimeEntry>> {
   const user = getCurrentUser();
   // Always apply a date range — default to the last 30 days to avoid
   // unbounded fetches for large orgs.
@@ -858,9 +906,11 @@ export async function getTimeEntries(opts: { from?: string; to?: string } = {}):
   const to = opts.to ?? fmtDate(today);
 
   if (!isPowerAppsHost()) {
-    return load<TimeEntry>(STORAGE_KEYS.entries)
-      .filter((e) => e.userId === user.id && e.date >= from && e.date <= to)
-      .sort((a, b) => b.startTime.localeCompare(a.startTime));
+    return complete(
+      load<TimeEntry>(STORAGE_KEYS.entries)
+        .filter((e) => e.userId === user.id && e.date >= from && e.date <= to)
+        .sort((a, b) => b.startTime.localeCompare(a.startTime))
+    );
   }
   // Filters server-side via FetchXML's eq-userid operator, which Dataverse
   // resolves to "the calling user" itself. This is a genuine data-level
@@ -881,8 +931,7 @@ export async function getTimeEntries(opts: { from?: string; to?: string } = {}):
         '<order attribute="ever_starttime" descending="true" />' +
       '</entity>' +
     '</fetch>';
-  const rows = await listAllPages(SETS.entries, undefined, undefined, fetchXml);
-  return rows.map((r) => {
+  return mapPaged(await listAllPages(SETS.entries, undefined, undefined, fetchXml), (r) => {
     const entry = mapEntry(r);
     if (!entry.userDisplayName) entry.userDisplayName = user.displayName;
     return entry;

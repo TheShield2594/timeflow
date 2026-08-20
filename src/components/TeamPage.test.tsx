@@ -20,7 +20,13 @@ vi.mock("../generated", () => ({ MicrosoftDataverseService: {} }));
 
 const getTeamTimeEntries = vi.fn<(from: string, to: string) => Promise<TeamEntry[]>>();
 vi.mock("../services/teamService", () => ({
-  getTeamTimeEntries: (from: string, to: string) => getTeamTimeEntries(from, to),
+  // The service returns `{ items, truncated }` (#115); these tests care about
+  // the rows, so the wrapper supplies the envelope and each test keeps
+  // returning a plain array.
+  getTeamTimeEntries: async (from: string, to: string) => ({
+    items: await getTeamTimeEntries(from, to),
+    truncated: null,
+  }),
 }));
 
 beforeEach(() => {

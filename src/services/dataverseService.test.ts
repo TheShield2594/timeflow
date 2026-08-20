@@ -245,7 +245,7 @@ describe("task soft delete (dev mock path)", () => {
 
   it("deactivateTask flags the task inactive instead of removing the record", async () => {
     await deactivateTask("t1");
-    const all = await getAllTasks();
+    const all = (await getAllTasks()).items;
     expect(all).toHaveLength(2);
     expect(all.find((t) => t.id === "t1")?.isActive).toBe(false);
     expect(all.find((t) => t.id === "t2")?.isActive).toBe(true);
@@ -254,19 +254,19 @@ describe("task soft delete (dev mock path)", () => {
   it("reactivateTask restores the same record (delete-undo flow)", async () => {
     await deactivateTask("t1");
     await reactivateTask("t1");
-    const all = await getAllTasks();
+    const all = (await getAllTasks()).items;
     expect(all.find((t) => t.id === "t1")?.isActive).toBe(true);
   });
 
   it("getTasksForProject still returns inactive tasks so old entries resolve their names", async () => {
     await deactivateTask("t1");
-    const tasks = await getTasksForProject("p1");
+    const tasks = (await getTasksForProject("p1")).items;
     expect(tasks.map((t) => t.id).sort()).toEqual(["t1", "t2"]);
   });
 
   it("deactivating a missing task is a no-op rather than an error", async () => {
     await expect(deactivateTask("nope")).resolves.toBeUndefined();
-    expect(await getAllTasks()).toHaveLength(2);
+    expect((await getAllTasks()).items).toHaveLength(2);
   });
 
   // Update-only (If-Match) semantics in the host: a missing row 404s instead
@@ -275,13 +275,13 @@ describe("task soft delete (dev mock path)", () => {
   it("reactivating a missing task 404s, matching the host's update-only semantics", async () => {
     const err = await reactivateTask("nope").catch((e) => e);
     expect(isNotFoundError(err)).toBe(true);
-    expect(await getAllTasks()).toHaveLength(2);
+    expect((await getAllTasks()).items).toHaveLength(2);
   });
 
   it("renaming a missing task 404s rather than creating one", async () => {
     const err = await updateTask("nope", { name: "Ghost" }).catch((e) => e);
     expect(isNotFoundError(err)).toBe(true);
-    expect(await getAllTasks()).toHaveLength(2);
+    expect((await getAllTasks()).items).toHaveLength(2);
   });
 });
 
@@ -296,7 +296,7 @@ describe("project archive (dev mock path)", () => {
 
   it("deactivateProject flags the project inactive instead of removing it", async () => {
     await deactivateProject("p1");
-    const all = await getProjects();
+    const all = (await getProjects()).items;
     expect(all).toHaveLength(2);
     expect(all.find((p) => p.id === "p1")?.isActive).toBe(false);
     expect(all.find((p) => p.id === "p2")?.isActive).toBe(true);
@@ -305,19 +305,19 @@ describe("project archive (dev mock path)", () => {
   it("reactivateProject restores the same record (archive-undo flow)", async () => {
     await deactivateProject("p1");
     await reactivateProject("p1");
-    const all = await getProjects();
+    const all = (await getProjects()).items;
     expect(all.find((p) => p.id === "p1")?.isActive).toBe(true);
   });
 
   it("getProjects keeps returning archived projects for name/color resolution", async () => {
     await deactivateProject("p1");
-    expect((await getProjects()).map((p) => p.id).sort()).toEqual(["p1", "p2"]);
+    expect((await getProjects()).items.map((p) => p.id).sort()).toEqual(["p1", "p2"]);
   });
 
   it("updating a missing project 404s rather than creating one", async () => {
     const err = await updateProject("nope", { name: "Ghost" }).catch((e) => e);
     expect(isNotFoundError(err)).toBe(true);
-    expect((await getProjects()).map((p) => p.id).sort()).toEqual(["p1", "p2"]);
+    expect((await getProjects()).items.map((p) => p.id).sort()).toEqual(["p1", "p2"]);
   });
 });
 
@@ -329,7 +329,7 @@ describe("updateTask (dev mock path)", () => {
     ]));
     const updated = await updateTask("t1", { name: "New name" });
     expect(updated).toMatchObject({ id: "t1", projectId: "p1", name: "New name", isActive: true });
-    const all = await getAllTasks();
+    const all = (await getAllTasks()).items;
     expect(all[0].name).toBe("New name");
   });
 });

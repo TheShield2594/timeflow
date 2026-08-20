@@ -16,6 +16,9 @@ import { useTasks } from "./useTasks";
 import * as svc from "../services/dataverseService";
 import type { Task } from "../types";
 
+/** The paged reads return `{ items, truncated }`; nothing here is truncated. */
+const paged = <T,>(items: T[]) => ({ items, truncated: null });
+
 const toastSpy = vi.fn();
 const telemetrySpy = vi.fn();
 vi.mock("../contexts/ToastContext", () => ({ useToast: () => toastSpy }));
@@ -40,7 +43,7 @@ afterEach(() => {
 
 describe("useTasks bootstrap load", () => {
   it("groups every task by project", async () => {
-    vi.mocked(svc.getAllTasks).mockResolvedValue([task(), task({ id: "t2", projectId: "proj-2" })]);
+    vi.mocked(svc.getAllTasks).mockResolvedValue(paged([task(), task({ id: "t2", projectId: "proj-2" })]));
 
     const { result } = renderHook(() => useTasks());
 
@@ -68,7 +71,7 @@ describe("useTasks bootstrap load", () => {
 /** A hook whose bootstrap load has already settled, so each test starts from
  *  a known map rather than racing the effect. */
 async function mountedWith(initial: Task[]) {
-  vi.mocked(svc.getAllTasks).mockResolvedValue(initial);
+  vi.mocked(svc.getAllTasks).mockResolvedValue(paged(initial));
   const { result } = renderHook(() => useTasks());
   await waitFor(() => expect(result.current.tasks).toHaveLength(initial.length));
   return result;
@@ -95,7 +98,7 @@ describe("useTasks.addTask", () => {
     const result = await mountedWith([]);
     // A dropped body: the row exists server-side but came back without its id.
     vi.mocked(svc.createTask).mockImplementation(async (data) => ({ ...data, id: "" }));
-    vi.mocked(svc.getTasksForProject).mockResolvedValue([task({ id: "server-9", name: "New" })]);
+    vi.mocked(svc.getTasksForProject).mockResolvedValue(paged([task({ id: "server-9", name: "New" })]));
 
     await act(async () => { await result.current.addTask({ projectId: "proj-1", name: "New", isActive: true }); });
 
@@ -228,7 +231,7 @@ describe("useTasks.loadTasksForProject", () => {
 
   it("lazily fills a project the bulk load missed", async () => {
     const result = await mountedWith([]);
-    vi.mocked(svc.getTasksForProject).mockResolvedValue([task({ id: "t9", projectId: "proj-9" })]);
+    vi.mocked(svc.getTasksForProject).mockResolvedValue(paged([task({ id: "t9", projectId: "proj-9" })]));
 
     await act(async () => { await result.current.loadTasksForProject("proj-9"); });
 
@@ -251,8 +254,10 @@ describe("useTasks bootstrap vs. in-flight state", () => {
     // late bulk result must not clobber the fresher list — that would drop an
     // optimistic add made in the meantime.
     let releaseBulk!: (all: Task[]) => void;
-    vi.mocked(svc.getAllTasks).mockReturnValue(new Promise((res) => { releaseBulk = res; }));
-    vi.mocked(svc.getTasksForProject).mockResolvedValue([task({ id: "fresh", name: "Fresh" })]);
+    vi.mocked(svc.getAllTasks).mockReturnValue(
+      new Promise((res) => { releaseBulk = (all) => res(paged(all)); })
+    );
+    vi.mocked(svc.getTasksForProject).mockResolvedValue(paged([task({ id: "fresh", name: "Fresh" })]));
 
     const { result } = renderHook(() => useTasks());
     await act(async () => { await result.current.loadTasksForProject("proj-1"); });

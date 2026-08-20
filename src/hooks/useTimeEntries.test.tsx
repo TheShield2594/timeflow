@@ -4,6 +4,9 @@ import { useTimeEntries } from "./useTimeEntries";
 import * as svc from "../services/dataverseService";
 import type { TimeEntry } from "../types";
 
+/** The paged reads return `{ items, truncated }`; nothing here is truncated. */
+const paged = <T,>(items: T[]) => ({ items, truncated: null });
+
 const toastSpy = vi.fn();
 const telemetrySpy = vi.fn();
 vi.mock("../contexts/ToastContext", () => ({ useToast: () => toastSpy }));
@@ -52,7 +55,7 @@ function makeEntry(overrides: Partial<TimeEntry> = {}): TimeEntry {
 
 describe("useTimeEntries", () => {
   it("loads entries on mount", async () => {
-    vi.mocked(svc.getTimeEntries).mockResolvedValue([makeEntry()]);
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([makeEntry()]));
 
     const { result } = renderHook(() => useTimeEntries());
 
@@ -62,7 +65,7 @@ describe("useTimeEntries", () => {
   });
 
   it("shows the new entry optimistically, then replaces it with the server record", async () => {
-    vi.mocked(svc.getTimeEntries).mockResolvedValue([]);
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([]));
     const real = makeEntry({ id: "real-1" });
     let resolveCreate!: (e: TimeEntry) => void;
     vi.mocked(svc.createTimeEntry).mockImplementation(
@@ -95,7 +98,7 @@ describe("useTimeEntries", () => {
   });
 
   it("rolls back the optimistic entry and toasts on create failure", async () => {
-    vi.mocked(svc.getTimeEntries).mockResolvedValue([]);
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([]));
     vi.mocked(svc.createTimeEntry).mockRejectedValue(new Error("network down"));
 
     const { result } = renderHook(() => useTimeEntries());
@@ -120,7 +123,7 @@ describe("useTimeEntries", () => {
   it("restores a deleted entry at its original position on delete failure", async () => {
     const first = makeEntry({ id: "e1" });
     const second = makeEntry({ id: "e2" });
-    vi.mocked(svc.getTimeEntries).mockResolvedValue([first, second]);
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([first, second]));
     vi.mocked(svc.deleteTimeEntry).mockRejectedValue(new Error("delete failed"));
 
     const { result } = renderHook(() => useTimeEntries());
@@ -136,7 +139,7 @@ describe("useTimeEntries", () => {
 
   it("warns once when the server returns another user's entries (row security misconfigured)", async () => {
     const foreign = makeEntry({ id: "e1", userId: "user-2" });
-    vi.mocked(svc.getTimeEntries).mockResolvedValue([foreign]);
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([foreign]));
     vi.mocked(svc.hasForeignUserEntries).mockReturnValue(true);
 
     const { result } = renderHook(() => useTimeEntries());
@@ -162,7 +165,7 @@ describe("useTimeEntries", () => {
 
   it("does not warn when hasForeignUserEntries reports no foreign entries", async () => {
     const own = makeEntry({ id: "e1", userId: "user-1" });
-    vi.mocked(svc.getTimeEntries).mockResolvedValue([own]);
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([own]));
     vi.mocked(svc.hasForeignUserEntries).mockReturnValue(false);
 
     const { result } = renderHook(() => useTimeEntries());
@@ -175,7 +178,7 @@ describe("useTimeEntries", () => {
 
 describe("useTimeEntries with a dropped response body (#70)", () => {
   it("keeps the optimistic temp id and re-reads the range when no server id comes back", async () => {
-    vi.mocked(svc.getTimeEntries).mockResolvedValue([]);
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([]));
     // The create succeeded server-side but the connector dropped the body, so
     // the service can only report id: "".
     vi.mocked(svc.createTimeEntry).mockResolvedValue(
@@ -186,7 +189,7 @@ describe("useTimeEntries with a dropped response body (#70)", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     const reconciled = makeEntry({ id: "real-7", description: "Saved but unnamed" });
-    vi.mocked(svc.getTimeEntries).mockResolvedValue([reconciled]);
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([reconciled]));
 
     await act(async () => {
       await result.current.createEntry({
@@ -204,8 +207,10 @@ describe("useTimeEntries with a dropped response body (#70)", () => {
   });
 
   it("refuses to edit or delete an entry whose id is still unknown", async () => {
-    vi.mocked(svc.getTimeEntries).mockResolvedValue([]);
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([]));
     vi.mocked(svc.createTimeEntry).mockResolvedValue(makeEntry({ id: "" }));
+
+
 
     const { result } = renderHook(() => useTimeEntries());
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -239,7 +244,7 @@ describe("useTimeEntries with a dropped response body (#70)", () => {
 
   it("merges an update over the existing entry instead of replacing it", async () => {
     const existing = makeEntry({ id: "e1", description: "Original", durationMinutes: 60, ratio: 2 });
-    vi.mocked(svc.getTimeEntries).mockResolvedValue([existing]);
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([existing]));
     // Dropped body on the patch: only the fields we sent come back.
     vi.mocked(svc.updateTimeEntry).mockResolvedValue(
       { id: "e1", description: "Edited" } as TimeEntry

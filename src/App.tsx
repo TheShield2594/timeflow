@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import React, { useState, useMemo, useCallback, useRef } from "react";
 import { TimerBar } from "./components/TimerBar";
 import { IdleModal } from "./components/IdleModal";
 import { FocusModal } from "./components/FocusModal";
@@ -11,7 +11,6 @@ import { useIdleGuard } from "./hooks/useIdleGuard";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { useAppBootstrap } from "./hooks/useAppBootstrap";
 import { useTheme, Theme } from "./hooks/useTheme";
-import { setPaginationWarningHandler } from "./services/dataverseService";
 import { ToastProvider, useToast } from "./contexts/ToastContext";
 import { DataRangeProvider, useDataRange } from "./contexts/DataRangeContext";
 
@@ -59,11 +58,6 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
   const toast = useToast();
   const { from, to } = useDataRange();
   const online = useOnlineStatus();
-
-  useEffect(() => {
-    setPaginationWarningHandler((msg) => toast(msg, "error"));
-    return () => setPaginationWarningHandler(null);
-  }, [toast]);
 
   const { projects, addProject, editProject, archiveProject, restoreProject } = useProjects();
   const { tasks, addTask, deleteTask, restoreTask, renameTask, loadTasksForProject } = useTasks();

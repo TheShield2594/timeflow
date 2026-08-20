@@ -8,6 +8,9 @@ import { findUnexpectedOwners, useTeamEntries } from "./useTeam";
 import * as team from "../services/teamService";
 import type { TeamContext, TeamEntry } from "../services/teamService";
 
+/** The paged reads return `{ items, truncated }`; nothing here is truncated. */
+const paged = <T,>(items: T[]) => ({ items, truncated: null });
+
 const telemetrySpy = vi.fn();
 vi.mock("../services/telemetry", () => ({ reportTelemetry: (e: unknown) => telemetrySpy(e) }));
 // The SDK's app entrypoint has an extensionless internal import that Node's
@@ -23,6 +26,8 @@ vi.mock("../services/userService", async (importOriginal) => ({
   getCurrentUser: () => ({ id: "user-1", email: "u@example.com", displayName: "User One", environmentId: "env-1" }),
 }));
 vi.mock("../services/teamService", () => ({ getTeamTimeEntries: vi.fn() }));
+
+
 
 const CONTEXT: TeamContext = {
   myUserId: "me",
@@ -83,7 +88,7 @@ describe("useTeamEntries isolation assertion", () => {
 
   it("reports unexpected owners once per session, without blocking the load", async () => {
     const data = [entry("report-a"), entry("stranger")];
-    vi.mocked(team.getTeamTimeEntries).mockResolvedValue(data);
+    vi.mocked(team.getTeamTimeEntries).mockResolvedValue(paged(data));
 
     const { result, rerender } = renderHook(
       ({ from }: { from: string }) => useTeamEntries(from, "2026-06-07", CONTEXT),
@@ -115,7 +120,7 @@ describe("useTeamEntries isolation assertion", () => {
   });
 
   it("stays quiet when every row belongs to the caller or a direct report", async () => {
-    vi.mocked(team.getTeamTimeEntries).mockResolvedValue([entry("me"), entry("report-b")]);
+    vi.mocked(team.getTeamTimeEntries).mockResolvedValue(paged([entry("me"), entry("report-b")]));
 
     const { result } = renderHook(() => useTeamEntries("2026-06-01", "2026-06-07", CONTEXT));
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -126,7 +131,7 @@ describe("useTeamEntries isolation assertion", () => {
   // Before the probe resolves, every owner would look unexpected — including
   // the caller's own rows.
   it("does not assert anything before the team context resolves", async () => {
-    vi.mocked(team.getTeamTimeEntries).mockResolvedValue([entry("stranger")]);
+    vi.mocked(team.getTeamTimeEntries).mockResolvedValue(paged([entry("stranger")]));
 
     const { result } = renderHook(() => useTeamEntries("2026-06-01", "2026-06-07", null));
     await waitFor(() => expect(result.current.loading).toBe(false));

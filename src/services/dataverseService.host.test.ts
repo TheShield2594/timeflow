@@ -29,7 +29,7 @@ vi.mock("../generated", () => ({ MicrosoftDataverseService: sdk }));
 const {
   updateTimeEntry, updateTask, updateProject, deactivateTask,
   getProjects, getOpenTimerEntry, isNotFoundError,
-  getTimeEntries, extractPagingCookie, setPaginationWarningHandler, escapeXmlAttr,
+  getTimeEntries, extractPagingCookie, escapeXmlAttr,
   createProject, createTask, createDraftTimerEntry, getTasksForProject, odataGuid,
 } = await import("./dataverseService");
 
@@ -121,7 +121,7 @@ describe("reads retry transient failures", () => {
 
     const pending = getProjects();
     await vi.advanceTimersByTimeAsync(2000);
-    const projects = await pending;
+    const projects = (await pending).items;
 
     expect(sdk.ListRecordsWithOrganization).toHaveBeenCalledTimes(2);
     expect(projects.map((p) => p.id)).toEqual(["p1"]);
@@ -166,7 +166,7 @@ describe("network-level failures count as transient (#97)", () => {
     const pending = getProjects();
     await vi.advanceTimersByTimeAsync(2000);
 
-    expect((await pending).map((p) => p.id)).toEqual(["p1"]);
+    expect((await pending).items.map((p) => p.id)).toEqual(["p1"]);
     expect(sdk.ListRecordsWithOrganization).toHaveBeenCalledTimes(2);
   });
 
@@ -343,16 +343,11 @@ describe("extractPagingCookie", () => {
 });
 
 describe("FetchXML paging (#69)", () => {
-  let warnings: string[];
-
   beforeEach(() => {
-    warnings = [];
-    setPaginationWarningHandler((msg) => warnings.push(msg));
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
   afterEach(() => {
-    setPaginationWarningHandler(null);
     vi.restoreAllMocks();
   });
 
@@ -371,11 +366,11 @@ describe("FetchXML paging (#69)", () => {
     // malformed request here and warned about truncation that never happened.
     sdk.ListRecordsWithOrganization.mockResolvedValue(fetchPage(3));
 
-    const entries = await getTimeEntries({ from: "2026-06-01", to: "2026-06-30" });
+    const { items: entries, truncated } = await getTimeEntries({ from: "2026-06-01", to: "2026-06-30" });
 
     expect(entries).toHaveLength(3);
     expect(sdk.ListRecordsWithOrganization).toHaveBeenCalledTimes(1);
-    expect(warnings).toEqual([]);
+    expect(truncated).toBeNull();
   });
 
   it("pages on a full page, echoing the decoded inner cookie", async () => {
@@ -383,7 +378,7 @@ describe("FetchXML paging (#69)", () => {
       .mockResolvedValueOnce(fetchPage(FETCH_PAGE_SIZE))
       .mockResolvedValueOnce(fetchPage(2));
 
-    const entries = await getTimeEntries({ from: "2026-06-01", to: "2026-06-30" });
+    const { items: entries, truncated } = await getTimeEntries({ from: "2026-06-01", to: "2026-06-30" });
 
     expect(entries).toHaveLength(FETCH_PAGE_SIZE + 2);
     expect(sdk.ListRecordsWithOrganization).toHaveBeenCalledTimes(2);
@@ -397,7 +392,7 @@ describe("FetchXML paging (#69)", () => {
     );
     expect(secondFetch).not.toContain("istracking");
     expect(secondFetch).not.toContain("%25");
-    expect(warnings).toEqual([]);
+    expect(truncated).toBeNull();
   });
 
   it("echoes a cookie containing $ verbatim", async () => {
@@ -417,22 +412,25 @@ describe("FetchXML paging (#69)", () => {
   it("warns rather than silently truncating when a full page has no usable cookie", async () => {
     sdk.ListRecordsWithOrganization.mockResolvedValue(fetchPage(FETCH_PAGE_SIZE, null));
 
-    const entries = await getTimeEntries({ from: "2026-06-01", to: "2026-06-30" });
+    const { items: entries, truncated } = await getTimeEntries({ from: "2026-06-01", to: "2026-06-30" });
 
     expect(entries).toHaveLength(FETCH_PAGE_SIZE);
     expect(sdk.ListRecordsWithOrganization).toHaveBeenCalledTimes(1);
-    expect(warnings).toHaveLength(1);
+    // Returned, not pushed at a module-global handler that may not be wired
+    // up yet — this is the read that most often runs during bootstrap (#115).
+    expect(truncated).toMatchObject({ entitySet: "ever_timeentrieses", rowsLoaded: FETCH_PAGE_SIZE });
+    expect(truncated?.message).toMatch(/may not be shown/);
   });
 
   it("warns when the page ceiling is hit with data still pending", async () => {
     sdk.ListRecordsWithOrganization.mockResolvedValue(fetchPage(FETCH_PAGE_SIZE));
 
-    const entries = await getTimeEntries({ from: "2026-06-01", to: "2026-06-30" });
+    const { items: entries, truncated } = await getTimeEntries({ from: "2026-06-01", to: "2026-06-30" });
 
     // MAX_PAGES = 20, every page full and cookied.
     expect(sdk.ListRecordsWithOrganization).toHaveBeenCalledTimes(20);
     expect(entries).toHaveLength(20 * FETCH_PAGE_SIZE);
-    expect(warnings).toHaveLength(1);
+    expect(truncated?.reason).toBe("max_pages");
     // The user's toast says "some entries may not be shown", which nobody can
     // act on without knowing which table and how far it got (#111).
     expect(telemetry.reportTelemetry).toHaveBeenCalledWith(
@@ -452,10 +450,10 @@ describe("FetchXML paging (#69)", () => {
       .mockResolvedValueOnce(fetchPage(FETCH_PAGE_SIZE))
       .mockRejectedValue(httpError(400));
 
-    const entries = await getTimeEntries({ from: "2026-06-01", to: "2026-06-30" });
+    const { items: entries, truncated } = await getTimeEntries({ from: "2026-06-01", to: "2026-06-30" });
 
     expect(entries).toHaveLength(FETCH_PAGE_SIZE);
-    expect(warnings).toHaveLength(1);
+    expect(truncated?.reason).toBe("page_error");
     expect(telemetry.reportTelemetry).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "pagination_truncated",
@@ -475,11 +473,11 @@ describe("FetchXML paging (#69)", () => {
       })
       .mockResolvedValueOnce(page([{ ever_projectsid: "p2", ever_name: "B", statecode: 0 }]));
 
-    const projects = await getProjects();
+    const { items: projects, truncated } = await getProjects();
 
     expect(projects.map((p) => p.id)).toEqual(["p1", "p2"]);
     expect(sdk.ListRecordsWithOrganization.mock.calls[1][12]).toBe("tok1");
-    expect(warnings).toEqual([]);
+    expect(truncated).toBeNull();
   });
 });
 

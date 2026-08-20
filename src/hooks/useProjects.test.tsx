@@ -4,6 +4,9 @@ import { useProjects } from "./useProjects";
 import * as svc from "../services/dataverseService";
 import type { Project } from "../types";
 
+/** The paged reads return `{ items, truncated }`; nothing here is truncated. */
+const paged = <T,>(items: T[]) => ({ items, truncated: null });
+
 const toastSpy = vi.fn();
 vi.mock("../contexts/ToastContext", () => ({ useToast: () => toastSpy }));
 vi.mock("../services/dataverseService", () => ({
@@ -32,7 +35,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
 
 describe("useProjects", () => {
   it("loads projects on mount", async () => {
-    vi.mocked(svc.getProjects).mockResolvedValue([makeProject()]);
+    vi.mocked(svc.getProjects).mockResolvedValue(paged([makeProject()]));
 
     const { result } = renderHook(() => useProjects());
 
@@ -42,7 +45,7 @@ describe("useProjects", () => {
   });
 
   it("shows the new project optimistically, then replaces it with the server record", async () => {
-    vi.mocked(svc.getProjects).mockResolvedValue([]);
+    vi.mocked(svc.getProjects).mockResolvedValue(paged([]));
     const real = makeProject({ id: "real-1", name: "New" });
     let resolveCreate!: (p: Project) => void;
     vi.mocked(svc.createProject).mockImplementation(
@@ -69,7 +72,7 @@ describe("useProjects", () => {
   });
 
   it("rolls back the optimistic project and toasts on create failure", async () => {
-    vi.mocked(svc.getProjects).mockResolvedValue([]);
+    vi.mocked(svc.getProjects).mockResolvedValue(paged([]));
     vi.mocked(svc.createProject).mockRejectedValue(new Error("network down"));
 
     const { result } = renderHook(() => useProjects());
@@ -87,7 +90,7 @@ describe("useProjects", () => {
 
   it("rolls back an optimistic edit and restores the original on failure", async () => {
     const original = makeProject({ name: "Original" });
-    vi.mocked(svc.getProjects).mockResolvedValue([original]);
+    vi.mocked(svc.getProjects).mockResolvedValue(paged([original]));
     vi.mocked(svc.updateProject).mockRejectedValue(new Error("save failed"));
 
     const { result } = renderHook(() => useProjects());
@@ -104,7 +107,7 @@ describe("useProjects", () => {
   });
 
   it("archiveProject optimistically flags the project inactive and keeps it in the list", async () => {
-    vi.mocked(svc.getProjects).mockResolvedValue([makeProject()]);
+    vi.mocked(svc.getProjects).mockResolvedValue(paged([makeProject()]));
 
     const { result } = renderHook(() => useProjects());
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -119,7 +122,7 @@ describe("useProjects", () => {
   });
 
   it("rolls the archive back and toasts when the server call fails", async () => {
-    vi.mocked(svc.getProjects).mockResolvedValue([makeProject()]);
+    vi.mocked(svc.getProjects).mockResolvedValue(paged([makeProject()]));
     vi.mocked(svc.deactivateProject).mockRejectedValueOnce(new Error("offline"));
 
     const { result } = renderHook(() => useProjects());
@@ -134,7 +137,7 @@ describe("useProjects", () => {
   });
 
   it("restoreProject reactivates an archived project", async () => {
-    vi.mocked(svc.getProjects).mockResolvedValue([makeProject({ isActive: false })]);
+    vi.mocked(svc.getProjects).mockResolvedValue(paged([makeProject({ isActive: false })]));
 
     const { result } = renderHook(() => useProjects());
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -148,7 +151,7 @@ describe("useProjects", () => {
   });
 
   it("rolls the restore back and toasts when the server call fails", async () => {
-    vi.mocked(svc.getProjects).mockResolvedValue([makeProject({ isActive: false })]);
+    vi.mocked(svc.getProjects).mockResolvedValue(paged([makeProject({ isActive: false })]));
     vi.mocked(svc.reactivateProject).mockRejectedValueOnce(new Error("offline"));
 
     const { result } = renderHook(() => useProjects());
@@ -165,14 +168,14 @@ describe("useProjects", () => {
 
 describe("useProjects with a dropped response body (#70)", () => {
   it("keeps the temp id and re-reads the list when no server id comes back", async () => {
-    vi.mocked(svc.getProjects).mockResolvedValue([]);
+    vi.mocked(svc.getProjects).mockResolvedValue(paged([]));
     vi.mocked(svc.createProject).mockResolvedValue(makeProject({ id: "", name: "New" }));
 
     const { result } = renderHook(() => useProjects());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     const reconciled = makeProject({ id: "real-3", name: "New" });
-    vi.mocked(svc.getProjects).mockResolvedValue([reconciled]);
+    vi.mocked(svc.getProjects).mockResolvedValue(paged([reconciled]));
 
     let created!: Project;
     await act(async () => {
@@ -188,8 +191,10 @@ describe("useProjects with a dropped response body (#70)", () => {
   });
 
   it("refuses to edit or archive a project whose id is still unknown", async () => {
-    vi.mocked(svc.getProjects).mockResolvedValue([]);
+    vi.mocked(svc.getProjects).mockResolvedValue(paged([]));
     vi.mocked(svc.createProject).mockResolvedValue(makeProject({ id: "" }));
+
+
 
     const { result } = renderHook(() => useProjects());
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -217,7 +222,7 @@ describe("useProjects with a dropped response body (#70)", () => {
 
   it("merges an update over the existing project rather than replacing it", async () => {
     const existing = makeProject({ id: "p1", name: "Original", isActive: true });
-    vi.mocked(svc.getProjects).mockResolvedValue([existing]);
+    vi.mocked(svc.getProjects).mockResolvedValue(paged([existing]));
     // Dropped body: the service reports only what it sent, and deliberately
     // omits isActive because the row carried no statecode to derive it from.
     vi.mocked(svc.updateProject).mockResolvedValue({ id: "p1", name: "Renamed" } as Project);

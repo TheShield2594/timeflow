@@ -54,9 +54,9 @@ describe("teamService (dev mock)", () => {
 
   it("serves deterministic mock team entries with owner attribution", async () => {
     localStorage.setItem("tt_mock_team", "1");
-    const entries = await getTeamTimeEntries("2026-07-27", "2026-08-02");
+    const entries = (await getTeamTimeEntries("2026-07-27", "2026-08-02")).items;
     expect(entries.length).toBeGreaterThan(0);
-    expect(entries).toEqual(await getTeamTimeEntries("2026-07-27", "2026-08-02"));
+    expect(entries).toEqual((await getTeamTimeEntries("2026-07-27", "2026-08-02")).items);
     expect(entries.every((e) => e.ownerId && e.ownerName)).toBe(true);
     // Weekend days stay clear.
     expect(entries.some((e) => e.date === "2026-08-01" || e.date === "2026-08-02")).toBe(false);
@@ -132,7 +132,7 @@ describe("teamService (Power Apps host)", () => {
         "_ownerid_value@OData.Community.Display.V1.FormattedValue": "Avery Example",
       },
     ]));
-    const entries = await getTeamTimeEntries("2026-07-27", "2026-08-02");
+    const entries = (await getTeamTimeEntries("2026-07-27", "2026-08-02")).items;
     const fetchXml = String(listRecords.mock.calls[0]);
     expect(fetchXml).toContain('operator="eq-useroruserhierarchy"');
     expect(fetchXml).toContain('value="2026-07-27"');
@@ -141,5 +141,36 @@ describe("teamService (Power Apps host)", () => {
     expect(entries[0].ownerId).toBe(REPORT_1_ID);
     expect(entries[0].ownerName).toBe("Avery Example");
     expect(entries[0].durationMinutes).toBe(120);
+  });
+
+  it("pages the team read the same way the personal reads page (#115)", async () => {
+    // This file used to carry its own single-page listRecords: no count, no
+    // page attribute, no paging cookie, no retry, no ceiling. The tell that
+    // it now shares dataverseService's plumbing is on the wire.
+    listRecords.mockResolvedValueOnce(envelope([]));
+
+    await getTeamTimeEntries("2026-07-27", "2026-08-02");
+
+    const fetchXml = String(listRecords.mock.calls[0]);
+    expect(fetchXml).toMatch(/<fetch count="\d+" page="1"/);
+  });
+
+  it("reports a truncated team read instead of silently returning a short week", async () => {
+    // A full page with no usable paging cookie: the old code returned these
+    // 5,000 rows as if they were the whole week, with no warning at all.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fullPage = Array.from({ length: 5000 }, (_, i) => ({
+      ever_timeentriesid: `te-${i}`,
+      ever_date: "2026-07-27",
+      _ownerid_value: REPORT_1_ID,
+    }));
+    listRecords.mockResolvedValue(envelope(fullPage));
+
+    const { items, truncated } = await getTeamTimeEntries("2026-07-27", "2026-08-02");
+
+    expect(items).toHaveLength(5000);
+    expect(truncated).not.toBeNull();
+    expect(truncated?.entitySet).toBe("ever_timeentrieses");
+    errorSpy.mockRestore();
   });
 });

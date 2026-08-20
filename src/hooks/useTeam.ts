@@ -70,11 +70,14 @@ export function useTeamEntries(from: string, to: string, teamContext?: TeamConte
   entries: TeamEntry[];
   loading: boolean;
   error: string | null;
+  /** Set when the read stopped early: what's on screen is not the whole week. */
+  truncated: string | null;
   refresh: () => void;
 } {
   const [entries, setEntries] = useState<TeamEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [truncated, setTruncated] = useState<string | null>(null);
   const seqRef = useRef(0);
 
   // Read through a ref so a new context object doesn't re-trigger the fetch.
@@ -85,10 +88,16 @@ export function useTeamEntries(from: string, to: string, teamContext?: TeamConte
     const seq = ++seqRef.current;
     setLoading(true);
     setError(null);
+    setTruncated(null);
     try {
-      const data = await team.getTeamTimeEntries(fromDate, toDate);
+      const { items: data, truncated: partial } = await team.getTeamTimeEntries(fromDate, toDate);
       if (seq !== seqRef.current) return;
       setEntries(data);
+      // The Team read used to be a single un-paged page that would have
+      // truncated at 5,000 rows with no warning at all. It shares the
+      // personal reads' paging now, so it also shares their honesty about
+      // stopping early (#115).
+      setTruncated(partial?.message ?? null);
       try {
         const ctx = contextRef.current;
         // No context means the probe hasn't resolved: every owner would look
@@ -126,6 +135,7 @@ export function useTeamEntries(from: string, to: string, teamContext?: TeamConte
     } catch (err) {
       if (seq !== seqRef.current) return;
       setEntries([]);
+      setTruncated(null);
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       if (seq === seqRef.current) setLoading(false);
@@ -141,5 +151,5 @@ export function useTeamEntries(from: string, to: string, teamContext?: TeamConte
     if (from && to) load(from, to);
   }, [from, to, load]);
 
-  return { entries, loading, error, refresh };
+  return { entries, loading, error, truncated, refresh };
 }

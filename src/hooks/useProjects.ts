@@ -14,7 +14,12 @@ export function useProjects() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      setProjects(await svc.getProjects());
+      const { items, truncated } = await svc.getProjects();
+      setProjects(items);
+      // A partial project list is worse than a partial entry list: a project
+      // that didn't load is missing from every picker and every entry that
+      // references it renders without a name (#115).
+      if (truncated) toast(truncated.message, "error");
     } catch (err) {
       toast(`Could not load projects: ${errMsg(err)}`, "error");
     } finally {
