@@ -15,7 +15,10 @@ export function useTasks() {
   // CSV export — without the user first visiting a page that happens to
   // lazily fetch that project's tasks.
   useEffect(() => {
-    svc.getAllTasks().then((all) => {
+    svc.getAllTasks().then(({ items: all, truncated }) => {
+      // Missing task rows read as blank task names everywhere — the same
+      // failure the catch below reports, arrived at by a different route.
+      if (truncated) toast(truncated.message, "error");
       const grouped = new Map<string, Task[]>();
       for (const t of all) {
         if (!grouped.has(t.projectId)) grouped.set(t.projectId, []);
@@ -48,7 +51,8 @@ export function useTasks() {
     if (!projectId || tasksByProject.has(projectId) || loadingRef.current.has(projectId)) return;
     loadingRef.current.add(projectId);
     try {
-      const loaded = await svc.getTasksForProject(projectId);
+      const { items: loaded, truncated } = await svc.getTasksForProject(projectId);
+      if (truncated) toast(truncated.message, "error");
       setTasksByProject((prev) => new Map([...prev, [projectId, loaded]]));
     } catch (err) {
       toast(`Could not load tasks: ${errMsg(err)}`, "error");
@@ -82,7 +86,7 @@ export function useTasks() {
       });
       if (!real.id) {
         svc.getTasksForProject(data.projectId)
-          .then((loaded) => setTasksByProject((prev) => new Map([...prev, [data.projectId, loaded]])))
+          .then(({ items: loaded }) => setTasksByProject((prev) => new Map([...prev, [data.projectId, loaded]])))
           .catch(() => { /* the temp-id row stays until the next load */ });
       }
       return resolved;

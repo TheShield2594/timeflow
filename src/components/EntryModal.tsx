@@ -134,18 +134,18 @@ export const EntryModal: React.FC<Props> = ({ title, initial, projects, tasks, o
   // the already-saved half.
   const splitFirstSaved = useRef(false);
 
-  // Reset overnight choice whenever times change in a way that removes the conflict.
+  // The one write path into the draft. Editing any of the fields that define
+  // the saved half's time span also invalidates the split bookkeeping.
   const set = (patch: Partial<EntryDraft>) => {
     if (patch.date !== undefined || patch.startTime !== undefined || patch.endTime !== undefined) {
       splitFirstSaved.current = false;
     }
-    setDraft((d) => {
-      const next = { ...d, ...patch };
-      const stillOvernight = next.startTime && next.endTime && next.endTime !== "00:00" &&
-        timeToMinutes(next.endTime) < timeToMinutes(next.startTime);
-      if (!stillOvernight && overnightMode !== null) setOvernightMode(null);
-      return next;
-    });
+    // The updater stays pure: clearing the overnight choice used to happen
+    // inside it, which StrictMode double-invokes, and it was only harmless
+    // because the call was idempotent. The effect below already clears the
+    // mode whenever the conflict goes away, so there is nothing left to do
+    // here but compute the next draft (#114).
+    setDraft((d) => ({ ...d, ...patch }));
   };
 
   // Show the prompt automatically when an overnight conflict is first detected.

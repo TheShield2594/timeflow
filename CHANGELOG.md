@@ -93,6 +93,29 @@ Findings from the [2026-08-12 application review](docs/reviews/2026-08-12-multi-
   leaving task names blank across the timesheet, calendar, reports and CSV
   export with no signal at all
   ([#111](https://github.com/TheShield2594/timeflow/issues/111)).
+- A skewed clock no longer renders the elapsed timer as `-1:-1:-5`. `padStart`
+  never widens a `-1`, so a restored draft whose start time was a few seconds
+  ahead of the client leaked the sign through unpadded; every duration
+  formatter clamps its input now
+  ([#114](https://github.com/TheShield2594/timeflow/issues/114)).
+- `mapEntry` no longer splits `ever_date` on `"T"` unconditionally. If the
+  column is ever configured as DateTime rather than DateOnly, the prefix is a
+  UTC date and every entry west of UTC would land a day early; that case is
+  read as an instant, converted on the local clock, and reported
+  ([#114](https://github.com/TheShield2594/timeflow/issues/114)).
+- A malformed Dataverse row no longer yields a record whose `id` is
+  `undefined` typed as `string` — the Team page called `mapEntry` directly,
+  with no guard, and the first `id.startsWith(...)` threw
+  ([#114](https://github.com/TheShield2594/timeflow/issues/114)).
+- The Team read pages, retries and reports truncation like every other read.
+  It was a single un-paged request that would have truncated silently at 5,000
+  rows, and turned a transient 429 into a hard error
+  ([#115](https://github.com/TheShield2594/timeflow/issues/115)).
+- A partial Dataverse load reaches the user reliably. The warning went through
+  a module-global handler the app registered on mount — last-writer-wins, and
+  not guaranteed to be set during bootstrap, which is when the first and
+  widest read happens. Reads return it now
+  ([#115](https://github.com/TheShield2594/timeflow/issues/115)).
 
 ### Accessibility
 
@@ -130,6 +153,16 @@ Findings from the [2026-08-12 application review](docs/reviews/2026-08-12-multi-
   and focus clocks tick inside the timer bar, page components are memoized, and
   calendar drags only re-render when the pointer crosses a slot
   ([#95](https://github.com/TheShield2594/timeflow/issues/95)).
+- Widening the date range reads only the newly-uncovered span instead of the
+  whole thing. Reports' "All time" resolves to 1970→9999, which meant
+  re-reading up to 100,000 rows and discarding the 90 days already in hand;
+  switching back re-read the narrow window from scratch. Narrowing back inside
+  what's held now issues no request at all
+  ([#115](https://github.com/TheShield2594/timeflow/issues/115)).
+- The initial JS download is less than half what it was: 541.44 kB (133.15 kB
+  gzipped) to 225.44 kB (79.40 kB). Calendar, Reports, Projects and Team are
+  code-split behind the skeletons that already existed
+  ([#116](https://github.com/TheShield2594/timeflow/issues/116)).
 
 ### Security
 
@@ -168,3 +201,39 @@ Findings from the [2026-08-12 application review](docs/reviews/2026-08-12-multi-
   feature table, the client-side caveat on the 12-hour auto-stop, the hardcoded
   working-hours window, and the security model described in
   `dataverseService.ts`'s header comment.
+- Added [runbook §7](docs/RUNBOOK.md#7-joiners-movers-and-leavers) — joiners,
+  movers and leavers. The Manager field on a Power Apps user profile is what
+  the Team page reads, the M365/Entra org chart does not sync into it, and
+  nothing raises an error when it's blank: the manager's Team view is simply
+  one person short. The section carries the per-hire checklist and a
+  reconciliation recipe for catching the hires it misses
+  ([#131](https://github.com/TheShield2594/timeflow/issues/131)).
+- Documented how to regenerate `src/generated/` after a Dataverse schema
+  change — `npm run pac:regen`, where before it was an undocumented side
+  effect of running the CLI by hand
+  ([#116](https://github.com/TheShield2594/timeflow/issues/116)).
+
+### Internal
+
+- The pages read their data from a context instead of nineteen pass-through
+  props on `PageRouter`, and `CalendarPage` is down from 1,843 lines to 1,288:
+  the drag gestures, the grid cursor and the Outlook overlay are hooks with
+  tests of their own, and the week-layout maths joined the rest of the
+  calendar geometry ([#115](https://github.com/TheShield2594/timeflow/issues/115)).
+- `npm run build` fails if the web font or the logo stops inlining as base64.
+  They sit a few hundred bytes under Vite's `assetsInlineLimit`, and an
+  external asset URL 404s under the Power Apps host — so crossing that line
+  would have broken production with no other warning
+  ([#116](https://github.com/TheShield2594/timeflow/issues/116)).
+- Coverage thresholds are enforced. The reporters were configured without
+  them, so coverage could have fallen to zero with CI still green
+  ([#114](https://github.com/TheShield2594/timeflow/issues/114)).
+- Thirteen test files replaced `userService` wholesale, leaving every other
+  export undefined; in `CalendarPage.test.tsx` that meant the Outlook load
+  path threw, the hook caught it into an error state, and the tests passed
+  while asserting less than they appeared to
+  ([#114](https://github.com/TheShield2594/timeflow/issues/114)).
+- Removed dead code: `batchCreateTimeEntries`, the `DailyReport` and
+  `ProjectReport` types, `DEFAULT_RANGE`, `TimeEntry.tags`, and the legacy
+  `.bar-chart` styles the SVG chart superseded
+  ([#114](https://github.com/TheShield2594/timeflow/issues/114)).

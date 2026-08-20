@@ -43,6 +43,15 @@ npm run build         # tsc && vite build
 
 `npx vitest` (no `run`) starts the watcher.
 
+`npm run test:coverage` is what CI actually runs, and it enforces thresholds
+(`vitest.config.ts`). Raise them when the floor rises; never lower them to
+make a build pass.
+
+`npm run build` asserts that the web font and the logo still inline as base64.
+They sit a few hundred bytes under Vite's `assetsInlineLimit`, and an external
+asset URL 404s under the Power Apps host — so growing either past the limit
+would break production with no other warning (#116).
+
 ## Tests
 
 - Tests live next to what they cover, as `*.test.ts(x)`.
@@ -67,7 +76,17 @@ npm run build         # tsc && vite build
   decision; match that. No Claude/Anthropic branding anywhere in code, comments
   or commit messages.
 - **`src/generated/` is generated** by `pac code add-data-source`. Don't hand-edit
-  it; it isn't linted.
+  it; it isn't linted. To regenerate it after a Dataverse schema change:
+
+  ```bash
+  npm run pac:regen    # needs `pac` on PATH and an authenticated pac auth profile
+  ```
+
+  That re-adds each of the three tables against the connection id already in
+  `power.config.json`, then you commit the diff under `src/generated/` and
+  `.power/schemas/`. Both are checked in on purpose (#7) so a clone builds
+  without `pac`; regeneration used to be an undocumented side effect of
+  running the CLI by hand (#116).
 
 ## Commits and PRs
 

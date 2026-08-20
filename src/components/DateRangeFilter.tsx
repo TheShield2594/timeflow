@@ -10,12 +10,6 @@ export interface DateRangeState {
   customTo: string;
 }
 
-export const DEFAULT_RANGE: DateRangeState = {
-  preset: "30d",
-  customFrom: "",
-  customTo: "",
-};
-
 export const PRESET_LABEL: Record<DateRangePreset, string> = {
   "7d": "Last 7 days",
   "30d": "Last 30 days",

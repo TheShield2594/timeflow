@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Task, TimeEntry } from "../types";
+import { __setTelemetryTransportForTests } from "./telemetry";
 
 vi.mock("./userService", () => ({
   getCurrentUser: () => ({ id: "user-1", email: "user1@example.com", displayName: "User One", environmentId: "env-1" }),
@@ -11,7 +12,7 @@ vi.mock("./userService", () => ({
 vi.mock("../generated", () => ({ MicrosoftDataverseService: {} }));
 
 const {
-  mapEntry, entryToDataverse, mergeOver, hasForeignUserEntries,
+  mapEntry, mapEntryDate, entryToDataverse, mergeOver, hasForeignUserEntries,
   deactivateTask, reactivateTask, getAllTasks, getTasksForProject,
   deactivateProject, reactivateProject, getProjects, updateTask,
   updateProject, isNotFoundError,
@@ -28,6 +29,40 @@ function makeEntry(overrides: Partial<TimeEntry> = {}): TimeEntry {
     ...overrides,
   };
 }
+
+describe("mapEntryDate (#114)", () => {
+  beforeEach(() => { __setTelemetryTransportForTests(null); });
+
+  it("passes a bare DateOnly value through untouched", () => {
+    expect(mapEntryDate("2024-06-01")).toBe("2024-06-01");
+  });
+
+  it("splits every midnight-UTC spelling on the literal date", () => {
+    // All four are DateOnly serializations, and the date is the prefix even
+    // though the tests run in America/New_York where that instant is the
+    // previous evening.
+    expect(mapEntryDate("2024-06-01T00:00:00Z")).toBe("2024-06-01");
+    expect(mapEntryDate("2024-06-01T00:00:00.0000000Z")).toBe("2024-06-01");
+    expect(mapEntryDate("2024-06-01T00:00:00+00:00")).toBe("2024-06-01");
+    expect(mapEntryDate("2024-06-01T00:00Z")).toBe("2024-06-01");
+  });
+
+  it("reads a non-midnight value as an instant on the local clock, and reports it", () => {
+    const events: string[] = [];
+    __setTelemetryTransportForTests((e) => { events.push(e.name); });
+    // A DateTime (User Local) column: 2024-06-01 22:00Z is still 2024-06-01
+    // in America/New_York (18:00 EDT), which the naive split also gets right...
+    expect(mapEntryDate("2024-06-01T22:00:00Z")).toBe("2024-06-01");
+    // ...but 2024-06-02 01:00Z is 2024-06-01 21:00 EDT, and the split would
+    // move the entry a day forward. This is the bug the branch exists for.
+    expect(mapEntryDate("2024-06-02T01:00:00Z")).toBe("2024-06-01");
+    expect(events).toContain("date_column_not_dateonly");
+  });
+
+  it("falls back to the prefix when the timestamp is unparseable", () => {
+    expect(mapEntryDate("2024-06-01Tnonsense")).toBe("2024-06-01");
+  });
+});
 
 describe("mapEntry", () => {
   it("maps a full Dataverse row to a TimeEntry", () => {
@@ -65,6 +100,13 @@ describe("mapEntry", () => {
   it("strips the time component when ever_date is a full ISO timestamp", () => {
     const entry = mapEntry({ ever_date: "2024-06-01T00:00:00Z" });
     expect(entry.date).toBe("2024-06-01");
+  });
+
+  it("returns an empty id rather than undefined-typed-as-string (#114)", () => {
+    // teamService calls mapEntry directly with no mergeOver guard, so a
+    // malformed row must not hand it an id that fails `id.startsWith(...)`.
+    expect(mapEntry({}).id).toBe("");
+    expect(typeof mapEntry({}).id).toBe("string");
   });
 
   it("falls back to empty/undefined for missing optional fields", () => {
@@ -203,7 +245,7 @@ describe("task soft delete (dev mock path)", () => {
 
   it("deactivateTask flags the task inactive instead of removing the record", async () => {
     await deactivateTask("t1");
-    const all = await getAllTasks();
+    const all = (await getAllTasks()).items;
     expect(all).toHaveLength(2);
     expect(all.find((t) => t.id === "t1")?.isActive).toBe(false);
     expect(all.find((t) => t.id === "t2")?.isActive).toBe(true);
@@ -212,19 +254,19 @@ describe("task soft delete (dev mock path)", () => {
   it("reactivateTask restores the same record (delete-undo flow)", async () => {
     await deactivateTask("t1");
     await reactivateTask("t1");
-    const all = await getAllTasks();
+    const all = (await getAllTasks()).items;
     expect(all.find((t) => t.id === "t1")?.isActive).toBe(true);
   });
 
   it("getTasksForProject still returns inactive tasks so old entries resolve their names", async () => {
     await deactivateTask("t1");
-    const tasks = await getTasksForProject("p1");
+    const tasks = (await getTasksForProject("p1")).items;
     expect(tasks.map((t) => t.id).sort()).toEqual(["t1", "t2"]);
   });
 
   it("deactivating a missing task is a no-op rather than an error", async () => {
     await expect(deactivateTask("nope")).resolves.toBeUndefined();
-    expect(await getAllTasks()).toHaveLength(2);
+    expect((await getAllTasks()).items).toHaveLength(2);
   });
 
   // Update-only (If-Match) semantics in the host: a missing row 404s instead
@@ -233,13 +275,13 @@ describe("task soft delete (dev mock path)", () => {
   it("reactivating a missing task 404s, matching the host's update-only semantics", async () => {
     const err = await reactivateTask("nope").catch((e) => e);
     expect(isNotFoundError(err)).toBe(true);
-    expect(await getAllTasks()).toHaveLength(2);
+    expect((await getAllTasks()).items).toHaveLength(2);
   });
 
   it("renaming a missing task 404s rather than creating one", async () => {
     const err = await updateTask("nope", { name: "Ghost" }).catch((e) => e);
     expect(isNotFoundError(err)).toBe(true);
-    expect(await getAllTasks()).toHaveLength(2);
+    expect((await getAllTasks()).items).toHaveLength(2);
   });
 });
 
@@ -254,7 +296,7 @@ describe("project archive (dev mock path)", () => {
 
   it("deactivateProject flags the project inactive instead of removing it", async () => {
     await deactivateProject("p1");
-    const all = await getProjects();
+    const all = (await getProjects()).items;
     expect(all).toHaveLength(2);
     expect(all.find((p) => p.id === "p1")?.isActive).toBe(false);
     expect(all.find((p) => p.id === "p2")?.isActive).toBe(true);
@@ -263,19 +305,19 @@ describe("project archive (dev mock path)", () => {
   it("reactivateProject restores the same record (archive-undo flow)", async () => {
     await deactivateProject("p1");
     await reactivateProject("p1");
-    const all = await getProjects();
+    const all = (await getProjects()).items;
     expect(all.find((p) => p.id === "p1")?.isActive).toBe(true);
   });
 
   it("getProjects keeps returning archived projects for name/color resolution", async () => {
     await deactivateProject("p1");
-    expect((await getProjects()).map((p) => p.id).sort()).toEqual(["p1", "p2"]);
+    expect((await getProjects()).items.map((p) => p.id).sort()).toEqual(["p1", "p2"]);
   });
 
   it("updating a missing project 404s rather than creating one", async () => {
     const err = await updateProject("nope", { name: "Ghost" }).catch((e) => e);
     expect(isNotFoundError(err)).toBe(true);
-    expect((await getProjects()).map((p) => p.id).sort()).toEqual(["p1", "p2"]);
+    expect((await getProjects()).items.map((p) => p.id).sort()).toEqual(["p1", "p2"]);
   });
 });
 
@@ -287,7 +329,7 @@ describe("updateTask (dev mock path)", () => {
     ]));
     const updated = await updateTask("t1", { name: "New name" });
     expect(updated).toMatchObject({ id: "t1", projectId: "p1", name: "New name", isActive: true });
-    const all = await getAllTasks();
+    const all = (await getAllTasks()).items;
     expect(all[0].name).toBe("New name");
   });
 });

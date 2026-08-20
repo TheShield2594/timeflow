@@ -20,6 +20,17 @@ export default defineConfig({
       // text for the CI log, html to browse locally, lcov for any tooling
       // that wants to ingest it.
       reporter: ["text", "html", "lcov"],
+      // Without thresholds the reporters are decoration: coverage could fall
+      // to zero and CI would still be green (#114). These sit a few points
+      // under the current numbers — enough that an ordinary refactor doesn't
+      // trip them, and low enough to be a ratchet rather than a target. Raise
+      // them when the floor rises; never lower them to make a build pass.
+      thresholds: {
+        statements: 80,
+        branches: 68,
+        functions: 77,
+        lines: 83,
+      },
       include: ["src/**/*.{ts,tsx}"],
       exclude: [
         "src/**/*.test.{ts,tsx}",

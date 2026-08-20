@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
-import type { TimeEntry, Project, Task } from "../types";
+import type { NewTimeEntry, Project, Task, TimeEntry } from "../types";
 import { formatMinutes } from "../hooks";
 import { useRangeRequest } from "../contexts/DataRangeContext";
 import { useToday } from "../hooks/useToday";
 import { useWeeklyTarget } from "../hooks/useWeeklyTarget";
-import { getCurrentUser } from "../services/userService";
 import { friendlyDate, localDateStr, toTimeInput, weekStartStr } from "../utils/dates";
 import { byId, indexById } from "../utils/entityIndex";
 import { EntryModal, EntryDraft, EntrySaveData } from "./EntryModal";
@@ -24,7 +23,7 @@ interface Props {
   rangeLoading?: boolean;
   onDelete: (id: string) => void;
   onEdit: (id: string, data: Partial<TimeEntry>) => Promise<TimeEntry>;
-  onCreate: (data: Omit<TimeEntry, "id">) => Promise<TimeEntry>;
+  onCreate: (data: NewTimeEntry) => Promise<TimeEntry>;
   onContinue?: (entry: TimeEntry) => void;
   onLoadTasksForProject?: (projectId: string) => void;
   /** Navigate to the Projects page — the first-run CTA when no projects exist yet. */
@@ -153,8 +152,7 @@ export const TimesheetPage: React.FC<Props> = ({
     if (modal?.editingId) {
       await onEdit(modal.editingId, data);
     } else {
-      const user = getCurrentUser();
-      await onCreate({ ...data, userId: user.id, userDisplayName: user.displayName });
+      await onCreate(data);
     }
   };
 

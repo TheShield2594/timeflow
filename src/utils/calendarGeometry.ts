@@ -12,7 +12,8 @@
  * face and elapsed time disagree, so anything written to `durationMinutes`
  * must be derived from real instants via utils/dates (#87).
  */
-import { MINUTES_PER_DAY } from "./dates";
+import { MINUTES_PER_DAY, dateAtMinutes } from "./dates";
+import type { TimeEntry } from "../types";
 
 /** px per 30-minute slot. */
 export const SLOT_HEIGHT = 36;
@@ -81,4 +82,133 @@ export function dayIndexFromClientX(clientX: number, columns: ColumnRect[]): num
 export function clampMoveStart(startMin: number, durationMin: number): number {
   const latestStart = Math.max(0, MINUTES_PER_DAY - durationMin);
   return clamp(startMin, 0, latestStart);
+}
+
+
+// ---------------------------------------------------------------------------
+// Week layout
+//
+// Everything below turns dates and entries into positions on the grid. It
+// lived inside CalendarPage until #115; none of it touches React, and
+// layoutDay in particular is the kind of arithmetic (transitive overlap
+// clustering) that is far easier to argue with in a test than through a
+// rendered grid.
+// ---------------------------------------------------------------------------
+
+/** Monday-first week containing `anchor`, as seven local Dates. */
+export function getWeekDays(anchor: Date): Date[] {
+  const days: Date[] = [];
+  const monday = new Date(anchor);
+  monday.setDate(anchor.getDate() - ((anchor.getDay() + 6) % 7));
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    days.push(d);
+  }
+  return days;
+}
+
+/** "9 AM" for an hour of the day, for the grid's left gutter. */
+export function formatHour(h: number): string {
+  const suffix = h >= 12 ? "PM" : "AM";
+  const display = h > 12 ? h - 12 : h === 0 ? 12 : h;
+  return `${display} ${suffix}`;
+}
+
+/**
+ * Place a block of `durationMin` *elapsed* minutes starting at the instant
+ * `startDt` on `date`, pinned so it still begins no earlier than that day's
+ * midnight and ends no later than the next one.
+ *
+ * Every reschedule (drag-move, keyboard nudge) commits through here so the
+ * three fields that must agree — startTime, endTime, durationMinutes — are
+ * derived from one instant and one elapsed length. The old code built each
+ * from minutes-of-day arithmetic, which on a 23- or 25-hour day wrote a
+ * duration that contradicted its own timestamps (#87): a 01:00 → 03:00 span
+ * on a fall-back day is three hours, not two.
+ *
+ * The clamp is on instants too, so "must end by midnight" means the real
+ * midnight of that day — an hour earlier or later than 1440 wall-clock
+ * minutes when the clocks move.
+ */
+export function placeEntry(date: string, startDt: Date, durationMin: number): {
+  startTime: string; endTime: string; durationMinutes: number;
+} {
+  const dayStart = dateAtMinutes(date, 0).getTime();
+  const dayEnd = dateAtMinutes(date, MINUTES_PER_DAY).getTime();
+  const latestStart = Math.max(dayStart, dayEnd - durationMin * 60000);
+  const start = Math.min(Math.max(startDt.getTime(), dayStart), latestStart);
+  return {
+    startTime: new Date(start).toISOString(),
+    endTime: new Date(start + durationMin * 60000).toISOString(),
+    durationMinutes: durationMin,
+  };
+}
+
+// "9:15 AM" for a minutes-of-day offset. 24:00 (the end of the last slot)
+// reads as midnight rather than "0:00 AM".
+export function clockLabel(minutes: number): string {
+  const total = Math.min(minutes, 24 * 60);
+  const h24 = Math.floor(total / 60) % 24;
+  const m = total % 60;
+  const suffix = total >= 12 * 60 && total < 24 * 60 ? "PM" : "AM";
+  const display = h24 > 12 ? h24 - 12 : h24 === 0 ? 12 : h24;
+  return `${display}:${String(m).padStart(2, "0")} ${suffix}`;
+}
+
+// Describe a 30-min slot index (0-47) as a time, for gridcell aria-labels.
+export function formatSlotTime(slotIdx: number): string {
+  const totalMin = slotIdx * 30;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  const suffix = h >= 12 ? "PM" : "AM";
+  const display = h > 12 ? h - 12 : h === 0 ? 12 : h;
+  return m === 0 ? `${display}:00 ${suffix}` : `${display}:${m} ${suffix}`;
+}
+
+/** One entry's position on a day column, after overlap resolution. */
+export interface Positioned {
+  entry: TimeEntry;
+  startMin: number;
+  endMin: number;
+  running: boolean;
+  col: number;
+  cols: number;
+}
+
+/**
+ * Assign side-by-side columns to overlapping entries (Outlook-style).
+ * Entries are clustered by transitive overlap; within a cluster each entry
+ * takes the first column whose previous occupant has ended.
+ */
+export function layoutDay(items: Omit<Positioned, "col" | "cols">[]): Positioned[] {
+  const sorted = [...items].sort((a, b) => a.startMin - b.startMin || b.endMin - a.endMin);
+  const result: Positioned[] = [];
+  let cluster: Positioned[] = [];
+  let colEnds: number[] = [];
+  let clusterEnd = -1;
+
+  const flush = () => {
+    const n = Math.max(colEnds.length, 1);
+    cluster.forEach((p) => { p.cols = n; });
+    cluster = [];
+    colEnds = [];
+  };
+
+  for (const item of sorted) {
+    if (cluster.length > 0 && item.startMin >= clusterEnd) flush();
+    let col = colEnds.findIndex((end) => end <= item.startMin);
+    if (col === -1) {
+      col = colEnds.length;
+      colEnds.push(item.endMin);
+    } else {
+      colEnds[col] = item.endMin;
+    }
+    const positioned: Positioned = { ...item, col, cols: 1 };
+    cluster.push(positioned);
+    result.push(positioned);
+    clusterEnd = Math.max(clusterEnd, item.endMin);
+  }
+  flush();
+  return result;
 }

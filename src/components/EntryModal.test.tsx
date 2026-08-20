@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeAll, afterAll } from "vitest";
+import { StrictMode } from "react";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { EntryModal, type EntryDraft, type EntrySaveData } from "./EntryModal";
 import type { Project } from "../types";
@@ -7,7 +8,16 @@ vi.mock("../hooks/useFocusTrap", () => ({ useFocusTrap: () => ({ current: null }
 // EntryModal only needs formatMinutes/parseRatioInput from the hooks barrel,
 // which transitively pulls in the generated Dataverse SDK; stub it out so
 // tests don't need a Power Apps host (see CalendarPage.test.tsx for precedent).
-vi.mock("../services/userService", () => ({
+// The SDK's app entrypoint has an extensionless internal import that Node's
+// ESM resolver can't follow, which is why userService used to be replaced
+// wholesale here. Stubbing just that one module lets the real userService
+// load, so the mock below can spread it.
+vi.mock("@microsoft/power-apps/app", () => ({ getContext: vi.fn() }));
+vi.mock("../services/userService", async (importOriginal) => ({
+  // Spread the real module: replacing it wholesale left isPowerAppsHost
+  // undefined, and the resulting TypeError was swallowed into a hook
+  // error state that the assertions never looked at (#114).
+  ...(await importOriginal<typeof import("../services/userService")>()),
   getCurrentUser: () => ({ id: "user-1", email: "user1@example.com", displayName: "User One", environmentId: "env-1" }),
 }));
 vi.mock("../generated", () => ({ MicrosoftDataverseService: {} }));
@@ -59,6 +69,38 @@ describe("EntryModal help tip", () => {
     // With the popover gone, Escape reaches the modal again.
     fireEvent.keyDown(document.body, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("EntryModal overnight prompt under StrictMode (#114)", () => {
+  it("clears the overnight choice from an effect, not from inside the setDraft updater", () => {
+    // StrictMode double-invokes state updaters. The reset used to run inside
+    // one, and only survived because the call was idempotent. Rendering the
+    // whole flow under StrictMode is what pins it to the effect instead.
+    render(
+      <StrictMode>
+        <EntryModal
+          title="Log Time"
+          initial={baseDraft}
+          projects={projects}
+          tasks={[]}
+          onSave={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </StrictMode>
+    );
+
+    // 22:00 -> 02:00 is an overnight conflict, so the prompt is up.
+    expect(screen.getByText("Split at midnight")).toBeTruthy();
+    fireEvent.click(screen.getByText("Split at midnight"));
+    expect(screen.queryByText("Split at midnight")).toBeNull();
+    expect(screen.getByText(/Will create two entries/)).toBeTruthy();
+
+    // Move the end past the start: the conflict is gone, and so is the choice
+    // that was made about it — no stale "split" hint left behind.
+    fireEvent.change(screen.getByLabelText("End"), { target: { value: "23:00" } });
+    expect(screen.queryByText(/Will create two entries/)).toBeNull();
+    expect(screen.getByText(/Duration: 1h/)).toBeTruthy();
   });
 });
 

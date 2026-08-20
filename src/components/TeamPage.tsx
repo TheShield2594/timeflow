@@ -62,7 +62,7 @@ export const TeamPage: React.FC<Props> = ({ teamContext, projects, tasks }) => {
     try { localStorage.setItem(TEAM_ROUNDING_STORAGE_KEY, rule); } catch { /* in-memory only */ }
   };
 
-  const { entries, loading, error, refresh } = useTeamEntries(weekStart, weekEnd, teamContext);
+  const { entries, loading, error, truncated, refresh } = useTeamEntries(weekStart, weekEnd, teamContext);
 
   // Exports exactly what the table shows for the visible week (every member
   // row, including the manager's own) so a manager can hand this straight to
@@ -228,6 +228,14 @@ export const TeamPage: React.FC<Props> = ({ teamContext, projects, tasks }) => {
         </div>
       ) : (
         <>
+          {/* A short read here under-reports someone's week, which is the one
+              direction that must never be silent on a billable-time record. */}
+          {truncated && (
+            <div className="team__error" role="alert">
+              {truncated}{" "}
+              <button className="btn-sm btn-ghost" onClick={refresh}>Retry</button>
+            </div>
+          )}
           <div className="team__table-wrap">
             <table className="team__table">
               <thead>

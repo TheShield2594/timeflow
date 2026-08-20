@@ -27,7 +27,7 @@
 import type { TimeEntry } from "../types";
 import { getCurrentUser, isPowerAppsHost, getDataverseOrgUrl } from "./userService";
 import { MicrosoftDataverseService } from "../generated";
-import { escapeXmlAttr, mapEntry, odataGuid } from "./dataverseService";
+import { escapeXmlAttr, listAllRecords, mapEntry, odataGuid, type Paged } from "./dataverseService";
 
 const ENTRIES_SET = "ever_timeentrieses";
 const USERS_SET = "systemusers";
@@ -41,9 +41,18 @@ export interface TeamMember {
 }
 
 // ---------------------------------------------------------------------------
-// Shared SDK helpers (mirrors dataverseService's list plumbing for the two
-// small reads this service adds; the entry read reuses mapEntry so Team rows
-// and personal rows stay shaped identically).
+// Shared SDK helpers
+//
+// The entry read goes through dataverseService's `listAllRecords` — the same
+// paging, paging-cookie handling, retry and MAX_PAGES ceiling the personal
+// reads get — and maps rows with the same `mapEntry`, so Team rows and
+// personal rows stay shaped identically. This file used to carry its own
+// single-page `listRecords` instead, which silently truncated at 5,000 rows
+// and turned a transient 429 into a hard error (#115).
+//
+// The manager probe below still issues its own single-page reads: they select
+// specific columns and are bounded by "how many people report to one person",
+// which is not a paging problem. `listAllRecords` doesn't take $select.
 // ---------------------------------------------------------------------------
 type Raw = Record<string, unknown>;
 
@@ -63,19 +72,20 @@ function str(r: Raw, key: string): string | undefined {
   return typeof v === "string" ? v : undefined;
 }
 
-async function listRecords(entitySet: string, opts: { filter?: string; select?: string; fetchXml?: string; orderby?: string; prefer?: string }): Promise<Raw[]> {
+/** One page of a `$select`ed read. Only the manager probe uses this. */
+async function listOnePage(entitySet: string, opts: { filter?: string; select?: string; orderby?: string }): Promise<Raw[]> {
   const result = await MicrosoftDataverseService.ListRecordsWithOrganization(
     getDataverseOrgUrl(),
     entitySet,
-    opts.prefer,
+    undefined, // prefer
     ACCEPT,
     undefined, // x-ms-odata-metadata-full
     undefined, // MSCRM.IncludeMipSensitivityLabel
     opts.select,
-    opts.fetchXml ? undefined : opts.filter,
-    opts.fetchXml ? undefined : opts.orderby,
+    opts.filter,
+    opts.orderby,
     undefined, // $expand
-    opts.fetchXml,
+    undefined, // fetchXml
     undefined, // $top
     undefined, // $skiptoken
   );
@@ -189,13 +199,13 @@ export async function getTeamContext(): Promise<TeamContext> {
     // anything that isn't a GUID is either a query we didn't mean to send or
     // an identity we can't resolve — the catch below turns both into "Team
     // page hidden", which is the same fail-closed outcome, reached on purpose.
-    const me = await listRecords(USERS_SET, {
+    const me = await listOnePage(USERS_SET, {
       select: "systemuserid,fullname",
       filter: `azureactivedirectoryobjectid eq ${odataGuid(user.id)}`,
     });
     const myId = me.length ? str(me[0], "systemuserid") : undefined;
     if (!myId) return (cachedContext = NO_TEAM);
-    const rows = await listRecords(USERS_SET, {
+    const rows = await listOnePage(USERS_SET, {
       select: "systemuserid,fullname,isdisabled",
       filter: `_parentsystemuserid_value eq ${odataGuid(myId)} and isdisabled eq false`,
       orderby: "fullname asc",
@@ -229,16 +239,17 @@ export interface TeamEntry extends TimeEntry {
  * the calling user's manager-hierarchy subtree, and hierarchy security
  * decides which of those rows the caller may actually read.
  */
-export async function getTeamTimeEntries(from: string, to: string): Promise<TeamEntry[]> {
+export async function getTeamTimeEntries(from: string, to: string): Promise<Paged<TeamEntry>> {
   if (!isPowerAppsHost()) {
-    if (!mockTeamEnabled()) return [];
+    if (!mockTeamEnabled()) return { items: [], truncated: null };
     // Dev keeps the manager's own entries out of the mock — the page's
     // interesting content is the reports.
-    return mockEntriesForRange(from, to).map((e) => ({
+    const items = mockEntriesForRange(from, to).map((e) => ({
       ...e,
       ownerId: e.userId,
       ownerName: e.userDisplayName,
     }));
+    return { items, truncated: null };
   }
   const fetchXml =
     '<fetch>' +
@@ -257,21 +268,24 @@ export async function getTeamTimeEntries(from: string, to: string): Promise<Team
   // name is opt-in, and losing it renders indirect reports / the manager's
   // own row as "Unknown user" (direct reports get their names from the
   // teamContext probe regardless).
-  const rows = await listRecords(ENTRIES_SET, {
+  const { items, truncated } = await listAllRecords(ENTRIES_SET, {
     fetchXml,
     prefer: 'odata.include-annotations="OData.Community.Display.V1.FormattedValue"',
   });
-  return rows.map((r) => {
-    const entry = mapEntry(r);
-    const ownerId = str(r, "_ownerid_value") ?? "";
-    const ownerName =
-      // The Web API surfaces lookup display names as an OData annotation;
-      // keep every fallback mapEntry already knows about behind it.
-      str(r, "_ownerid_value@OData.Community.Display.V1.FormattedValue") ??
-      entry.userDisplayName ??
-      "";
-    return { ...entry, ownerId, ownerName };
-  });
+  return {
+    items: items.map((r) => {
+      const entry = mapEntry(r);
+      const ownerId = str(r, "_ownerid_value") ?? "";
+      const ownerName =
+        // The Web API surfaces lookup display names as an OData annotation;
+        // keep every fallback mapEntry already knows about behind it.
+        str(r, "_ownerid_value@OData.Community.Display.V1.FormattedValue") ??
+        entry.userDisplayName ??
+        "";
+      return { ...entry, ownerId, ownerName };
+    }),
+    truncated,
+  };
 }
 
 /** Test hook: clear the memoized reports probe. */

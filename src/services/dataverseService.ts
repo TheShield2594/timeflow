@@ -26,10 +26,11 @@
  * see "Row security matters" in README.md. Make sure initCurrentUser() has
  * resolved before calling any of these.
  */
-import type { Project, Task, TimeEntry } from "../types";
+import type { NewTimeEntry, Project, Task, TimeEntry } from "../types";
 import { getCurrentUser, isPowerAppsHost, getDataverseOrgUrl } from "./userService";
 import { MicrosoftDataverseService } from "../generated";
 import { DEFAULT_PROJECT_COLOR } from "../utils/colors";
+import { localDateStr } from "../utils/dates";
 import { reportTelemetry } from "./telemetry";
 
 // ---------------------------------------------------------------------------
@@ -298,13 +299,48 @@ function errText(err: unknown): string {
   return typeof err === "string" ? err : JSON.stringify(err ?? {});
 }
 
-// Module-level warning sink. Wire up via setPaginationWarningHandler() so the
-// service can surface non-fatal partial-load warnings to the UI without
-// importing React or hooks.
-type WarningHandler = (message: string) => void;
-let paginationWarningHandler: WarningHandler | null = null;
-export function setPaginationWarningHandler(fn: WarningHandler | null): void {
-  paginationWarningHandler = fn;
+/**
+ * Why a paged read stopped early, when it did.
+ *
+ * This used to be a module-global callback the UI registered on mount
+ * (`setPaginationWarningHandler`) — a workaround for "a service can't import
+ * React". Being process-global, it was last-writer-wins, it leaked between
+ * test files, and nothing guaranteed it was set when a partial load happened
+ * during bootstrap: the read that most wants to warn is the first one, and
+ * the first one is the one that can race the wiring. Returning it makes the
+ * possibility of a partial load visible in the type of every read that can
+ * produce one, and hands it to the hook that issued the read — the only place
+ * that knows which surface is waiting on it (#115).
+ */
+export interface Truncation {
+  reason: "page_error" | "max_pages";
+  entitySet: string;
+  rowsLoaded: number;
+  /** Ready to show. The wording lives here so every surface says the same thing. */
+  message: string;
+}
+
+/** A paged read: what came back, and whether that is all of it. */
+export interface Paged<T> {
+  items: T[];
+  /** Null when the read completed. Non-null means rows are missing. */
+  truncated: Truncation | null;
+}
+
+const TRUNCATION_MESSAGE = "Some entries may not be shown — try narrowing your date range";
+
+function truncation(reason: Truncation["reason"], entitySet: string, rowsLoaded: number): Truncation {
+  return { reason, entitySet, rowsLoaded, message: TRUNCATION_MESSAGE };
+}
+
+/** Map the rows of a paged read while carrying its truncation through. */
+function mapPaged<T>(paged: Paged<Raw>, fn: (row: Raw) => T): Paged<T> {
+  return { items: paged.items.map(fn), truncated: paged.truncated };
+}
+
+/** A read that completed, for the mock paths — which never page. */
+function complete<T>(items: T[]): Paged<T> {
+  return { items, truncated: null };
 }
 
 async function listAllPages(
@@ -312,7 +348,8 @@ async function listAllPages(
   filter: string | undefined,
   orderby: string | undefined,
   fetchXml?: string,
-): Promise<Raw[]> {
+  prefer?: string,
+): Promise<Paged<Raw>> {
   const rows: Raw[] = [];
   let skiptoken: string | undefined;
   let pagingCookie: string | undefined;
@@ -333,7 +370,7 @@ async function listAllPages(
         const result = await MicrosoftDataverseService.ListRecordsWithOrganization(
           orgUrl(),
           entitySet,
-          undefined, // prefer
+          prefer,
           ACCEPT,
           undefined, // x-ms-odata-metadata-full
           undefined, // MSCRM.IncludeMipSensitivityLabel
@@ -361,10 +398,7 @@ async function listAllPages(
         message: `Pagination failed on page ${page} of ${entitySet}`,
         props: { entitySet, page, rowsSoFar: rows.length, reason: "page_error", error: errText(err) },
       });
-      paginationWarningHandler?.(
-        "Some entries may not be shown — try narrowing your date range"
-      );
-      return rows;
+      return { items: rows, truncated: truncation("page_error", entitySet, rows.length) };
     }
     const items = env?.value ?? [];
     for (const item of items) rows.push(unwrapRow(item));
@@ -397,11 +431,27 @@ async function listAllPages(
       message: `Loading ${entitySet} exceeded ${MAX_PAGES} pages; partial data returned`,
       props: { entitySet, page: MAX_PAGES, rowsSoFar: rows.length, reason: "max_pages" },
     });
-    paginationWarningHandler?.(
-      "Some entries may not be shown — try narrowing your date range"
-    );
+    return { items: rows, truncated: truncation("max_pages", entitySet, rows.length) };
   }
-  return rows;
+  return { items: rows, truncated: null };
+}
+
+/**
+ * The paged list primitive, for the one other service that needs it.
+ *
+ * teamService used to carry its own single-page `listRecords` — no
+ * `$skiptoken`, no paging cookie, no retry, no MAX_PAGES — while importing
+ * `escapeXmlAttr` and `mapEntry` from here. A manager's week won't hit 5,000
+ * rows, so the truncation was theoretical; the asymmetry was not. It
+ * truncated with no warning at all, and a transient 429 during a Team load
+ * surfaced as a hard error where the same failure on the timesheet would have
+ * been retried (#115).
+ */
+export function listAllRecords(
+  entitySet: string,
+  opts: { filter?: string; orderby?: string; fetchXml?: string; prefer?: string } = {},
+): Promise<Paged<Raw>> {
+  return listAllPages(entitySet, opts.filter, opts.orderby, opts.fetchXml, opts.prefer);
 }
 
 // The SDK wraps Dataverse rows (both list items and create/update responses)
@@ -493,7 +543,7 @@ function mapIsActive(r: Raw): boolean {
 
 function mapProject(r: Raw): Project {
   return {
-    id: (str(r, "ever_projectsid") ?? str(r, "id")) as string,
+    id: str(r, "ever_projectsid") ?? str(r, "id") ?? "",
     name: str(r, "ever_name") ?? "",
     color: str(r, "ever_color") ?? DEFAULT_PROJECT_COLOR,
     description: str(r, "ever_description"),
@@ -506,7 +556,7 @@ function mapProject(r: Raw): Project {
 
 function mapTask(r: Raw): Task {
   return {
-    id: (str(r, "ever_workitemsid") ?? str(r, "id")) as string,
+    id: str(r, "ever_workitemsid") ?? str(r, "id") ?? "",
     projectId: str(r, "_ever_project_value") ?? "",
     name: str(r, "ever_name") ?? "",
     description: str(r, "ever_description"),
@@ -514,14 +564,50 @@ function mapTask(r: Raw): Task {
   };
 }
 
+/**
+ * `ever_date` -> the local "YYYY-MM-DD" key every calendar, timesheet and
+ * report row is grouped by.
+ *
+ * The column is expected to be **DateOnly (Date Only behavior)** — see the
+ * schema table in README.md — which serializes either as a bare "YYYY-MM-DD"
+ * or as "YYYY-MM-DDT00:00:00Z". For those, the date is the literal prefix and
+ * splitting on "T" is exactly right.
+ *
+ * A non-midnight time part means the column was configured as DateTime
+ * instead, and then the prefix is a UTC date, not the user's: a local
+ * 2026-06-15 in UTC+2 comes back as "2026-06-14T22:00:00Z" and the naive
+ * split silently moves *every* entry a day earlier. So that case is read as
+ * what it actually is — an instant — and converted on the local clock, which
+ * recovers the day the user meant. It is still a misconfiguration, so it is
+ * reported once per session rather than quietly papered over (#114).
+ */
+export function mapEntryDate(rawDate: string): string {
+  const t = rawDate.indexOf("T");
+  if (t === -1) return rawDate;
+  const datePart = rawDate.slice(0, t);
+  const instant = new Date(rawDate);
+  // Unparseable: the prefix is still the best guess, and it's what the old
+  // unconditional split would have produced.
+  if (Number.isNaN(instant.getTime())) return datePart;
+  // Midnight UTC — tested on the parsed instant rather than by matching the
+  // literal, so "Z", "+00:00" and a fractional-seconds spelling all read the
+  // same. This is the DateOnly serialization and the prefix is the date.
+  const isUtcMidnight =
+    instant.getUTCHours() === 0 && instant.getUTCMinutes() === 0 &&
+    instant.getUTCSeconds() === 0 && instant.getUTCMilliseconds() === 0;
+  if (isUtcMidnight) return datePart;
+  reportTelemetry({
+    name: "date_column_not_dateonly",
+    severity: "error",
+    message: "ever_date returned a time component; the column is not DateOnly",
+    props: { timePart: rawDate.slice(t + 1) },
+  });
+  return localDateStr(instant);
+}
+
 export function mapEntry(r: Raw): TimeEntry {
-  // Dataverse can return ever_date either as "YYYY-MM-DD" or as a full ISO
-  // timestamp ("YYYY-MM-DDT00:00:00Z") depending on the column's behavior.
-  // The rest of the app keys calendar/timesheet rows off "YYYY-MM-DD", so
-  // anything past the "T" must be stripped.
-  const rawDate = str(r, "ever_date") ?? "";
   return {
-    id: (str(r, "ever_timeentriesid") ?? str(r, "id")) as string,
+    id: str(r, "ever_timeentriesid") ?? str(r, "id") ?? "",
     projectId: str(r, "_ever_project_value") ?? "",
     taskId: str(r, "_ever_workitem_value"),
     description: str(r, "ever_description"),
@@ -530,7 +616,7 @@ export function mapEntry(r: Raw): TimeEntry {
     durationMinutes: num(r, "ever_durationminutes"),
     ratio: num(r, "ever_ratio"),
     jiraTicket: str(r, "ever_jiraticket"),
-    date: rawDate.split("T")[0],
+    date: mapEntryDate(str(r, "ever_date") ?? ""),
     userId: str(r, "ever_userid") ?? "",
     userDisplayName:
       str((r.owninguser as Raw) ?? {}, "fullname") ??
@@ -560,7 +646,7 @@ function taskToDataverse(t: Omit<Task, "id"> | Partial<Task>): Raw {
   return out;
 }
 
-export function entryToDataverse(e: Omit<TimeEntry, "id"> | Partial<TimeEntry>): Raw {
+export function entryToDataverse(e: NewTimeEntry | Partial<TimeEntry>): Raw {
   const out: Raw = {};
   if (e.description !== undefined) out.ever_description = e.description ?? null;
   if (e.startTime !== undefined) out.ever_starttime = e.startTime;
@@ -612,13 +698,13 @@ function uuid(): string {
 // ---------------------------------------------------------------------------
 // Includes archived (inactive) projects so historical entries can always
 // resolve their project name and color; pickers filter on isActive.
-export async function getProjects(): Promise<Project[]> {
+export async function getProjects(): Promise<Paged<Project>> {
   if (!isPowerAppsHost()) {
-    return load<Project>(STORAGE_KEYS.projects)
-      .sort((a, b) => a.name.localeCompare(b.name));
+    return complete(
+      load<Project>(STORAGE_KEYS.projects).sort((a, b) => a.name.localeCompare(b.name))
+    );
   }
-  const rows = await listAllPages(SETS.projects, undefined, "ever_name asc");
-  return rows.map(mapProject);
+  return mapPaged(await listAllPages(SETS.projects, undefined, "ever_name asc"), mapProject);
 }
 
 export async function createProject(data: Omit<Project, "id" | "createdAt">): Promise<Project> {
@@ -666,20 +752,19 @@ export async function updateProject(id: string, data: Partial<Project>): Promise
 // Task reads include inactive (soft-deleted) tasks so historical time entries
 // can still resolve their task names in the timesheet, reports and CSV export.
 // Pickers filter on isActive client-side.
-export async function getTasksForProject(projectId: string): Promise<Task[]> {
+export async function getTasksForProject(projectId: string): Promise<Paged<Task>> {
   if (!isPowerAppsHost()) {
-    return load<Task>(STORAGE_KEYS.tasks).filter((t) => t.projectId === projectId);
+    return complete(load<Task>(STORAGE_KEYS.tasks).filter((t) => t.projectId === projectId));
   }
-  const rows = await listAllPages(SETS.tasks, `_ever_project_value eq ${odataGuid(projectId)}`, "ever_name asc");
-  return rows.map(mapTask);
+  const filter = `_ever_project_value eq ${odataGuid(projectId)}`;
+  return mapPaged(await listAllPages(SETS.tasks, filter, "ever_name asc"), mapTask);
 }
 
-export async function getAllTasks(): Promise<Task[]> {
+export async function getAllTasks(): Promise<Paged<Task>> {
   if (!isPowerAppsHost()) {
-    return load<Task>(STORAGE_KEYS.tasks);
+    return complete(load<Task>(STORAGE_KEYS.tasks));
   }
-  const rows = await listAllPages(SETS.tasks, undefined, "ever_name asc");
-  return rows.map(mapTask);
+  return mapPaged(await listAllPages(SETS.tasks, undefined, "ever_name asc"), mapTask);
 }
 
 export async function createTask(data: Omit<Task, "id">): Promise<Task> {
@@ -810,7 +895,7 @@ export function escapeXmlAttr(value: string): string {
     .replace(/'/g, "&apos;");
 }
 
-export async function getTimeEntries(opts: { from?: string; to?: string } = {}): Promise<TimeEntry[]> {
+export async function getTimeEntries(opts: { from?: string; to?: string } = {}): Promise<Paged<TimeEntry>> {
   const user = getCurrentUser();
   // Always apply a date range — default to the last 30 days to avoid
   // unbounded fetches for large orgs.
@@ -821,9 +906,11 @@ export async function getTimeEntries(opts: { from?: string; to?: string } = {}):
   const to = opts.to ?? fmtDate(today);
 
   if (!isPowerAppsHost()) {
-    return load<TimeEntry>(STORAGE_KEYS.entries)
-      .filter((e) => e.userId === user.id && e.date >= from && e.date <= to)
-      .sort((a, b) => b.startTime.localeCompare(a.startTime));
+    return complete(
+      load<TimeEntry>(STORAGE_KEYS.entries)
+        .filter((e) => e.userId === user.id && e.date >= from && e.date <= to)
+        .sort((a, b) => b.startTime.localeCompare(a.startTime))
+    );
   }
   // Filters server-side via FetchXML's eq-userid operator, which Dataverse
   // resolves to "the calling user" itself. This is a genuine data-level
@@ -844,8 +931,7 @@ export async function getTimeEntries(opts: { from?: string; to?: string } = {}):
         '<order attribute="ever_starttime" descending="true" />' +
       '</entity>' +
     '</fetch>';
-  const rows = await listAllPages(SETS.entries, undefined, undefined, fetchXml);
-  return rows.map((r) => {
+  return mapPaged(await listAllPages(SETS.entries, undefined, undefined, fetchXml), (r) => {
     const entry = mapEntry(r);
     if (!entry.userDisplayName) entry.userDisplayName = user.displayName;
     return entry;
@@ -871,7 +957,7 @@ export function hasForeignUserEntries(entries: TimeEntry[], currentUserId: strin
   return entries.some((e) => e.userId && e.userId !== currentUserId);
 }
 
-export async function createTimeEntry(data: Omit<TimeEntry, "id">): Promise<TimeEntry> {
+export async function createTimeEntry(data: NewTimeEntry): Promise<TimeEntry> {
   const user = getCurrentUser();
   const owned = { ...data, userId: user.id, userDisplayName: user.displayName };
   if (!isPowerAppsHost()) {
@@ -1071,44 +1157,4 @@ export function isNotFoundError(err: unknown): boolean {
 
 export async function deleteTimeEntry(id: string): Promise<void> {
   return deleteRecord<TimeEntry>(STORAGE_KEYS.entries, SETS.entries, id, "Delete entry");
-}
-
-// ---------------------------------------------------------------------------
-// Bulk writes (issue #8) — creates run in parallel via individual creates,
-// faster than serial requests even without a single-round-trip guarantee.
-// ---------------------------------------------------------------------------
-
-export type BatchCreateOutcome =
-  | { status: "fulfilled"; item: Omit<TimeEntry, "id">; entry: TimeEntry }
-  | { status: "rejected"; item: Omit<TimeEntry, "id">; error: unknown };
-
-/**
- * Bulk-creates time entries via parallel individual creates. Uses
- * Promise.allSettled (not Promise.all) so one failed item doesn't hide which
- * of the others already succeeded — callers can inspect each outcome and
- * retry only the rejected items instead of resubmitting the whole batch.
- */
-export async function batchCreateTimeEntries(
-  items: Omit<TimeEntry, "id">[],
-): Promise<BatchCreateOutcome[]> {
-  if (!isPowerAppsHost() || items.length === 0) {
-    // Dev mock: insert all at once.
-    const user = getCurrentUser();
-    const created: TimeEntry[] = items.map((data) => ({
-      ...data,
-      id: uuid(),
-      userId: user.id,
-      userDisplayName: user.displayName,
-    }));
-    const all = load<TimeEntry>(STORAGE_KEYS.entries);
-    persist(STORAGE_KEYS.entries, [...all, ...created]);
-    return created.map((entry, i) => ({ status: "fulfilled", item: items[i], entry }));
-  }
-
-  const settled = await Promise.allSettled(items.map((data) => createTimeEntry(data)));
-  return settled.map((result, i) =>
-    result.status === "fulfilled"
-      ? { status: "fulfilled", item: items[i], entry: result.value }
-      : { status: "rejected", item: items[i], error: result.reason }
-  );
 }

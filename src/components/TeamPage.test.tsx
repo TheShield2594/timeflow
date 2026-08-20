@@ -4,14 +4,29 @@ import { TeamPage } from "./TeamPage";
 import type { TeamEntry } from "../services/teamService";
 import type { Task } from "../types";
 
-vi.mock("../services/userService", () => ({
+// The SDK's app entrypoint has an extensionless internal import that Node's
+// ESM resolver can't follow, which is why userService used to be replaced
+// wholesale here. Stubbing just that one module lets the real userService
+// load, so the mock below can spread it.
+vi.mock("@microsoft/power-apps/app", () => ({ getContext: vi.fn() }));
+vi.mock("../services/userService", async (importOriginal) => ({
+  // Spread the real module: replacing it wholesale left isPowerAppsHost
+  // undefined, and the resulting TypeError was swallowed into a hook
+  // error state that the assertions never looked at (#114).
+  ...(await importOriginal<typeof import("../services/userService")>()),
   getCurrentUser: () => ({ id: "aad-object-id", email: "u@example.com", displayName: "User One", environmentId: "env-1" }),
 }));
 vi.mock("../generated", () => ({ MicrosoftDataverseService: {} }));
 
 const getTeamTimeEntries = vi.fn<(from: string, to: string) => Promise<TeamEntry[]>>();
 vi.mock("../services/teamService", () => ({
-  getTeamTimeEntries: (from: string, to: string) => getTeamTimeEntries(from, to),
+  // The service returns `{ items, truncated }` (#115); these tests care about
+  // the rows, so the wrapper supplies the envelope and each test keeps
+  // returning a plain array.
+  getTeamTimeEntries: async (from: string, to: string) => ({
+    items: await getTeamTimeEntries(from, to),
+    truncated: null,
+  }),
 }));
 
 beforeEach(() => {

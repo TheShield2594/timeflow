@@ -1,13 +1,29 @@
+/**
+ * Every duration this module formats is a span of elapsed time, so a negative
+ * input is always a bug upstream — a clock that went backwards, a start time
+ * ahead of now, an entry whose end precedes its start. What it must not do is
+ * render as one: `String(-1).padStart(2, "0")` is a no-op, so an unclamped
+ * `formatElapsed` emits `-1:-1:-5` and `formatMinutes(-90)` emits `-2h -30m`.
+ * Clamping at the boundary keeps a skewed clock reading 00:00:00 until it
+ * catches up, which is the honest rendering of "no time has elapsed yet"
+ * (#114).
+ */
+function nonNegative(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
 export function formatElapsed(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
+  const total = nonNegative(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = Math.floor(total % 60);
   return [h, m, s].map((v) => String(v).padStart(2, "0")).join(":");
 }
 
 export function formatMinutes(minutes: number): string {
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
+  const total = Math.floor(nonNegative(minutes));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
   if (h === 0) return `${m}m`;
   if (m === 0) return `${h}h`;
   return `${h}h ${m}m`;
@@ -27,7 +43,7 @@ export function formatMinutes(minutes: number): string {
 export const DECIMAL_HOURS_DIGITS = 1;
 
 export function formatDecimalHours(minutes: number, digits = DECIMAL_HOURS_DIGITS): string {
-  return (minutes / 60).toFixed(digits);
+  return (nonNegative(minutes) / 60).toFixed(digits);
 }
 
 /**

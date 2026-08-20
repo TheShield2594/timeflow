@@ -1,13 +1,10 @@
-import React from "react";
+import React, { Suspense } from "react";
 import { OverviewPage } from "./OverviewPage";
 import { TimesheetPage } from "./TimesheetPage";
-import { CalendarPage } from "./CalendarPage";
-import { ReportsPage } from "./ReportsPage";
-import { ProjectsPage } from "./ProjectsPage";
-import { TeamPage } from "./TeamPage";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { useData } from "../contexts/DataContext";
 import type { TeamContext } from "../services/teamService";
-import type { TimeEntry, Project, Task } from "../types";
+import type { TimeEntry } from "../types";
 
 export type Page = "overview" | "timesheet" | "calendar" | "reports" | "projects" | "team";
 
@@ -23,10 +20,26 @@ export type Page = "overview" | "timesheet" | "calendar" | "reports" | "projects
  */
 const Overview = React.memo(OverviewPage);
 const Timesheet = React.memo(TimesheetPage);
-const Calendar = React.memo(CalendarPage);
-const Reports = React.memo(ReportsPage);
-const Projects = React.memo(ProjectsPage);
-const Team = React.memo(TeamPage);
+
+/**
+ * Everything past the first two screens is code-split (#116).
+ *
+ * Overview is where the app lands and Timesheet is one click away on nearly
+ * every session, so both stay in the entry chunk — deferring them would only
+ * buy a spinner. Calendar, Reports, Projects and Team are each visited by
+ * some sessions and none, and Calendar alone is the largest component in the
+ * app; splitting them is what keeps the first paint from carrying pages the
+ * user may never open.
+ *
+ * React.lazy resolves the module once and caches it, so the fetch happens on
+ * the first navigation to a page and never again. The memo goes on the loaded
+ * module rather than around the lazy wrapper, so these keep the same
+ * re-render behavior the eager pages above have.
+ */
+const Calendar = React.lazy(() => import("./CalendarPage").then((m) => ({ default: React.memo(m.CalendarPage) })));
+const Reports = React.lazy(() => import("./ReportsPage").then((m) => ({ default: React.memo(m.ReportsPage) })));
+const Projects = React.lazy(() => import("./ProjectsPage").then((m) => ({ default: React.memo(m.ProjectsPage) })));
+const Team = React.lazy(() => import("./TeamPage").then((m) => ({ default: React.memo(m.TeamPage) })));
 
 /** Skeleton shown only on the very first data load — shaped like the timesheet. */
 export const PageSkeleton: React.FC = () => (
@@ -57,26 +70,17 @@ export const ReportsSkeleton: React.FC = () => (
   </div>
 );
 
+/**
+ * What the router needs that isn't data. Entries, projects, tasks and every
+ * mutation over them come from `useData()` — this used to be 19 props, all of
+ * them forwarded verbatim from AppContent to a page that wanted them (#115).
+ * What's left is the four things that genuinely belong to the shell.
+ */
 interface Props {
   page: Page;
-  loading: boolean;
-  rangeLoading: boolean;
-  entries: TimeEntry[];
-  projects: Project[];
-  tasks: Task[];
+  /** True while a timer is running or retrying a stop — pages disable "Continue". */
   timerBusy: boolean;
-  onDelete: (id: string) => void;
-  onEdit: (id: string, data: Partial<TimeEntry>) => Promise<TimeEntry>;
-  onCreate: (data: Omit<TimeEntry, "id">) => Promise<TimeEntry>;
   onContinue: (entry: TimeEntry) => void;
-  onAddProject: (data: Omit<Project, "id" | "createdAt">) => Promise<Project>;
-  onEditProject: (id: string, data: Partial<Project>) => Promise<Project>;
-  onArchiveProject: (project: Project) => void;
-  onRestoreProject: (project: Project) => Promise<void>;
-  onAddTask: (data: Omit<Task, "id">) => Promise<Task>;
-  onDeleteTask: (task: Task) => void;
-  onRenameTask: (task: Task, newName: string) => Promise<void>;
-  onLoadTasksForProject: (projectId: string) => void;
   onGoToProjects?: () => void;
   /** Non-null with reports = the user manages people; enables the Team page. */
   teamContext?: TeamContext | null;
@@ -89,19 +93,32 @@ interface Props {
  */
 export const PageRouter: React.FC<Props> = (props) => (
   <ErrorBoundary scope={props.page} resetKey={props.page}>
-    <PageContent {...props} />
+    {/* The same skeletons the first data load uses, so a chunk fetch and a
+        slow read look alike to the user rather than introducing a second
+        kind of waiting. Inside the boundary: a chunk that fails to load is a
+        render error, and it should land on the page-level fallback with its
+        Retry rather than blanking the app. */}
+    <Suspense fallback={pageSkeletonFor(props.page)}>
+      <PageContent {...props} />
+    </Suspense>
   </ErrorBoundary>
 );
 
+function pageSkeletonFor(page: Page): React.ReactElement {
+  return page === "reports" || page === "overview" ? <ReportsSkeleton /> : <PageSkeleton />;
+}
+
 const PageContent: React.FC<Props> = ({
-  page, loading, rangeLoading, entries, projects, tasks, timerBusy,
-  onDelete, onEdit, onCreate, onContinue, onAddProject, onEditProject,
-  onArchiveProject, onRestoreProject, onAddTask, onDeleteTask, onRenameTask, onLoadTasksForProject, onGoToProjects,
-  teamContext,
+  page, timerBusy, onContinue, onGoToProjects, teamContext,
 }) => {
-  if (loading) {
-    return page === "reports" || page === "overview" ? <ReportsSkeleton /> : <PageSkeleton />;
-  }
+  const {
+    entries, projects, tasks, loading, rangeLoading,
+    createEntry, editEntry, deleteEntry, refreshEntries: _refresh,
+    addProject, editProject, archiveProject, restoreProject,
+    addTask, deleteTask, renameTask, loadTasksForProject,
+  } = useData();
+
+  if (loading) return pageSkeletonFor(page);
 
   if (page === "overview") {
     return (
@@ -111,8 +128,8 @@ const PageContent: React.FC<Props> = ({
         tasks={tasks}
         timerBusy={timerBusy}
         onContinue={onContinue}
-        onCreate={onCreate}
-        onLoadTasksForProject={onLoadTasksForProject}
+        onCreate={createEntry}
+        onLoadTasksForProject={loadTasksForProject}
         onGoToProjects={onGoToProjects}
       />
     );
@@ -126,11 +143,11 @@ const PageContent: React.FC<Props> = ({
         tasks={tasks}
         timerBusy={timerBusy}
         rangeLoading={rangeLoading}
-        onDelete={onDelete}
-        onEdit={onEdit}
-        onCreate={onCreate}
+        onDelete={deleteEntry}
+        onEdit={editEntry}
+        onCreate={createEntry}
         onContinue={onContinue}
-        onLoadTasksForProject={onLoadTasksForProject}
+        onLoadTasksForProject={loadTasksForProject}
         onGoToProjects={onGoToProjects}
       />
     );
@@ -143,10 +160,10 @@ const PageContent: React.FC<Props> = ({
         projects={projects}
         tasks={tasks}
         rangeLoading={rangeLoading}
-        onCreateEntry={onCreate}
-        onEdit={onEdit}
-        onDelete={onDelete}
-        onLoadTasksForProject={onLoadTasksForProject}
+        onCreateEntry={createEntry}
+        onEdit={editEntry}
+        onDelete={deleteEntry}
+        onLoadTasksForProject={loadTasksForProject}
       />
     );
   }
@@ -175,14 +192,14 @@ const PageContent: React.FC<Props> = ({
         projects={projects}
         tasks={tasks}
         entries={entries}
-        onAddProject={onAddProject}
-        onEditProject={onEditProject}
-        onArchiveProject={onArchiveProject}
-        onRestoreProject={onRestoreProject}
-        onAddTask={onAddTask}
-        onDeleteTask={onDeleteTask}
-        onRenameTask={onRenameTask}
-        onLoadTasksForProject={onLoadTasksForProject}
+        onAddProject={addProject}
+        onEditProject={editProject}
+        onArchiveProject={archiveProject}
+        onRestoreProject={restoreProject}
+        onAddTask={addTask}
+        onDeleteTask={deleteTask}
+        onRenameTask={renameTask}
+        onLoadTasksForProject={loadTasksForProject}
       />
     );
   }

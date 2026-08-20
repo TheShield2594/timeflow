@@ -2,7 +2,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useFocusMode, DEFAULT_FOCUS_SETTINGS } from "./useFocusMode";
 
-vi.mock("../services/userService", () => ({
+// The SDK's app entrypoint has an extensionless internal import that Node's
+// ESM resolver can't follow, which is why userService used to be replaced
+// wholesale here. Stubbing just that one module lets the real userService
+// load, so the mock below can spread it.
+vi.mock("@microsoft/power-apps/app", () => ({ getContext: vi.fn() }));
+vi.mock("../services/userService", async (importOriginal) => ({
+  // Spread the real module: replacing it wholesale left isPowerAppsHost
+  // undefined, and the resulting TypeError was swallowed into a hook
+  // error state that the assertions never looked at (#114).
+  ...(await importOriginal<typeof import("../services/userService")>()),
   getCurrentUser: () => ({ id: "user-1", email: "u@example.com", displayName: "User One", environmentId: "env-1" }),
 }));
 

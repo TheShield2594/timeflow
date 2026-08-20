@@ -4,7 +4,16 @@ import { CalendarPage } from "./CalendarPage";
 import { DataRangeProvider } from "../contexts/DataRangeContext";
 import type { OutlookEvent } from "../types";
 
-vi.mock("../services/userService", () => ({
+// The SDK's app entrypoint has an extensionless internal import that Node's
+// ESM resolver can't follow, which is why userService used to be replaced
+// wholesale here. Stubbing just that one module lets the real userService
+// load, so the mock below can spread it.
+vi.mock("@microsoft/power-apps/app", () => ({ getContext: vi.fn() }));
+vi.mock("../services/userService", async (importOriginal) => ({
+  // Spread the real module: replacing it wholesale left isPowerAppsHost
+  // undefined, and the resulting TypeError was swallowed into a hook
+  // error state that the assertions never looked at (#114).
+  ...(await importOriginal<typeof import("../services/userService")>()),
   getCurrentUser: () => ({ id: "user-1", email: "user1@example.com", displayName: "User One", environmentId: "env-1" }),
 }));
 // See CalendarPage.test.tsx — keeps the generated SDK's transitive deps out
