@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, cleanup, waitFor } from "@testing-library/react";
-import { useTimeEntries } from "./useTimeEntries";
+import { useTimeEntries, uncoveredSpans } from "./useTimeEntries";
 import * as svc from "../services/dataverseService";
 import type { TimeEntry } from "../types";
 
@@ -293,5 +293,107 @@ describe("useTimeEntries with a dropped response body (#70)", () => {
       ratio: 2,
       date: "2024-06-01",
     });
+  });
+});
+
+describe("uncoveredSpans (#115)", () => {
+  it("asks for everything when nothing is held yet", () => {
+    expect(uncoveredSpans(null, { from: "2026-01-01", to: "2026-03-31" }))
+      .toEqual([{ from: "2026-01-01", to: "2026-03-31" }]);
+  });
+
+  it("asks for nothing when the wanted range is already inside the held one", () => {
+    // Reports: "All time" then back to "Last 7 days". The old code re-read
+    // the whole 7-day window from the server; there is nothing to read.
+    const covered = { from: "1970-01-01", to: "9999-12-31" };
+    expect(uncoveredSpans(covered, { from: "2026-03-01", to: "2026-03-07" })).toEqual([]);
+    expect(uncoveredSpans(covered, covered)).toEqual([]);
+  });
+
+  it("asks only for the newly-uncovered side when the range widens", () => {
+    const covered = { from: "2026-03-01", to: "2026-03-31" };
+    // Widening backwards: the day before the held span, backwards.
+    expect(uncoveredSpans(covered, { from: "2026-01-01", to: "2026-03-31" }))
+      .toEqual([{ from: "2026-01-01", to: "2026-02-28" }]);
+    // Widening forwards.
+    expect(uncoveredSpans(covered, { from: "2026-03-01", to: "2026-04-30" }))
+      .toEqual([{ from: "2026-04-01", to: "2026-04-30" }]);
+    // Both, as two reads rather than one that re-reads March.
+    expect(uncoveredSpans(covered, { from: "2026-02-01", to: "2026-04-30" }))
+      .toEqual([
+        { from: "2026-02-01", to: "2026-02-28" },
+        { from: "2026-04-01", to: "2026-04-30" },
+      ]);
+  });
+
+  it("re-reads the whole range when the two spans don't touch", () => {
+    // Stitching disjoint spans would leave `entries` claiming a range with a
+    // hole in the middle, and every later read would skip that hole.
+    expect(uncoveredSpans({ from: "2026-03-01", to: "2026-03-31" }, { from: "2026-06-01", to: "2026-06-30" }))
+      .toEqual([{ from: "2026-06-01", to: "2026-06-30" }]);
+  });
+});
+
+describe("useTimeEntries range widening (#115)", () => {
+  const inRange = (date: string, id: string): TimeEntry => ({
+    id, projectId: "proj-1", startTime: `${date}T09:00:00Z`, date,
+    userId: "user-1", userDisplayName: "User One",
+  });
+
+  it("reads only the uncovered span when the range widens, and keeps what it had", async () => {
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([inRange("2026-03-15", "march")]));
+
+    const { result, rerender } = renderHook(
+      ({ from, to }) => useTimeEntries(from, to),
+      { initialProps: { from: "2026-03-01", to: "2026-03-31" } },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(svc.getTimeEntries).toHaveBeenCalledWith({ from: "2026-03-01", to: "2026-03-31" });
+
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([inRange("2026-01-15", "january")]));
+    rerender({ from: "2026-01-01", to: "2026-03-31" });
+
+    await waitFor(() => expect(result.current.entries).toHaveLength(2));
+    // Only the new span — not the whole widened window.
+    expect(svc.getTimeEntries).toHaveBeenLastCalledWith({ from: "2026-01-01", to: "2026-02-28" });
+    expect(result.current.entries.map((e) => e.id).sort()).toEqual(["january", "march"]);
+  });
+
+  it("issues no request at all when the range narrows back inside what's held", async () => {
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([inRange("2026-03-15", "march")]));
+
+    const { result, rerender } = renderHook(
+      ({ from, to }) => useTimeEntries(from, to),
+      { initialProps: { from: "2026-01-01", to: "2026-12-31" } },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(svc.getTimeEntries).toHaveBeenCalledTimes(1);
+
+    rerender({ from: "2026-03-01", to: "2026-03-07" });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(svc.getTimeEntries).toHaveBeenCalledTimes(1);
+    expect(result.current.entries).toHaveLength(1);
+  });
+
+  it("forgets its coverage after a truncated read, so the missing rows can still arrive", async () => {
+    vi.mocked(svc.getTimeEntries).mockResolvedValue({
+      items: [inRange("2026-03-15", "march")],
+      truncated: { reason: "max_pages", entitySet: "ever_timeentrieses", rowsLoaded: 1, message: "Some entries may not be shown" },
+    });
+
+    const { result, rerender } = renderHook(
+      ({ from, to }) => useTimeEntries(from, to),
+      { initialProps: { from: "2026-01-01", to: "2026-12-31" } },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(toastSpy).toHaveBeenCalledWith("Some entries may not be shown", "error");
+
+    // A short read leaves holes; treating that span as covered would make the
+    // missing rows permanently missing for the session.
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([inRange("2026-03-15", "march")]));
+    rerender({ from: "2026-03-01", to: "2026-03-07" });
+
+    await waitFor(() => expect(svc.getTimeEntries).toHaveBeenCalledTimes(2));
   });
 });
