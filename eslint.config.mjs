@@ -53,7 +53,8 @@ export default tseslint.config(
     },
   },
   {
-    files: ["*.config.{js,ts}"],
+    // Build tooling: Node, not the browser.
+    files: ["*.config.{js,ts,mjs}", "scripts/**/*.mjs"],
     languageOptions: { globals: globals.node },
   },
 );

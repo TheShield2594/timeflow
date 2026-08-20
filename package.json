@@ -15,7 +15,8 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "pac:push": "pac code push",
-    "pac:run": "pac code run"
+    "pac:run": "pac code run",
+    "pac:regen": "node scripts/regen-sdk.mjs"
   },
   "dependencies": {
     "@microsoft/power-apps": "^1.1.9",

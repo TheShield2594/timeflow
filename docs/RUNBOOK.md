@@ -58,7 +58,14 @@ git push origin v1.2.0
 3. Stop it: the entry lands on the Timesheet with the right duration.
 4. Calendar renders the week; if Outlook is wired up, the chip reads
    "Outlook: on".
-5. **No "Data isolation warning" toast.** If one appears, stop and go to
+5. **Open every page in the sidebar once** — Overview, Timesheet, Calendar,
+   Reports, Projects, and Team if you manage people. Since
+   [#116](https://github.com/TheShield2594/timeflow/issues/116) the last four
+   are separate JS chunks fetched on first navigation, so a page that shows a
+   skeleton and never resolves means the host isn't serving those chunk URLs.
+   That failure mode cannot appear on step 1, and the rollback for it is
+   [§3.1](#31-app-code).
+6. **No "Data isolation warning" toast.** If one appears, stop and go to
    [§5.5](#55-a-user-reports-a-data-isolation-warning-toast) — that is a P0.
 
 **After a solution import** (not needed for a code-only `pac code push`), the

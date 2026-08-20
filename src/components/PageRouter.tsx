@@ -1,10 +1,6 @@
-import React from "react";
+import React, { Suspense } from "react";
 import { OverviewPage } from "./OverviewPage";
 import { TimesheetPage } from "./TimesheetPage";
-import { CalendarPage } from "./CalendarPage";
-import { ReportsPage } from "./ReportsPage";
-import { ProjectsPage } from "./ProjectsPage";
-import { TeamPage } from "./TeamPage";
 import { ErrorBoundary } from "./ErrorBoundary";
 import type { TeamContext } from "../services/teamService";
 import type { TimeEntry, Project, Task } from "../types";
@@ -23,10 +19,26 @@ export type Page = "overview" | "timesheet" | "calendar" | "reports" | "projects
  */
 const Overview = React.memo(OverviewPage);
 const Timesheet = React.memo(TimesheetPage);
-const Calendar = React.memo(CalendarPage);
-const Reports = React.memo(ReportsPage);
-const Projects = React.memo(ProjectsPage);
-const Team = React.memo(TeamPage);
+
+/**
+ * Everything past the first two screens is code-split (#116).
+ *
+ * Overview is where the app lands and Timesheet is one click away on nearly
+ * every session, so both stay in the entry chunk — deferring them would only
+ * buy a spinner. Calendar, Reports, Projects and Team are each visited by
+ * some sessions and none, and Calendar alone is the largest component in the
+ * app; splitting them is what keeps the first paint from carrying pages the
+ * user may never open.
+ *
+ * React.lazy resolves the module once and caches it, so the fetch happens on
+ * the first navigation to a page and never again. The memo goes on the loaded
+ * module rather than around the lazy wrapper, so these keep the same
+ * re-render behavior the eager pages above have.
+ */
+const Calendar = React.lazy(() => import("./CalendarPage").then((m) => ({ default: React.memo(m.CalendarPage) })));
+const Reports = React.lazy(() => import("./ReportsPage").then((m) => ({ default: React.memo(m.ReportsPage) })));
+const Projects = React.lazy(() => import("./ProjectsPage").then((m) => ({ default: React.memo(m.ProjectsPage) })));
+const Team = React.lazy(() => import("./TeamPage").then((m) => ({ default: React.memo(m.TeamPage) })));
 
 /** Skeleton shown only on the very first data load — shaped like the timesheet. */
 export const PageSkeleton: React.FC = () => (
@@ -89,9 +101,20 @@ interface Props {
  */
 export const PageRouter: React.FC<Props> = (props) => (
   <ErrorBoundary scope={props.page} resetKey={props.page}>
-    <PageContent {...props} />
+    {/* The same skeletons the first data load uses, so a chunk fetch and a
+        slow read look alike to the user rather than introducing a second
+        kind of waiting. Inside the boundary: a chunk that fails to load is a
+        render error, and it should land on the page-level fallback with its
+        Retry rather than blanking the app. */}
+    <Suspense fallback={pageSkeletonFor(props.page)}>
+      <PageContent {...props} />
+    </Suspense>
   </ErrorBoundary>
 );
+
+function pageSkeletonFor(page: Page): React.ReactElement {
+  return page === "reports" || page === "overview" ? <ReportsSkeleton /> : <PageSkeleton />;
+}
 
 const PageContent: React.FC<Props> = ({
   page, loading, rangeLoading, entries, projects, tasks, timerBusy,
@@ -99,9 +122,7 @@ const PageContent: React.FC<Props> = ({
   onArchiveProject, onRestoreProject, onAddTask, onDeleteTask, onRenameTask, onLoadTasksForProject, onGoToProjects,
   teamContext,
 }) => {
-  if (loading) {
-    return page === "reports" || page === "overview" ? <ReportsSkeleton /> : <PageSkeleton />;
-  }
+  if (loading) return pageSkeletonFor(page);
 
   if (page === "overview") {
     return (
