@@ -5,16 +5,17 @@ import { FocusModal } from "./components/FocusModal";
 import { useFocusMode } from "./hooks/useFocusMode";
 import { PageRouter, Page } from "./components/PageRouter";
 import { IconHome, IconTimesheet, IconCalendar, IconChart, IconFolder, IconMoon, IconSun, IconUsers } from "./components/Icons";
-import { formatMinutes, useProjects, useTasks, useTimeEntries, useTimer } from "./hooks";
+import { formatMinutes, useTimer } from "./hooks";
 import { useTeamContext } from "./hooks/useTeam";
 import { useIdleGuard } from "./hooks/useIdleGuard";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { useAppBootstrap } from "./hooks/useAppBootstrap";
 import { useTheme, Theme } from "./hooks/useTheme";
 import { ToastProvider, useToast } from "./contexts/ToastContext";
-import { DataRangeProvider, useDataRange } from "./contexts/DataRangeContext";
+import { DataRangeProvider } from "./contexts/DataRangeContext";
+import { DataProvider, useData } from "./contexts/DataContext";
 
-import type { TimeEntry, Task, Project } from "./types";
+import type { TimeEntry } from "./types";
 import logoUrl from "./everence-logo.png";
 
 const NAV_ITEMS: { key: Page; label: string; icon: React.ReactNode }[] = [
@@ -47,7 +48,12 @@ const App: React.FC = () => {
   return (
     <ToastProvider>
       <DataRangeProvider>
-        <AppContent theme={theme} onToggleTheme={toggleTheme} />
+        {/* Above AppContent on purpose: the page selection and the timer live
+            *inside* it, and neither should be able to re-render the data
+            layer underneath them (#115). */}
+        <DataProvider>
+          <AppContent theme={theme} onToggleTheme={toggleTheme} />
+        </DataProvider>
       </DataRangeProvider>
     </ToastProvider>
   );
@@ -56,12 +62,12 @@ const App: React.FC = () => {
 const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ theme, onToggleTheme }) => {
   const [page, setPage] = useState<Page>("overview");
   const toast = useToast();
-  const { from, to } = useDataRange();
   const online = useOnlineStatus();
 
-  const { projects, addProject, editProject, archiveProject, restoreProject } = useProjects();
-  const { tasks, addTask, deleteTask, restoreTask, renameTask, loadTasksForProject } = useTasks();
-  const { entries, loading, isFetching, deleteEntry, editEntry, createEntry, refresh } = useTimeEntries(from, to);
+  // Entries, projects, tasks and every mutation over them now come from the
+  // data context, which sits above this component — so a page change or a
+  // timer tick here can't re-render the data layer (#115).
+  const { projects, tasks, addTask, loadTasksForProject, refreshEntries } = useData();
   const { teamContext } = useTeamContext();
   const isManager = (teamContext?.reports.length ?? 0) > 0;
 
@@ -85,7 +91,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
   const handleNewEntry = useCallback(
     (entry: TimeEntry) => {
       lastEntryRef.current = entry;
-      refresh();
+      refreshEntries();
       // Every failure path toasts, but a *successful* stop used to produce
       // nothing at all — the bar just reset, and on Overview or Reports the
       // new entry isn't even on screen. Sighted and non-sighted users alike
@@ -100,7 +106,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
       const project = projects.find((p) => p.id === entry.projectId);
       toast(`Saved${duration}${project ? ` to ${project.name}` : ""}.`, "success");
     },
-    [refresh, projects, toast]
+    [refreshEntries, projects, toast]
   );
 
   // Neither of these ticks: nothing in AppContent re-renders on the second,
@@ -108,50 +114,6 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
   // it (#95). The clocks live in TimerBar, next to the digits they update.
   const { timer, start, stop, stopAt, cancel, restore, update } = useTimer(handleNewEntry);
   const focusMode = useFocusMode(timer.isRunning, timer.startTime);
-
-  const deleteWithUndo = useCallback(async (id: string) => {
-    const snapshot = entries.find((e) => e.id === id);
-    try {
-      await deleteEntry(id);
-    } catch {
-      return;
-    }
-    if (snapshot) {
-      const { id: _omit, ...data } = snapshot;
-      toast("Entry deleted.", "info", {
-        label: "Undo",
-        onAction: () => { createEntry(data).catch(() => { /* toasted by hook */ }); },
-      });
-    }
-  }, [entries, deleteEntry, createEntry, toast]);
-
-  const deleteTaskWithUndo = useCallback(async (task: Task) => {
-    try {
-      await deleteTask(task);
-    } catch {
-      return;
-    }
-    // Delete deactivates the record, so undo reactivates that same record and
-    // historical entries keep pointing at it. Only saved tasks get this far —
-    // deleteTask refuses a task whose id is still pending — so there's no
-    // recreate-instead case to handle.
-    toast("Task deleted.", "info", {
-      label: "Undo",
-      onAction: () => { restoreTask(task).catch(() => { /* toasted by hook */ }); },
-    });
-  }, [deleteTask, restoreTask, toast]);
-
-  const archiveProjectWithUndo = useCallback(async (project: Project) => {
-    try {
-      await archiveProject(project);
-    } catch {
-      return;
-    }
-    toast("Project archived.", "info", {
-      label: "Undo",
-      onAction: () => { restoreProject(project).catch(() => { /* toasted by hook */ }); },
-    });
-  }, [archiveProject, restoreProject, toast]);
 
   // "Continue" on a past entry: restart the timer with the same project,
   // task, description and ratio. start() itself guards against an
@@ -179,7 +141,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
   const goToProjects = useCallback(() => setPage("projects"), []);
 
   const idleGuard = useIdleGuard({
-    timer, stopAt, cancel, restore, refresh, toast, saveToastSuppressed,
+    timer, stopAt, cancel, restore, refresh: refreshEntries, toast, saveToastSuppressed,
   });
 
   return (
@@ -269,24 +231,8 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void }> = ({ the
         <div className="main__content">
           <PageRouter
             page={page}
-            loading={loading}
-            rangeLoading={isFetching && !loading}
-            entries={entries}
-            projects={projects}
-            tasks={tasks}
             timerBusy={timer.isRunning || !!timer.pendingStopAt}
-            onDelete={deleteWithUndo}
-            onEdit={editEntry}
-            onCreate={createEntry}
             onContinue={continueEntry}
-            onAddProject={addProject}
-            onEditProject={editProject}
-            onArchiveProject={archiveProjectWithUndo}
-            onRestoreProject={restoreProject}
-            onAddTask={addTask}
-            onDeleteTask={deleteTaskWithUndo}
-            onRenameTask={renameTask}
-            onLoadTasksForProject={loadTasksForProject}
             onGoToProjects={goToProjects}
             teamContext={teamContext}
           />

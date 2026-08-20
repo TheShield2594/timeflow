@@ -2,8 +2,9 @@ import React, { Suspense } from "react";
 import { OverviewPage } from "./OverviewPage";
 import { TimesheetPage } from "./TimesheetPage";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { useData } from "../contexts/DataContext";
 import type { TeamContext } from "../services/teamService";
-import type { NewTimeEntry, Project, Task, TimeEntry } from "../types";
+import type { TimeEntry } from "../types";
 
 export type Page = "overview" | "timesheet" | "calendar" | "reports" | "projects" | "team";
 
@@ -69,26 +70,17 @@ export const ReportsSkeleton: React.FC = () => (
   </div>
 );
 
+/**
+ * What the router needs that isn't data. Entries, projects, tasks and every
+ * mutation over them come from `useData()` — this used to be 19 props, all of
+ * them forwarded verbatim from AppContent to a page that wanted them (#115).
+ * What's left is the four things that genuinely belong to the shell.
+ */
 interface Props {
   page: Page;
-  loading: boolean;
-  rangeLoading: boolean;
-  entries: TimeEntry[];
-  projects: Project[];
-  tasks: Task[];
+  /** True while a timer is running or retrying a stop — pages disable "Continue". */
   timerBusy: boolean;
-  onDelete: (id: string) => void;
-  onEdit: (id: string, data: Partial<TimeEntry>) => Promise<TimeEntry>;
-  onCreate: (data: NewTimeEntry) => Promise<TimeEntry>;
   onContinue: (entry: TimeEntry) => void;
-  onAddProject: (data: Omit<Project, "id" | "createdAt">) => Promise<Project>;
-  onEditProject: (id: string, data: Partial<Project>) => Promise<Project>;
-  onArchiveProject: (project: Project) => void;
-  onRestoreProject: (project: Project) => Promise<void>;
-  onAddTask: (data: Omit<Task, "id">) => Promise<Task>;
-  onDeleteTask: (task: Task) => void;
-  onRenameTask: (task: Task, newName: string) => Promise<void>;
-  onLoadTasksForProject: (projectId: string) => void;
   onGoToProjects?: () => void;
   /** Non-null with reports = the user manages people; enables the Team page. */
   teamContext?: TeamContext | null;
@@ -117,11 +109,15 @@ function pageSkeletonFor(page: Page): React.ReactElement {
 }
 
 const PageContent: React.FC<Props> = ({
-  page, loading, rangeLoading, entries, projects, tasks, timerBusy,
-  onDelete, onEdit, onCreate, onContinue, onAddProject, onEditProject,
-  onArchiveProject, onRestoreProject, onAddTask, onDeleteTask, onRenameTask, onLoadTasksForProject, onGoToProjects,
-  teamContext,
+  page, timerBusy, onContinue, onGoToProjects, teamContext,
 }) => {
+  const {
+    entries, projects, tasks, loading, rangeLoading,
+    createEntry, editEntry, deleteEntry, refreshEntries: _refresh,
+    addProject, editProject, archiveProject, restoreProject,
+    addTask, deleteTask, renameTask, loadTasksForProject,
+  } = useData();
+
   if (loading) return pageSkeletonFor(page);
 
   if (page === "overview") {
@@ -132,8 +128,8 @@ const PageContent: React.FC<Props> = ({
         tasks={tasks}
         timerBusy={timerBusy}
         onContinue={onContinue}
-        onCreate={onCreate}
-        onLoadTasksForProject={onLoadTasksForProject}
+        onCreate={createEntry}
+        onLoadTasksForProject={loadTasksForProject}
         onGoToProjects={onGoToProjects}
       />
     );
@@ -147,11 +143,11 @@ const PageContent: React.FC<Props> = ({
         tasks={tasks}
         timerBusy={timerBusy}
         rangeLoading={rangeLoading}
-        onDelete={onDelete}
-        onEdit={onEdit}
-        onCreate={onCreate}
+        onDelete={deleteEntry}
+        onEdit={editEntry}
+        onCreate={createEntry}
         onContinue={onContinue}
-        onLoadTasksForProject={onLoadTasksForProject}
+        onLoadTasksForProject={loadTasksForProject}
         onGoToProjects={onGoToProjects}
       />
     );
@@ -164,10 +160,10 @@ const PageContent: React.FC<Props> = ({
         projects={projects}
         tasks={tasks}
         rangeLoading={rangeLoading}
-        onCreateEntry={onCreate}
-        onEdit={onEdit}
-        onDelete={onDelete}
-        onLoadTasksForProject={onLoadTasksForProject}
+        onCreateEntry={createEntry}
+        onEdit={editEntry}
+        onDelete={deleteEntry}
+        onLoadTasksForProject={loadTasksForProject}
       />
     );
   }
@@ -196,14 +192,14 @@ const PageContent: React.FC<Props> = ({
         projects={projects}
         tasks={tasks}
         entries={entries}
-        onAddProject={onAddProject}
-        onEditProject={onEditProject}
-        onArchiveProject={onArchiveProject}
-        onRestoreProject={onRestoreProject}
-        onAddTask={onAddTask}
-        onDeleteTask={onDeleteTask}
-        onRenameTask={onRenameTask}
-        onLoadTasksForProject={onLoadTasksForProject}
+        onAddProject={addProject}
+        onEditProject={editProject}
+        onArchiveProject={archiveProject}
+        onRestoreProject={restoreProject}
+        onAddTask={addTask}
+        onDeleteTask={deleteTask}
+        onRenameTask={renameTask}
+        onLoadTasksForProject={loadTasksForProject}
       />
     );
   }
