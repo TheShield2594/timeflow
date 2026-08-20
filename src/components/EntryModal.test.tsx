@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeAll, afterAll } from "vitest";
+import { StrictMode } from "react";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { EntryModal, type EntryDraft, type EntrySaveData } from "./EntryModal";
 import type { Project } from "../types";
@@ -59,6 +60,38 @@ describe("EntryModal help tip", () => {
     // With the popover gone, Escape reaches the modal again.
     fireEvent.keyDown(document.body, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("EntryModal overnight prompt under StrictMode (#114)", () => {
+  it("clears the overnight choice from an effect, not from inside the setDraft updater", () => {
+    // StrictMode double-invokes state updaters. The reset used to run inside
+    // one, and only survived because the call was idempotent. Rendering the
+    // whole flow under StrictMode is what pins it to the effect instead.
+    render(
+      <StrictMode>
+        <EntryModal
+          title="Log Time"
+          initial={baseDraft}
+          projects={projects}
+          tasks={[]}
+          onSave={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </StrictMode>
+    );
+
+    // 22:00 -> 02:00 is an overnight conflict, so the prompt is up.
+    expect(screen.getByText("Split at midnight")).toBeTruthy();
+    fireEvent.click(screen.getByText("Split at midnight"));
+    expect(screen.queryByText("Split at midnight")).toBeNull();
+    expect(screen.getByText(/Will create two entries/)).toBeTruthy();
+
+    // Move the end past the start: the conflict is gone, and so is the choice
+    // that was made about it — no stale "split" hint left behind.
+    fireEvent.change(screen.getByLabelText("End"), { target: { value: "23:00" } });
+    expect(screen.queryByText(/Will create two entries/)).toBeNull();
+    expect(screen.getByText(/Duration: 1h/)).toBeTruthy();
   });
 });
 

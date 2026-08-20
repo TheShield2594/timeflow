@@ -30,6 +30,7 @@ import type { Project, Task, TimeEntry } from "../types";
 import { getCurrentUser, isPowerAppsHost, getDataverseOrgUrl } from "./userService";
 import { MicrosoftDataverseService } from "../generated";
 import { DEFAULT_PROJECT_COLOR } from "../utils/colors";
+import { localDateStr } from "../utils/dates";
 import { reportTelemetry } from "./telemetry";
 
 // ---------------------------------------------------------------------------
@@ -493,7 +494,7 @@ function mapIsActive(r: Raw): boolean {
 
 function mapProject(r: Raw): Project {
   return {
-    id: (str(r, "ever_projectsid") ?? str(r, "id")) as string,
+    id: str(r, "ever_projectsid") ?? str(r, "id") ?? "",
     name: str(r, "ever_name") ?? "",
     color: str(r, "ever_color") ?? DEFAULT_PROJECT_COLOR,
     description: str(r, "ever_description"),
@@ -506,7 +507,7 @@ function mapProject(r: Raw): Project {
 
 function mapTask(r: Raw): Task {
   return {
-    id: (str(r, "ever_workitemsid") ?? str(r, "id")) as string,
+    id: str(r, "ever_workitemsid") ?? str(r, "id") ?? "",
     projectId: str(r, "_ever_project_value") ?? "",
     name: str(r, "ever_name") ?? "",
     description: str(r, "ever_description"),
@@ -514,14 +515,50 @@ function mapTask(r: Raw): Task {
   };
 }
 
+/**
+ * `ever_date` -> the local "YYYY-MM-DD" key every calendar, timesheet and
+ * report row is grouped by.
+ *
+ * The column is expected to be **DateOnly (Date Only behavior)** — see the
+ * schema table in README.md — which serializes either as a bare "YYYY-MM-DD"
+ * or as "YYYY-MM-DDT00:00:00Z". For those, the date is the literal prefix and
+ * splitting on "T" is exactly right.
+ *
+ * A non-midnight time part means the column was configured as DateTime
+ * instead, and then the prefix is a UTC date, not the user's: a local
+ * 2026-06-15 in UTC+2 comes back as "2026-06-14T22:00:00Z" and the naive
+ * split silently moves *every* entry a day earlier. So that case is read as
+ * what it actually is — an instant — and converted on the local clock, which
+ * recovers the day the user meant. It is still a misconfiguration, so it is
+ * reported once per session rather than quietly papered over (#114).
+ */
+export function mapEntryDate(rawDate: string): string {
+  const t = rawDate.indexOf("T");
+  if (t === -1) return rawDate;
+  const datePart = rawDate.slice(0, t);
+  const instant = new Date(rawDate);
+  // Unparseable: the prefix is still the best guess, and it's what the old
+  // unconditional split would have produced.
+  if (Number.isNaN(instant.getTime())) return datePart;
+  // Midnight UTC — tested on the parsed instant rather than by matching the
+  // literal, so "Z", "+00:00" and a fractional-seconds spelling all read the
+  // same. This is the DateOnly serialization and the prefix is the date.
+  const isUtcMidnight =
+    instant.getUTCHours() === 0 && instant.getUTCMinutes() === 0 &&
+    instant.getUTCSeconds() === 0 && instant.getUTCMilliseconds() === 0;
+  if (isUtcMidnight) return datePart;
+  reportTelemetry({
+    name: "date_column_not_dateonly",
+    severity: "error",
+    message: "ever_date returned a time component; the column is not DateOnly",
+    props: { timePart: rawDate.slice(t + 1) },
+  });
+  return localDateStr(instant);
+}
+
 export function mapEntry(r: Raw): TimeEntry {
-  // Dataverse can return ever_date either as "YYYY-MM-DD" or as a full ISO
-  // timestamp ("YYYY-MM-DDT00:00:00Z") depending on the column's behavior.
-  // The rest of the app keys calendar/timesheet rows off "YYYY-MM-DD", so
-  // anything past the "T" must be stripped.
-  const rawDate = str(r, "ever_date") ?? "";
   return {
-    id: (str(r, "ever_timeentriesid") ?? str(r, "id")) as string,
+    id: str(r, "ever_timeentriesid") ?? str(r, "id") ?? "",
     projectId: str(r, "_ever_project_value") ?? "",
     taskId: str(r, "_ever_workitem_value"),
     description: str(r, "ever_description"),
@@ -530,7 +567,7 @@ export function mapEntry(r: Raw): TimeEntry {
     durationMinutes: num(r, "ever_durationminutes"),
     ratio: num(r, "ever_ratio"),
     jiraTicket: str(r, "ever_jiraticket"),
-    date: rawDate.split("T")[0],
+    date: mapEntryDate(str(r, "ever_date") ?? ""),
     userId: str(r, "ever_userid") ?? "",
     userDisplayName:
       str((r.owninguser as Raw) ?? {}, "fullname") ??

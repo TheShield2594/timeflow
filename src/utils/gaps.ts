@@ -19,9 +19,15 @@ import type { TimeEntry } from "../types";
 export const WORK_DAY_START_MIN = 8 * 60;  // 08:00
 export const WORK_DAY_END_MIN = 18 * 60;   // 18:00
 
-/** Gaps must be longer than this to be worth offering — anything shorter is
- *  the slack between back-to-back blocks, not time somebody forgot to log. */
-export const MIN_GAP_MINUTES = 15;
+/**
+ * A gap must be *strictly longer* than this to be worth offering — anything
+ * shorter is the slack between back-to-back blocks, not time somebody forgot
+ * to log. The name says "must exceed" rather than "minimum" because the
+ * comparison below is `>`, so with 15 the smallest gap surfaced is 16 minutes
+ * and an exactly-quarter-hour hole is deliberately silent (#114). The
+ * threshold itself is unchanged; only the name was lying about it.
+ */
+export const GAP_MUST_EXCEED_MINUTES = 15;
 
 const MINUTES_PER_DAY = 24 * 60;
 
@@ -98,7 +104,8 @@ export interface FindGapsOptions {
   upperBoundMin?: number;
   workDayStartMin?: number;
   workDayEndMin?: number;
-  minGapMinutes?: number;
+  /** Override the `GAP_MUST_EXCEED_MINUTES` threshold; strictly-greater-than. */
+  gapMustExceedMinutes?: number;
 }
 
 /**
@@ -117,7 +124,7 @@ export function findUntrackedGaps({
   upperBoundMin,
   workDayStartMin = WORK_DAY_START_MIN,
   workDayEndMin = WORK_DAY_END_MIN,
-  minGapMinutes = MIN_GAP_MINUTES,
+  gapMustExceedMinutes = GAP_MUST_EXCEED_MINUTES,
 }: FindGapsOptions): Gap[] {
   const covered = coveredSpans(entries, date, nowMinutes);
   if (covered.length === 0) return [];
@@ -142,5 +149,5 @@ export function findUntrackedGaps({
       startMin: Math.max(g.startMin, windowStart),
       endMin: Math.min(g.endMin, windowEnd),
     }))
-    .filter((g) => g.endMin - g.startMin > minGapMinutes);
+    .filter((g) => g.endMin - g.startMin > gapMustExceedMinutes);
 }

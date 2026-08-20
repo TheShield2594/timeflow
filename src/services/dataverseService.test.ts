@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Task, TimeEntry } from "../types";
+import { __setTelemetryTransportForTests } from "./telemetry";
 
 vi.mock("./userService", () => ({
   getCurrentUser: () => ({ id: "user-1", email: "user1@example.com", displayName: "User One", environmentId: "env-1" }),
@@ -11,7 +12,7 @@ vi.mock("./userService", () => ({
 vi.mock("../generated", () => ({ MicrosoftDataverseService: {} }));
 
 const {
-  mapEntry, entryToDataverse, mergeOver, hasForeignUserEntries,
+  mapEntry, mapEntryDate, entryToDataverse, mergeOver, hasForeignUserEntries,
   deactivateTask, reactivateTask, getAllTasks, getTasksForProject,
   deactivateProject, reactivateProject, getProjects, updateTask,
   updateProject, isNotFoundError,
@@ -28,6 +29,40 @@ function makeEntry(overrides: Partial<TimeEntry> = {}): TimeEntry {
     ...overrides,
   };
 }
+
+describe("mapEntryDate (#114)", () => {
+  beforeEach(() => { __setTelemetryTransportForTests(null); });
+
+  it("passes a bare DateOnly value through untouched", () => {
+    expect(mapEntryDate("2024-06-01")).toBe("2024-06-01");
+  });
+
+  it("splits every midnight-UTC spelling on the literal date", () => {
+    // All four are DateOnly serializations, and the date is the prefix even
+    // though the tests run in America/New_York where that instant is the
+    // previous evening.
+    expect(mapEntryDate("2024-06-01T00:00:00Z")).toBe("2024-06-01");
+    expect(mapEntryDate("2024-06-01T00:00:00.0000000Z")).toBe("2024-06-01");
+    expect(mapEntryDate("2024-06-01T00:00:00+00:00")).toBe("2024-06-01");
+    expect(mapEntryDate("2024-06-01T00:00Z")).toBe("2024-06-01");
+  });
+
+  it("reads a non-midnight value as an instant on the local clock, and reports it", () => {
+    const events: string[] = [];
+    __setTelemetryTransportForTests((e) => { events.push(e.name); });
+    // A DateTime (User Local) column: 2024-06-01 22:00Z is still 2024-06-01
+    // in America/New_York (18:00 EDT), which the naive split also gets right...
+    expect(mapEntryDate("2024-06-01T22:00:00Z")).toBe("2024-06-01");
+    // ...but 2024-06-02 01:00Z is 2024-06-01 21:00 EDT, and the split would
+    // move the entry a day forward. This is the bug the branch exists for.
+    expect(mapEntryDate("2024-06-02T01:00:00Z")).toBe("2024-06-01");
+    expect(events).toContain("date_column_not_dateonly");
+  });
+
+  it("falls back to the prefix when the timestamp is unparseable", () => {
+    expect(mapEntryDate("2024-06-01Tnonsense")).toBe("2024-06-01");
+  });
+});
 
 describe("mapEntry", () => {
   it("maps a full Dataverse row to a TimeEntry", () => {
@@ -65,6 +100,13 @@ describe("mapEntry", () => {
   it("strips the time component when ever_date is a full ISO timestamp", () => {
     const entry = mapEntry({ ever_date: "2024-06-01T00:00:00Z" });
     expect(entry.date).toBe("2024-06-01");
+  });
+
+  it("returns an empty id rather than undefined-typed-as-string (#114)", () => {
+    // teamService calls mapEntry directly with no mergeOver guard, so a
+    // malformed row must not hand it an id that fails `id.startsWith(...)`.
+    expect(mapEntry({}).id).toBe("");
+    expect(typeof mapEntry({}).id).toBe("string");
   });
 
   it("falls back to empty/undefined for missing optional fields", () => {

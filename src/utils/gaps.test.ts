@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { findUntrackedGaps, coveredSpans, WORK_DAY_START_MIN, WORK_DAY_END_MIN } from "./gaps";
+import {
+  findUntrackedGaps, coveredSpans, WORK_DAY_START_MIN, WORK_DAY_END_MIN,
+  GAP_MUST_EXCEED_MINUTES,
+} from "./gaps";
 import type { TimeEntry } from "../types";
 
 const DATE = "2026-07-29";
@@ -44,6 +47,26 @@ describe("findUntrackedGaps", () => {
     });
     // 08:00 start of working hours → 10:00, and 11:00 → 18:00.
     expect(asClock(gaps)).toEqual(["08:00-10:00", "11:00-18:00"]);
+  });
+
+  it("names its threshold after the comparison it actually makes (#114)", () => {
+    // The filter is `>`, not `>=`, so a gap of exactly the threshold is
+    // dropped — which is why the constant is GAP_MUST_EXCEED_MINUTES and not
+    // MIN_GAP_MINUTES. Same 15-minute hole, read either way by the override.
+    expect(GAP_MUST_EXCEED_MINUTES).toBe(15);
+    const fifteenMinuteHole = [entry("08:00", "10:00"), entry("10:15", "18:00")];
+    expect(findUntrackedGaps({
+      entries: fifteenMinuteHole,
+      date: DATE,
+      nowMinutes: WORK_DAY_END_MIN,
+      gapMustExceedMinutes: 15,
+    })).toEqual([]);
+    expect(asClock(findUntrackedGaps({
+      entries: fifteenMinuteHole,
+      date: DATE,
+      nowMinutes: WORK_DAY_END_MIN,
+      gapMustExceedMinutes: 14,
+    }))).toEqual(["10:00-10:15"]);
   });
 
   it("ignores gaps of 15 minutes or less", () => {
