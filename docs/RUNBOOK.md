@@ -390,6 +390,18 @@ both operations. Do not redo those steps. What remains per environment:
       hierarchy**, depth **1** (raise it if managers-of-managers should see
       deeper), and **include `ever_timeentries`** in the table list — tables
       default to excluded.
+
+      **`ever_timeentries` and nothing else.** Hierarchy security is an
+      ownership-based grant, and `ever_projects` / `ever_workitems` are
+      Organization-owned on purpose (see row security below) — an
+      Organization-owned row has no owner, so there is no manager chain to walk
+      and adding those tables here does nothing. Two reasons not to anyway: if
+      the picker offers them at all, check their ownership hasn't drifted to
+      User (which would break the shared project list on its own, hierarchy
+      security or not); and [#129](https://github.com/TheShield2594/timeflow/issues/129)
+      is an open decision about rebuilding `ever_workitems` User-owned, which
+      would silently start granting managers their reports' tasks the day it
+      lands if the table is already listed here.
 - [ ] **Org-level Read on the User (`systemuser`) table** in the role users run
       under; most baseline roles have it. Without it the app can't detect
       "do I have reports" and the Team page stays hidden for everyone.
