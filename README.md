@@ -224,7 +224,7 @@ Correct table-level security role configuration is required to keep each user's 
 1. Go to [make.powerapps.com](https://make.powerapps.com) → **Tables** → select `ever_timeentries`.
 2. Open **Settings** → **Advanced options** → confirm *Ownership* is set to **User or Team**.
 3. In your Security Role, confirm the `ever_timeentries` row is set to **User** scope for Read/Write/Create/Delete.
-4. Repeat for `ever_projects` and `ever_workitems` (Organization scope for shared data is correct).
+4. Repeat for `ever_projects` and `ever_workitems` (Organization scope for shared data is correct — tasks are a shared per-project vocabulary by decision, not by accident; see [D-1 in docs/DECISIONS.md](docs/DECISIONS.md#tasks-are-shared-per-project-deliberately-2026-08-26)).
 5. Run [the data-isolation UAT checklist](docs/UAT-DATA-ISOLATION.md) with two real accounts. Steps 1–4 confirm the *settings*; that checklist confirms the *behaviour*, which is the thing that actually protects the data.
 
 #### Manager Team view (hierarchy security)

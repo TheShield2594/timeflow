@@ -13,8 +13,10 @@ it isn't tracked.
 
 | # | Decision | Owner | Target | Tracked in |
 |---|---|---|---|---|
-| D-1 | Personal (per-user) tasks: rebuild `ever_workitems` User-owned (real row security) or add an app-side owner column (UX only) | @TheShield2594 | 2026-08-31 *(proposed)* | [#129](https://github.com/TheShield2594/timeflow/issues/129) |
 | D-2 | Licence: the repo carries MIT while being a private, Everence-branded internal app | @TheShield2594 | — | *below* |
+
+D-1 (personal tasks) was settled on 2026-08-26 — see *Tasks are shared per
+project, deliberately* under Settled.
 
 ### D-2 — Licence
 
@@ -47,6 +49,36 @@ the README's Licence line to match.
 
 Recorded because the reasoning is not visible from the code and has been
 re-litigated at least once.
+
+### Tasks are shared per project, deliberately (2026-08-26)
+
+D-1, [#129](https://github.com/TheShield2594/timeflow/issues/129). `ever_workitems`
+is Organization-owned and stays that way: every user sees every task under a
+project, and that is the intended behaviour, not a leftover of how the table was
+created.
+
+The framing in #129 was "do task names need to be private, or only tidy" — but
+the honest third answer is that they should be *shared*. Task pickers are
+already filtered to the selected project (`TimerBar`, `EntryModal`), and
+projects themselves are org-wide, so nobody is scrolling a global list of
+strangers' work. What a per-project task list actually is, is a shared
+vocabulary: one "Code review" that everyone bills against, so reports aggregate
+instead of fragmenting into six near-duplicate rows. Making tasks per-user would
+create that fragmentation on purpose, and it is the kind of damage that only
+shows up months later in a report nobody can reconcile.
+
+Neither option in #129 was therefore taken. Option A (rebuild the table
+User-owned) buys real row security at the cost of a lookup repoint on
+`ever_timeentries` — the table holding the billable record — to protect data
+that isn't sensitive. Option B (owner column plus a personal/shared flag) buys
+tidiness the project scoping already provides, while reading as security to
+anyone who doesn't know it isn't.
+
+**The caveat this accepts:** task *names* are readable org-wide, including
+directly via the Web API. Nothing confidential belongs in one. The place for
+detail that shouldn't be shared is an entry's description, which lives on
+`ever_timeentries` and is genuinely per-user (see below). Revisit if the app
+ever spans clients who shouldn't see each other's project structure.
 
 ### Reads filter on `ownerid` via `eq-userid`, not on `ever_userid`
 

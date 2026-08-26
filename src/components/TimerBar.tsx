@@ -138,6 +138,7 @@ const FocusControl: React.FC<{ focus: FocusControlState }> = ({ focus }) => {
   const [editing, setEditing] = useState(false);
   const [focusInput, setFocusInput] = useState("");
   const [breakInput, setBreakInput] = useState("");
+  const chipRef = useRef<HTMLButtonElement>(null);
 
   const commit = () => {
     onUpdateSettings({
@@ -188,22 +189,31 @@ const FocusControl: React.FC<{ focus: FocusControlState }> = ({ focus }) => {
   // to be a `title` on the chip and nowhere else — invisible to a keyboard or
   // screen-reader user, who has no way to hover it (#106). The chip's own
   // accessible name carries what it does when clicked; the explanation moves to
-  // the tip beside it.
+  // the tip beside it, which the chip also reveals on hover (#84) — "Focus off"
+  // says nothing about what turning it on would do, and hover is where people
+  // look before they find a "?".
+  //
+  // It explains the cadence *and* how to drive it: the mode is inert until the
+  // timer runs, which is the part nobody guesses from the chip alone.
   const summary =
-    `${settings.focusMinutes} minutes of focus, then a ${settings.breakMinutes} minute break, ` +
-    `prompted as each one ends. ${sessionsToday} focus ${sessionsToday === 1 ? "block" : "blocks"} completed today. ` +
+    `Paces tracked work: ${settings.focusMinutes} minutes of focus, then a ${settings.breakMinutes} minute break, ` +
+    `prompted as each one ends. Turn it on here, then start the timer — a block measures tracked time, so it ` +
+    `only counts while the timer runs. Taking a break stops and saves the entry, so break time is never logged ` +
+    `as work. The pencil changes both intervals. ` +
+    `${sessionsToday} focus ${sessionsToday === 1 ? "block" : "blocks"} completed today. ` +
     `Prompts only fire while this tab is open.`;
 
   return (
     <span className="focus-control">
       <button
+        ref={chipRef}
         className={`focus-chip ${enabled ? "focus-chip--on" : ""} ${phase === "break" ? "focus-chip--break" : ""}`}
         onClick={onToggle}
         aria-label={`${label} — click to turn focus mode ${enabled ? "off" : "on"}`}
       >
         {label}
       </button>
-      <HelpTip label="What is focus mode?" text={summary} />
+      <HelpTip label="What is focus mode?" text={summary} hoverAnchorRef={chipRef} />
       {enabled && (
         <button
           className="focus-chip__edit"

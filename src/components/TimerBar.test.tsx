@@ -310,3 +310,37 @@ describe("TimerBar ratio/ticket disclosure", () => {
     expect(onStart).toHaveBeenCalledWith("p1", null, "", undefined, "PROJ-9");
   });
 });
+
+describe("TimerBar focus chip", () => {
+  const focus = {
+    enabled: false,
+    phase: "off" as const,
+    endsAt: null,
+    settings: { focusMinutes: 25, breakMinutes: 5 },
+    sessionsToday: 0,
+    onToggle: vi.fn(),
+    onUpdateSettings: vi.fn(),
+  };
+
+  it("explains focus mode on hover, not just behind the ?", () => {
+    // "Focus off" is all the chip says for itself; hovering it is where a user
+    // looks to find out what turning it on would do (#84).
+    renderBar({ focus });
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: /^Focus off/ }));
+    const text = screen.getByRole("tooltip").textContent ?? "";
+    expect(text).toContain("25 minutes of focus");
+    expect(text).toContain("5 minute break");
+    // The part the chip can't imply: the mode does nothing until the timer runs.
+    expect(text).toContain("start the timer");
+  });
+
+  it("hides the explanation again when the pointer leaves", () => {
+    renderBar({ focus });
+    const chip = screen.getByRole("button", { name: /^Focus off/ });
+    fireEvent.mouseEnter(chip);
+    fireEvent.mouseLeave(chip);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+  });
+});
