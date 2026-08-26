@@ -116,6 +116,27 @@ Findings from the [2026-08-12 application review](docs/reviews/2026-08-12-multi-
   not guaranteed to be set during bootstrap, which is when the first and
   widest read happens. Reads return it now
   ([#115](https://github.com/TheShield2594/timeflow/issues/115)).
+- The Team page no longer renders "hierarchy security isn't handing me my
+  reports' rows" and "my reports logged nothing" as the same table of zeroes.
+  The two lookups behind the page fail independently — the Manager field
+  supplies the names, hierarchy security supplies the entries — so a week with
+  names and no rows now says which one is missing, on the page and as a
+  `team_no_report_rows` telemetry event.
+- The setup docs had the hierarchy-security table list backwards. It is an
+  *exclusion* list — every table is included by default — so the instruction to
+  "include `ever_timeentries`" read as "uncheck everything else", which is a
+  change per table and fails the platform's 1,000-operation change set limit
+  (`0x80060888`). README, RUNBOOK §5.6 and the §6 checklist now say to leave the
+  list alone, and §6 carries the error and its workaround.
+- A user whose own **Manager** field points at their own profile is no longer
+  counted as their own direct report. That is the shape "set yourself as the
+  manager" takes when the field is edited on the manager instead of on each
+  report, and it opened a Team page whose only member was the person reading it
+  ([#131](https://github.com/TheShield2594/timeflow/issues/131)).
+- A failed direct-reports probe reports itself. The Team page vanishing for
+  every manager in an environment has exactly one other symptom — an absent nav
+  item — and the missing privilege behind it was only ever logged to the
+  affected user's console.
 
 ### Accessibility
 

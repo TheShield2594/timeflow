@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import type { Project, Task } from "../types";
 import type { TeamContext, TeamEntry } from "../services/teamService";
-import { useTeamEntries } from "../hooks/useTeam";
+import { hasNoReportRows, useTeamEntries } from "../hooks/useTeam";
 import { formatMinutes } from "../hooks";
 import { addDaysStr, localDateStr, weekStartStr } from "../utils/dates";
 import { indexById } from "../utils/entityIndex";
@@ -130,6 +130,12 @@ export const TeamPage: React.FC<Props> = ({ teamContext, projects, tasks }) => {
     [memberRows]
   );
 
+  // Names but no rows: see hasNoReportRows. Worth its own line on the page
+  // because the manager reading it is the one person who can tell "nobody
+  // logged anything" from "I am not being shown what they logged", and the
+  // admin who can fix the second one needs to be told which it was.
+  const noReportRows = !loading && !error && hasNoReportRows(entries, teamContext, weekStart, today);
+
   // Team-wide project rollup for the visible week, largest first.
   const projectRollup = useMemo(() => {
     const projectById = indexById(projects);
@@ -228,6 +234,15 @@ export const TeamPage: React.FC<Props> = ({ teamContext, projects, tasks }) => {
         </div>
       ) : (
         <>
+          {noReportRows && (
+            <div className="team__hint">
+              Dataverse lists {teamContext.reports.length}{" "}
+              {teamContext.reports.length === 1 ? "person" : "people"} as reporting to you, but returned
+              none of their entries for this week. If they logged time, the app isn&rsquo;t being handed
+              their rows — hierarchy security is off, or <code>ever_timeentries</code> has been excluded
+              from it. An admin can check both in runbook §5.6.
+            </div>
+          )}
           {/* A short read here under-reports someone's week, which is the one
               direction that must never be silent on a billable-time record. */}
           {truncated && (

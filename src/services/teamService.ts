@@ -28,6 +28,7 @@ import type { TimeEntry } from "../types";
 import { getCurrentUser, isPowerAppsHost, getDataverseOrgUrl } from "./userService";
 import { MicrosoftDataverseService } from "../generated";
 import { escapeXmlAttr, listAllRecords, mapEntry, odataGuid, type Paged } from "./dataverseService";
+import { reportTelemetry } from "./telemetry";
 
 const ENTRIES_SET = "ever_timeentrieses";
 const USERS_SET = "systemusers";
@@ -212,11 +213,28 @@ export async function getTeamContext(): Promise<TeamContext> {
     });
     const reports = rows
       .map((r) => ({ id: str(r, "systemuserid") ?? "", name: str(r, "fullname") ?? "Unknown user" }))
-      .filter((m) => m.id);
+      // Drop the caller's own row. Manager lives on the *report's* profile, so
+      // "I set myself as the manager" is as often a Manager field pointed at
+      // one's own profile as it is the intended edit — and a self-referential
+      // row would come back here as a report, open the Team nav for someone
+      // with no team, and render a page whose only member is themselves.
+      .filter((m) => m.id && m.id !== myId);
     cachedContext = { myUserId: myId, reports };
     return cachedContext;
   } catch (err) {
     console.warn("Could not check for direct reports; hiding the Team page.", err);
+    // The Team page vanishing for every manager in an environment is the
+    // symptom of one missing privilege (org-level Read on systemuser), and it
+    // has no other tell: the nav item is simply absent. Say so somewhere other
+    // than the affected user's devtools.
+    reportTelemetry({
+      name: "team_probe_failed",
+      severity: "warning",
+      message:
+        "The direct-reports probe failed; the Team page stays hidden this session. " +
+        "Usually org-level Read on the User (systemuser) table is missing from the role",
+      props: { error: err instanceof Error ? err.message : String(err) },
+    });
     // Memoized like the success paths, so the "stays hidden this session"
     // contract holds without re-issuing the failing reads on every call.
     cachedContext = NO_TEAM;
