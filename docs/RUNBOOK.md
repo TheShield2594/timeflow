@@ -282,17 +282,73 @@ indirect reports do legitimately at hierarchy depth > 1. Compare
 `unexpectedOwners` against `directReports` — a couple is the hierarchy, a large
 share of `rowsReturned` is the misconfiguration above.
 
-### 5.6 "The Team page is missing" (a manager can't see their reports)
+### 5.6 "A manager can't see their reports' time"
 
-Almost always one of two admin settings, not code — see §6:
+Almost always an admin setting, not code — see §6. Which setting depends on
+what the manager actually sees, because the page rests on **two independent
+lookups** and either can fail alone:
 
-1. The report's Power Apps user profile has no **Manager** set
-   (`parentsystemuserid`). **The M365/Entra org chart does not sync into this
-   field.** Every new hire needs it set by hand, or their manager silently loses
-   visibility with no error anywhere — see
+- the **Manager field** (`systemuser.parentsystemuserid`) decides whether the
+  Team page exists at all and whose names are in the table. Reading it needs
+  nothing but org-level Read on the User table.
+- **hierarchy security** decides whether those people's time entries come back.
+  Nothing about the Manager field implies it is on.
+
+So start by asking which of these the manager is looking at:
+
+**No Team nav item at all.** The Manager field on *the report's* profile is
+unset, or the manager's role can't read the User table.
+
+1. The field lives on the report, not on the manager: to see Avery's time, open
+   **Avery's** profile and set Manager to yourself. Setting it on your own
+   profile makes you your own report, which the app now ignores — before it
+   did, that produced a Team page whose only member was you.
+2. **The M365/Entra org chart does not sync into this field.** Every new hire
+   needs it set by hand, or their manager silently loses visibility with no
+   error anywhere — see
    [#131](https://github.com/TheShield2594/timeflow/issues/131) and the joiner
    checklist in [§7](#7-joiners-movers-and-leavers).
-2. Hierarchy security is off, or `ever_timeentries` isn't in its table list.
+3. If no manager in the environment has the nav item, suspect the privilege
+   instead: without org-level Read on `systemuser` the app can't run the probe.
+   That failure reports as `team_probe_failed` in the telemetry sink and as a
+   `[telemetry]` line in the browser console.
+
+**The Team page lists the right people, and every one of them is empty.** The
+Manager fields are fine — those names came from Dataverse. The entry read is
+what's returning nothing, and the app says so on the page ("returned none of
+their entries for this week") and as `team_no_report_rows` in the sink. In
+order of likelihood:
+
+1. **Hierarchy security is off, or `ever_timeentries` isn't in its table list**
+   (tables default to *excluded* — enabling hierarchy modeling is not enough on
+   its own). §6's Manager Team view block has the exact screen. This is the one
+   to check first: with it off, `eq-useroruserhierarchy` is a legal query that
+   returns the caller's own rows and nothing else — no error, no warning.
+2. **Depth.** Depth 1 covers direct reports only. A manager of managers sees
+   their own reports and stops there until it's raised.
+3. **Business units.** Manager hierarchy only grants access when the report is
+   in the manager's own business unit or one beneath it. A report moved into a
+   sibling business unit disappears from their manager's Team page while the
+   Manager field still says they report to them.
+4. **The reports genuinely logged nothing.** Confirm before escalating: have
+   one report open their own Timesheet for that week. Their own pages read with
+   `eq-userid` and don't touch hierarchy security at all, so an entry visible
+   there and absent from Team is the misconfiguration; an empty week on both is
+   just an empty week.
+
+To settle 1–3 without waiting for a user to retry, run this as the manager
+(maker portal → the environment → any Web API client signed in as them):
+
+```
+GET {org}/api/data/v9.2/ever_timeentrieses?fetchXml=
+  <fetch><entity name="ever_timeentries">
+    <attribute name="ever_timeentriesid" /><attribute name="ownerid" />
+    <filter><condition attribute="ownerid" operator="eq-useroruserhierarchy" /></filter>
+  </entity></fetch>
+```
+
+Rows owned by nobody but the caller is the server's own answer, with the app
+taken out of the picture.
 
 ---
 

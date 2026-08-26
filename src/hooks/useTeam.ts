@@ -3,11 +3,16 @@ import * as team from "../services/teamService";
 import type { TeamContext, TeamEntry } from "../services/teamService";
 import { getCurrentUser } from "../services/userService";
 import { reportTelemetry } from "../services/telemetry";
+import { localDateStr } from "../utils/dates";
 
 // Same "warn once per session, scoped per environment + user" shape as the
 // personal-path key in useTimeEntries.
 function teamIsolationWarningKey(environmentId: string, userId: string): string {
   return `tt_team_isolation_warned:${environmentId}:${userId}`;
+}
+
+function teamNoReportRowsWarningKey(environmentId: string, userId: string): string {
+  return `tt_team_no_report_rows_warned:${environmentId}:${userId}`;
 }
 
 /**
@@ -36,6 +41,37 @@ export function findUnexpectedOwners(entries: TeamEntry[], ctx: TeamContext): st
     if (e.ownerId && !expected.has(e.ownerId)) unexpected.add(e.ownerId);
   }
   return [...unexpected];
+}
+
+/**
+ * The Team read came back with rows for nobody but the caller, in a week that
+ * has already started, for someone who demonstrably has reports.
+ *
+ * The two probes this page rests on fail independently, and until now they
+ * failed into the same picture. The Manager field
+ * (`systemuser.parentsystemuserid`) is what put names in `reports`, and it
+ * needs no hierarchy security to read; `eq-useroruserhierarchy` is what
+ * decides whether those people's *rows* come back, and it returns the caller's
+ * own rows and nothing else when hierarchy security is off or
+ * `ever_timeentries` isn't in its table list. So "the org chart says I manage
+ * five people and the server handed me zero of their entries" is a state the
+ * app can name, and it is the exact shape of the misconfiguration in
+ * RUNBOOK §5.6 — rendered, before this, as a table of zeroes indistinguishable
+ * from a team that logged nothing.
+ *
+ * Not proof: a team really can log nothing (a shutdown week, everyone on
+ * leave). Hence a hint rather than an error, and hence the `from <= today`
+ * guard — paging forward to next week must not accuse anyone of anything.
+ */
+export function hasNoReportRows(
+  entries: TeamEntry[],
+  ctx: TeamContext,
+  from: string,
+  today: string = localDateStr(),
+): boolean {
+  if (!ctx.reports.length) return false;
+  if (from > today) return false;
+  return !entries.some((e) => e.ownerId && e.ownerId !== ctx.myUserId);
 }
 
 /**
@@ -105,6 +141,24 @@ export function useTeamEntries(from: string, to: string, teamContext?: TeamConte
         if (ctx) {
           const currentUser = getCurrentUser();
           const warningKey = teamIsolationWarningKey(currentUser.environmentId, currentUser.id);
+          if (hasNoReportRows(data, ctx, fromDate)) {
+            const noRowsKey = teamNoReportRowsWarningKey(currentUser.environmentId, currentUser.id);
+            if (!sessionStorage.getItem(noRowsKey)) {
+              sessionStorage.setItem(noRowsKey, "1");
+              // Warning, not error, and once a session: a genuinely idle team
+              // trips this too. What makes it worth sending anyway is that the
+              // admin who can fix it is never the person looking at the page.
+              reportTelemetry({
+                name: "team_no_report_rows",
+                severity: "warning",
+                message:
+                  "The Team read returned no rows for any direct report. Expected when the team logged " +
+                  "nothing; otherwise hierarchy security is off, or ever_timeentries is missing from its " +
+                  "table list (see RUNBOOK §5.6)",
+                props: { directReports: ctx.reports.length, rowsReturned: data.length },
+              });
+            }
+          }
           const unexpected = findUnexpectedOwners(data, ctx);
           if (unexpected.length && !sessionStorage.getItem(warningKey)) {
             sessionStorage.setItem(warningKey, "1");

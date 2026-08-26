@@ -21,6 +21,9 @@ vi.mock("./userService", () => ({
   }),
 }));
 
+const telemetrySpy = vi.fn();
+vi.mock("./telemetry", () => ({ reportTelemetry: (e: unknown) => telemetrySpy(e) }));
+
 const listRecords = vi.fn();
 vi.mock("../generated", () => ({
   MicrosoftDataverseService: {
@@ -38,6 +41,7 @@ beforeEach(() => {
   localStorage.clear();
   resetTeamCache();
   listRecords.mockReset();
+  telemetrySpy.mockReset();
   powerAppsHost = false;
   signedInId = MY_OBJECT_ID;
 });
@@ -112,12 +116,33 @@ describe("teamService (Power Apps host)", () => {
     warnSpy.mockRestore();
   });
 
-  it("hides the team (instead of throwing) when the probe fails", async () => {
+  it("hides the team (instead of throwing) when the probe fails, and says so out loud", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     listRecords.mockRejectedValue(new Error("no read privilege on systemuser"));
     const ctx = await getTeamContext();
     expect(ctx).toEqual({ myUserId: null, reports: [] });
+    // The nav item is simply absent when this happens — there is no other
+    // symptom for an admin to go on, so the failure has to leave the browser.
+    expect(telemetrySpy).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "team_probe_failed", severity: "warning" })
+    );
     warnSpy.mockRestore();
+  });
+
+  // The Manager field belongs on the report's profile. Set on your own, it
+  // makes you your own report — a Team page whose only member is you.
+  it("does not count the caller as their own direct report", async () => {
+    listRecords
+      .mockResolvedValueOnce(envelope([{ systemuserid: MY_USER_ID, fullname: "User One" }]))
+      .mockResolvedValueOnce(envelope([
+        { systemuserid: MY_USER_ID, fullname: "User One" },
+        { systemuserid: REPORT_1_ID, fullname: "Avery Example" },
+      ]));
+
+    const ctx = await getTeamContext();
+
+    expect(ctx.myUserId).toBe(MY_USER_ID);
+    expect(ctx.reports).toEqual([{ id: REPORT_1_ID, name: "Avery Example" }]);
   });
 
   it("reads team entries with the server-resolved hierarchy operator, never a user-id list", async () => {

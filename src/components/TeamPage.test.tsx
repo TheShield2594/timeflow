@@ -106,6 +106,28 @@ describe("TeamPage", () => {
     expect(screen.getByText("Jordan Sample")).toBeTruthy();
   });
 
+  // A table of zeroes reads as "my team logged nothing" whether the team logged
+  // nothing or the server never handed their rows over. Only one of those is
+  // the manager's problem to solve.
+  it("names the misconfiguration when reports resolve but none of their rows do", async () => {
+    getTeamTimeEntries.mockResolvedValue([
+      entry({ id: "te-mine", ownerId: "su-me", ownerName: "User One", userId: "su-me" }),
+    ]);
+    render(<TeamPage teamContext={teamContext} projects={projects} tasks={tasks} />);
+    await screen.findByText("Avery Example");
+
+    expect(screen.getByText(/returned\s+none of their entries/)).toBeTruthy();
+    expect(screen.getByText(/hierarchy security is off/)).toBeTruthy();
+  });
+
+  it("says nothing about it once a report's rows come back", async () => {
+    getTeamTimeEntries.mockResolvedValue([entry({})]);
+    render(<TeamPage teamContext={teamContext} projects={projects} tasks={tasks} />);
+    await screen.findByText("Avery Example");
+
+    expect(screen.queryByText(/hierarchy security is off/)).toBeNull();
+  });
+
   it("surfaces load failures with a retry", async () => {
     getTeamTimeEntries.mockRejectedValueOnce(new Error("hierarchy security not enabled"));
     getTeamTimeEntries.mockResolvedValue([entry({})]);
