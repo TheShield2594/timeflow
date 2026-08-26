@@ -239,8 +239,8 @@ export const TeamPage: React.FC<Props> = ({ teamContext, projects, tasks }) => {
               Dataverse lists {teamContext.reports.length}{" "}
               {teamContext.reports.length === 1 ? "person" : "people"} as reporting to you, but returned
               none of their entries for this week. If they logged time, the app isn&rsquo;t being handed
-              their rows — hierarchy security is off, or <code>ever_timeentries</code> isn&rsquo;t in its
-              table list. An admin can check both in runbook §5.6.
+              their rows — hierarchy security is off, or <code>ever_timeentries</code> has been excluded
+              from it. An admin can check both in runbook §5.6.
             </div>
           )}
           {/* A short read here under-reports someone's week, which is the one

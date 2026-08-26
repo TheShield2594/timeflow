@@ -53,7 +53,7 @@ export function findUnexpectedOwners(entries: TeamEntry[], ctx: TeamContext): st
  * needs no hierarchy security to read; `eq-useroruserhierarchy` is what
  * decides whether those people's *rows* come back, and it returns the caller's
  * own rows and nothing else when hierarchy security is off or
- * `ever_timeentries` isn't in its table list. So "the org chart says I manage
+ * `ever_timeentries` has been excluded from it. So "the org chart says I manage
  * five people and the server handed me zero of their entries" is a state the
  * app can name, and it is the exact shape of the misconfiguration in
  * RUNBOOK §5.6 — rendered, before this, as a table of zeroes indistinguishable
@@ -153,8 +153,8 @@ export function useTeamEntries(from: string, to: string, teamContext?: TeamConte
                 severity: "warning",
                 message:
                   "The Team read returned no rows for any direct report. Expected when the team logged " +
-                  "nothing; otherwise hierarchy security is off, or ever_timeentries is missing from its " +
-                  "table list (see RUNBOOK §5.6)",
+                  "nothing; otherwise hierarchy security is off, or ever_timeentries has been excluded " +
+                  "from it (see RUNBOOK §5.6)",
                 props: { directReports: ctx.reports.length, rowsReturned: data.length },
               });
             }

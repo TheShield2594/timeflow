@@ -122,6 +122,12 @@ Findings from the [2026-08-12 application review](docs/reviews/2026-08-12-multi-
   supplies the names, hierarchy security supplies the entries — so a week with
   names and no rows now says which one is missing, on the page and as a
   `team_no_report_rows` telemetry event.
+- The setup docs had the hierarchy-security table list backwards. It is an
+  *exclusion* list — every table is included by default — so the instruction to
+  "include `ever_timeentries`" read as "uncheck everything else", which is a
+  change per table and fails the platform's 1,000-operation change set limit
+  (`0x80060888`). README, RUNBOOK §5.6 and the §6 checklist now say to leave the
+  list alone, and §6 carries the error and its workaround.
 - A user whose own **Manager** field points at their own profile is no longer
   counted as their own direct report. That is the shape "set yourself as the
   manager" takes when the field is edited on the manager instead of on each

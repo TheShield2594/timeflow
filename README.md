@@ -255,8 +255,10 @@ set by hand or their manager silently loses visibility with no error
 ([#131](https://github.com/TheShield2594/timeflow/issues/131) — the recurring
 joiner/mover/leaver list and an Entra reconciliation recipe are in
 [runbook §7](docs/RUNBOOK.md#7-joiners-movers-and-leavers)). Then enable
-**Hierarchy security** with the Manager hierarchy and include
-`ever_timeentries` in its table list. In local dev, preview the page with
+**Hierarchy security** with the Manager hierarchy. Its table list is an
+*exclusion* list — every table is included by default, so `ever_timeentries`
+needs nothing done to it, and trimming the list is both unnecessary and a good
+way to hit the change-set limit ([runbook §6](docs/RUNBOOK.md#6-admin-setup-checklist)). In local dev, preview the page with
 `localStorage.setItem("tt_mock_team", "1")`.
 
 **Runtime detection (defense in depth):** two checks watch for the boundary

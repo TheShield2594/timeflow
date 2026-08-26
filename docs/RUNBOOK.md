@@ -319,11 +319,12 @@ what's returning nothing, and the app says so on the page ("returned none of
 their entries for this week") and as `team_no_report_rows` in the sink. In
 order of likelihood:
 
-1. **Hierarchy security is off, or `ever_timeentries` isn't in its table list**
-   (tables default to *excluded* — enabling hierarchy modeling is not enough on
-   its own). §6's Manager Team view block has the exact screen. This is the one
-   to check first: with it off, `eq-useroruserhierarchy` is a legal query that
-   returns the caller's own rows and nothing else — no error, no warning.
+1. **Hierarchy security is off**, or somebody **excluded `ever_timeentries`**
+   from its table list (every table is included by default, so this takes a
+   deliberate uncheck). §6's Manager Team view block has the exact screen. This
+   is the one to check first: with hierarchy security off,
+   `eq-useroruserhierarchy` is a legal query that returns the caller's own rows
+   and nothing else — no error, no warning.
 2. **Depth.** Depth 1 covers direct reports only. A manager of managers sees
    their own reports and stops there until it's raised.
 3. **Business units.** Manager hierarchy only grants access when the report is
@@ -388,20 +389,41 @@ both operations. Do not redo those steps. What remains per environment:
 - [ ] **Enable Hierarchy security** ((env) → Settings → Users + permissions →
       Hierarchy security): Enable Hierarchy Modeling **On**, type **Manager
       hierarchy**, depth **1** (raise it if managers-of-managers should see
-      deeper), and **include `ever_timeentries`** in the table list — tables
-      default to excluded.
+      deeper). **Leave the table list alone.**
 
-      **`ever_timeentries` and nothing else.** Hierarchy security is an
-      ownership-based grant, and `ever_projects` / `ever_workitems` are
-      Organization-owned on purpose (see row security below) — an
-      Organization-owned row has no owner, so there is no manager chain to walk
-      and adding those tables here does nothing. Two reasons not to anyway: if
-      the picker offers them at all, check their ownership hasn't drifted to
-      User (which would break the shared project list on its own, hierarchy
-      security or not); and [#129](https://github.com/TheShield2594/timeflow/issues/129)
-      is an open decision about rebuilding `ever_workitems` User-owned, which
-      would silently start granting managers their reports' tasks the day it
-      lands if the table is already listed here.
+      The table list is an **exclusion** list: [every table is enabled for
+      hierarchy security by
+      default](https://learn.microsoft.com/en-us/power-platform/admin/hierarchy-security),
+      and you clear checkboxes to take tables *out*. `ever_timeentries` is
+      therefore covered the moment modeling is on — there is nothing to add.
+      (This document said the opposite until 2026-08-26. Whoever followed it
+      would have unchecked ~1,000 tables to "include" one, which is the snag
+      below.)
+
+      Do not trim the list down to `ever_timeentries` for tidiness. Two reasons:
+      it is a change per table, which fails (see the snag); and it buys nothing,
+      because hierarchy security is an ownership-based grant and
+      `ever_projects` / `ever_workitems` are Organization-owned on purpose (see
+      row security below) — an Organization-owned row has no owner, so there is
+      no manager chain to walk whether the table is listed or not.
+
+      Worth knowing for [#129](https://github.com/TheShield2594/timeflow/issues/129)
+      (the open decision about rebuilding `ever_workitems` User-owned): because
+      everything is included by default, that table becomes hierarchy-readable
+      the day its ownership changes, with no security change to notice. If that
+      lands, decide there and then whether managers should read their reports'
+      tasks — and if not, this is the screen where you exclude it.
+
+      **Snag: `0x80060888`, "the current change set contains too many
+      operations".** Hit in PROD on 2026-08-26. The save writes an operation per
+      table it touches, so a bulk change to the list blows the platform's
+      1,000-operation limit and nothing saves. Save the model settings on their
+      own (modeling On, Manager hierarchy, depth) without touching the
+      checkboxes; if the list was already mass-unchecked, restore it to
+      all-checked first. If a settings-only save still fails, try the classic
+      page (Settings → Security → Hierarchy Security) before opening a support
+      ticket with the error code and session id — the 1,000 limit is
+      platform-side and not raisable from the environment.
 - [ ] **Org-level Read on the User (`systemuser`) table** in the role users run
       under; most baseline roles have it. Without it the app can't detect
       "do I have reports" and the Team page stays hidden for everyone.
