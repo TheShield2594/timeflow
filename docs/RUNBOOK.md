@@ -415,15 +415,19 @@ both operations. Do not redo those steps. What remains per environment:
       tasks — and if not, this is the screen where you exclude it.
 
       **Snag: `0x80060888`, "the current change set contains too many
-      operations".** Hit in PROD on 2026-08-26. The save writes an operation per
-      table it touches, so a bulk change to the list blows the platform's
-      1,000-operation limit and nothing saves. Save the model settings on their
-      own (modeling On, Manager hierarchy, depth) without touching the
-      checkboxes; if the list was already mass-unchecked, restore it to
-      all-checked first. If a settings-only save still fails, try the classic
-      page (Settings → Security → Hierarchy Security) before opening a support
-      ticket with the error code and session id — the 1,000 limit is
-      platform-side and not raisable from the environment.
+      operations".** Hit twice in PROD on 2026-08-26, and this is what cleared
+      it: reload the page, leave every checkbox alone (restore the list to
+      all-checked if an earlier attempt trimmed it), and save only modeling On +
+      Manager hierarchy + depth. The save writes an operation per table it
+      touches, so any bulk change to the list blows the platform's
+      1,000-operation limit and nothing saves at all — including the model
+      settings you actually wanted. Settings-only, it saves, and managers see
+      their reports' time on the next load.
+
+      If a settings-only save ever fails anyway, try the classic page (Settings
+      → Security → Hierarchy Security) before opening a support ticket with the
+      error code and session id — the 1,000 limit is platform-side and not
+      raisable from the environment.
 - [ ] **Org-level Read on the User (`systemuser`) table** in the role users run
       under; most baseline roles have it. Without it the app can't detect
       "do I have reports" and the Team page stays hidden for everyone.
