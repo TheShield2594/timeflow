@@ -18,6 +18,29 @@ against user-visible behaviour, as described in
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- Every duration in a grouped list sits on the same right edge again. The
+  separator between rows is inset to the text origin, and it got there by
+  insetting the row — but the row is also `width: 100%`, so the margin made it
+  *wider* than the card rather than narrower: each row after the first sat
+  23px right of the one above it and hung its number past the card's padding.
+  Reports' top tasks, the Timesheet, the Timer's entry list and the Projects
+  rows were all reading as ragged and half-clipped. The separator is drawn as
+  an overlay now, so the inset costs the row nothing.
+- A Timesheet day's total lines up with the durations it totals. The day
+  header padded to 2px over a card that pads to 18px, which put three
+  different right edges on one screen.
+- The Team page's "n missing" badge stays inside the member's column. It
+  shares a flex row with their name and nothing stopped it shrinking, so a
+  long name squeezed the badge until its label wrapped and the second line
+  fell out of the pill into Monday's bar. The name gives way now — it is the
+  one of the two that can lose characters and still be read.
+
+---
+
 ## 1.0.0 — 2026-09-09
 
 ### Added
