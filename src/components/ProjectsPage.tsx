@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import type { Task } from "../types";
 import { formatMinutes, parseRatioInput } from "../hooks";
 import { useData } from "../contexts/DataContext";
@@ -74,6 +74,21 @@ export const ProjectsPage: React.FC = () => {
   const [draft, setDraft] = useState<FormDraft | null>(null);
   const [newTaskFor, setNewTaskFor] = useState<string | null>(null);
   const [newTaskName, setNewTaskName] = useState("");
+  /**
+   * Which project owns the task field, mirrored in a ref.
+   *
+   * State drives the render; this answers "is the field still unclaimed?"
+   * synchronously, from inside a promise that may settle long after the user
+   * moved on. The two have to move together — a guard that restored the name
+   * without the project would put one project's name in another's field — so
+   * every open and close goes through `openTaskField`.
+   */
+  const taskFieldOwner = useRef<string | null>(null);
+  const openTaskField = (projectId: string | null, name = "") => {
+    taskFieldOwner.current = projectId;
+    setNewTaskFor(projectId);
+    setNewTaskName(name);
+  };
 
   const takenColors = useMemo(
     () => new Set(projects.filter((p) => p.isActive).map((p) => (p.color || "").toLowerCase())),
@@ -170,13 +185,12 @@ export const ProjectsPage: React.FC = () => {
 
   const createTask = async (projectId: string) => {
     const name = newTaskName.trim();
-    if (!name) { setNewTaskFor(null); return; }
+    if (!name) { openTaskField(null); return; }
     // Cleared *before* the await, not after. The field commits on Enter and
     // again on blur, and pressing Enter then clicking away sent the same name
     // twice while the first request was still in flight — two task records for
     // one typed name.
-    setNewTaskName("");
-    setNewTaskFor(null);
+    openTaskField(null);
     try {
       await addTask({ projectId, name, isActive: true });
     } catch {
@@ -184,8 +198,11 @@ export const ProjectsPage: React.FC = () => {
       // The duplicate came from the double-submit path, which the clear above
       // still closes; a write that *failed* left nothing to duplicate, so
       // there is no trade to make here (#153).
-      setNewTaskFor(projectId);
-      setNewTaskName(name);
+      //
+      // Only while nothing else has claimed the field, though. This can settle
+      // long after the user gave up and started typing a different task, and
+      // the name in front of them outranks the one that didn't save.
+      if (taskFieldOwner.current === null) openTaskField(projectId, name);
     }
   };
 
@@ -319,7 +336,7 @@ export const ProjectsPage: React.FC = () => {
                             onChange={(e) => setNewTaskName(e.target.value)}
                             onKeyDown={(e) => {
                               if (e.key === "Enter") createTask(project.id);
-                              if (e.key === "Escape") { setNewTaskFor(null); setNewTaskName(""); }
+                              if (e.key === "Escape") openTaskField(null);
                             }}
                             onBlur={() => createTask(project.id)}
                             autoFocus
@@ -329,7 +346,7 @@ export const ProjectsPage: React.FC = () => {
                         <button
                           type="button"
                           className="projects__task-add"
-                          onClick={() => { setNewTaskFor(project.id); setNewTaskName(""); }}
+                          onClick={() => openTaskField(project.id)}
                         >
                           New task
                         </button>

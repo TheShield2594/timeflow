@@ -158,7 +158,19 @@ describe("clockAt / clockAtCompact / timeInputAt", () => {
     expect(timeInputAt(0)).toBe("00:00");
     expect(timeInputAt(9 * 60 + 5)).toBe("09:05");
     expect(timeInputAt(17 * 60 + 30)).toBe("17:30");
-    expect(timeInputAt(24 * 60)).toBe("24:00");
+  });
+
+  it("never emits an hour the element would reject", () => {
+    // A valid HTML time string runs 00:00–23:59. "24:00" is not one, and the
+    // browser sanitizes an invalid value to the empty string — so a span
+    // ending at the end of the day rendered a *blank* end-time field.
+    // 1440 wraps to the next day's 00:00, which is the same instant and which
+    // EntrySheet already reads as "ends next day".
+    expect(timeInputAt(24 * 60)).toBe("00:00");
+    expect(timeInputAt(25 * 60)).toBe("00:00");
+    for (let m = 0; m <= 24 * 60; m++) {
+      expect(Number(timeInputAt(m).slice(0, 2))).toBeLessThan(24);
+    }
   });
 });
 

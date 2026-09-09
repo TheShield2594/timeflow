@@ -175,8 +175,14 @@ export function clockAtCompact(minutes: number): string {
  *
  * Not a display format: the element's value is always 24-hour regardless of
  * what it renders to the user, so this must never be swapped for `clockAt`.
+ *
+ * A valid HTML time string runs 00:00–23:59, and a browser sanitizes anything
+ * else to the empty string — so the end of the day has to be written as the
+ * *next* day's 00:00 rather than 24:00, or a span ending at midnight renders
+ * a blank field. That is the same instant, and it is the form EntrySheet
+ * already reads as "ends next day".
  */
 export function timeInputAt(minutes: number): string {
-  const total = Math.max(0, Math.min(MINUTES_PER_DAY, Math.round(minutes)));
+  const total = Math.max(0, Math.min(MINUTES_PER_DAY, Math.round(minutes))) % MINUTES_PER_DAY;
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }

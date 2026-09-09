@@ -5,7 +5,7 @@
  * and a retry after a half-saved split.
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
 import { EntrySheet, draftForEntry, draftForSpan } from "./EntrySheet";
 import { DEFAULT_WORKING_HOURS } from "../hooks/useWorkingHours";
 import type { Project, Task, TimeEntry } from "../types";
@@ -228,6 +228,34 @@ describe("EntrySheet re-dating (#151)", () => {
   });
 });
 
+describe("EntrySheet midnight-ending draft", () => {
+  it("renders an end time the element accepts", () => {
+    // "24:00" is not a valid HTML time string, and the browser sanitizes an
+    // invalid value to "" — so this field came up blank on a span ending at
+    // the end of the day.
+    renderSheet({ initial: draftForSpan(DATE, 23 * 60, 24 * 60) });
+
+    const end = screen.getByLabelText("End time") as HTMLInputElement;
+    expect(end.value).toBe("00:00");
+    // And it is still one hour, on the *next* midnight rather than this one.
+    expect(screen.getByText("1h")).toBeTruthy();
+    expect(screen.getByText(/\(next day\)/)).toBeTruthy();
+  });
+
+  it("saves that hour against the day it started on", async () => {
+    const { onSave } = renderSheet({ initial: draftForSpan(DATE, 23 * 60, 24 * 60, "p1") });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0]).toMatchObject({
+      date: DATE,
+      startTime: new Date(`${DATE}T23:00:00`).toISOString(),
+      endTime: new Date("2026-09-09T00:00:00").toISOString(),
+      durationMinutes: 60,
+    });
+  });
+});
+
 describe("EntrySheet task creation (#153)", () => {
   it("hands the typed name back when the write fails", async () => {
     const onAddTask = vi.fn().mockRejectedValue(new Error("Dataverse said no"));
@@ -247,6 +275,25 @@ describe("EntrySheet task creation (#153)", () => {
       expect(reopened.value).toBe("Discovery call");
     });
     expect(onAddTask).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not shove a slow failure's name over a draft started since", async () => {
+    let reject: (e: Error) => void = () => {};
+    const onAddTask = vi.fn().mockReturnValue(new Promise((_, r) => { reject = r; }));
+    renderSheet({ onAddTask });
+
+    fireEvent.click(screen.getByRole("button", { name: /New task/ }));
+    fireEvent.change(screen.getByLabelText("New task name"), { target: { value: "First name" } });
+    fireEvent.keyDown(screen.getByLabelText("New task name"), { key: "Enter" });
+
+    fireEvent.click(screen.getByRole("button", { name: /New task/ }));
+    fireEvent.change(screen.getByLabelText("New task name"), { target: { value: "Second name" } });
+
+    // act, not waitFor: the overwrite would land in the rejection's own
+    // microtask, and a waitFor whose condition already holds returns first.
+    await act(async () => { reject(new Error("Dataverse said no")); });
+
+    expect((screen.getByLabelText("New task name") as HTMLInputElement).value).toBe("Second name");
   });
 
   it("selects the new task and closes the field when the write succeeds", async () => {

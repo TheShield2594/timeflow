@@ -6,7 +6,7 @@
  * project from another's.
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { screen, cleanup, fireEvent, within } from "@testing-library/react";
+import { screen, cleanup, fireEvent, within, act } from "@testing-library/react";
 import { ProjectsPage } from "./ProjectsPage";
 import { renderWithData } from "../test/dataHarness";
 import type { Project, Task, TimeEntry } from "../types";
@@ -96,6 +96,31 @@ describe("ProjectsPage task creation", () => {
       expect(reopened.value).toBe("Discovery call");
     });
     expect(addTask).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not shove a slow failure's name over a draft started since", async () => {
+    // Enter fires the write and clears the field; the user reopens it and
+    // starts typing something else while that request is still in flight.
+    let reject: (e: Error) => void = () => {};
+    const addTask = vi.fn().mockReturnValue(new Promise((_, r) => { reject = r; }));
+    renderPage({ addTask });
+
+    fireEvent.click(screen.getByRole("button", { name: /Alpha/ }));
+    fireEvent.click(screen.getByRole("button", { name: "New task" }));
+    fireEvent.change(screen.getByLabelText("New task name"), { target: { value: "First name" } });
+    fireEvent.keyDown(screen.getByLabelText("New task name"), { key: "Enter" });
+
+    fireEvent.click(screen.getByRole("button", { name: "New task" }));
+    fireEvent.change(screen.getByLabelText("New task name"), { target: { value: "Second name" } });
+
+    // act, not waitFor: the clobber lands in the rejection's own microtask, and
+    // a waitFor whose condition already holds would return before it does.
+    await act(async () => { reject(new Error("Dataverse said no")); });
+    expect(addTask).toHaveBeenCalledTimes(1);
+
+    // The field belongs to what the user is typing now, not to the write that
+    // failed after they moved on.
+    expect((screen.getByLabelText("New task name") as HTMLInputElement).value).toBe("Second name");
   });
 
   it("keeps the field clear when the write succeeds", async () => {

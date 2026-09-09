@@ -104,6 +104,16 @@ export const EntrySheet: React.FC<Props> = ({
   const pristine = useRef(initial);
   const [addingTask, setAddingTask] = useState(false);
   const [newTaskName, setNewTaskName] = useState("");
+  // Whether the task field is open, mirrored in a ref: state drives the
+  // render, this answers "is it still unclaimed?" from inside a promise that
+  // may settle after the user has moved on. Opens and closes go through
+  // `openTaskField` so the flag and the name can never disagree.
+  const taskFieldOpen = useRef(false);
+  const openTaskField = (open: boolean, name = "") => {
+    taskFieldOpen.current = open;
+    setAddingTask(open);
+    setNewTaskName(name);
+  };
   // null = no overnight conflict; 'ask' = choice pending; 'keep' = end is next
   // day; 'split' = save two entries either side of midnight.
   const [overnightMode, setOvernightMode] = useState<"ask" | "keep" | "split" | null>(null);
@@ -241,15 +251,13 @@ export const EntrySheet: React.FC<Props> = ({
     if (!name || !draft.projectId || !onAddTask) {
       // An empty field that lost focus is somebody changing their mind, not a
       // task waiting to be named.
-      setAddingTask(false);
-      setNewTaskName("");
+      openTaskField(false);
       return;
     }
     // Cleared *before* the await: the field commits on Enter and again on
     // blur, and pressing Enter then clicking away sent the same name twice
     // while the first request was still in flight.
-    setAddingTask(false);
-    setNewTaskName("");
+    openTaskField(false);
     try {
       const task = await onAddTask({ projectId: draft.projectId, name, isActive: true });
       set({ taskId: task.id });
@@ -258,8 +266,11 @@ export const EntrySheet: React.FC<Props> = ({
       // clear above is what closes the double-submit path; a write that
       // *failed* left nothing to duplicate, so nothing is traded by handing
       // the name back (#153).
-      setAddingTask(true);
-      setNewTaskName(name);
+      //
+      // Unless the user has since started naming something else: a failure
+      // that arrives after they moved on must not overwrite what is in front
+      // of them now.
+      if (!taskFieldOpen.current) openTaskField(true, name);
     }
   };
 
@@ -422,7 +433,7 @@ export const EntrySheet: React.FC<Props> = ({
                 onChange={(e) => setNewTaskName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") { e.preventDefault(); handleCreateTask(); }
-                  if (e.key === "Escape") { setAddingTask(false); setNewTaskName(""); }
+                  if (e.key === "Escape") openTaskField(false);
                 }}
                 onBlur={handleCreateTask}
                 autoFocus
@@ -433,7 +444,7 @@ export const EntrySheet: React.FC<Props> = ({
                     creation lives here — at the point the work is over and the
                     person knows what it was. */}
                 {onAddTask && draft.projectId && (
-                  <button type="button" className="field-row__action is-inline" onClick={() => setAddingTask(true)}>
+                  <button type="button" className="field-row__action is-inline" onClick={() => openTaskField(true)}>
                     New task…
                   </button>
                 )}
