@@ -36,10 +36,21 @@ function storageKey(): string {
   return `${KEY_PREFIX}${user.environmentId}:${user.id}`;
 }
 
+/**
+ * A minute of the day, held to 00:00–23:59.
+ *
+ * Not 24:00, even though the gap search would happily take it: these values
+ * are read and written through `<input type="time">`, whose own range stops
+ * at 23:59. A stored 1440 has no representation there — it renders as an
+ * empty field, reads back as 0, fails the `endMin > startMin` check below,
+ * and resets the entire window to the 18:00 default without saying so. The
+ * search loses its last minute of the day and nothing else; the default gap
+ * threshold is fifteen times that.
+ */
 function clampMinute(value: unknown, fallback: number): number {
   const n = Number(value);
   if (!Number.isFinite(n)) return fallback;
-  return Math.min(MINUTES_PER_DAY, Math.max(0, Math.round(n)));
+  return Math.min(MINUTES_PER_DAY - 1, Math.max(0, Math.round(n)));
 }
 
 /**
