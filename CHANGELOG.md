@@ -254,6 +254,14 @@ Findings from the [2026-08-12 application review](docs/reviews/2026-08-12-multi-
 
 ### Internal
 
+- TypeScript is held below 6.1 until the linter can follow it. The weekly
+  TypeScript 7 bump ([#147](https://github.com/TheShield2594/timeflow/pull/147))
+  fails `npm ci` with ERESOLVE: every published `typescript-eslint` still peers
+  at `>=4.8.4 <6.1.0`, and that range is the parser naming the compiler APIs it
+  reads, not bookkeeping to override. Dependabot now groups `typescript` with
+  the lint toolchain so the two cross a major in one PR, and ignores `>= 6.1`
+  until then ([#161](https://github.com/TheShield2594/timeflow/issues/161)).
+  The compiler itself is unchanged at 5.9.3.
 - ESLint 10, with `eslint-plugin-react-hooks` moved to 7.1.1 in the same
   change. Bumping ESLint alone failed `npm ci` outright: the v5 plugin's peer
   range stopped at ESLint 9, so the two had to move together. The lint config
