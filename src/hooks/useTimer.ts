@@ -165,7 +165,7 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
     applyTimer(session);
     persistTimer(session);
 
-    let draftEntryId: string | null = null;
+    let draftEntryId: string | null;
     try {
       draftEntryId = await svc.createDraftTimerEntry({
         projectId: session.projectId!,

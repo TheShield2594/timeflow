@@ -31,7 +31,15 @@ export default tseslint.config(
     },
     plugins: { "react-hooks": reactHooks },
     rules: {
-      ...reactHooks.configs.recommended.rules,
+      // Named one by one rather than spread from the plugin's `recommended`.
+      // Through v5 that preset *was* these two rules; from v6 it also carries
+      // the React Compiler ruleset (purity, immutability, set-state-in-effect
+      // and a dozen more), so spreading it makes the config mean whatever the
+      // next major decides it means — and with `--max-warnings 0` that lands
+      // as a red build on code nobody touched. Adopting those rules is worth
+      // doing (#156), but as its own change, with the refactors they ask for.
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "warn",
       // An unused argument is often deliberate (event handlers, callback
       // signatures); an underscore prefix says so.
       "@typescript-eslint/no-unused-vars": [
