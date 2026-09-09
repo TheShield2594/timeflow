@@ -155,6 +155,20 @@ Findings from the [2026-08-12 application review](docs/reviews/2026-08-12-multi-
   every manager in an environment has exactly one other symptom — an absent nav
   item — and the missing privilege behind it was only ever logged to the
   affected user's console.
+- The entry sheet is legible over a full calendar. Its 72% material let the
+  blocks behind it read as text — a sheet is looked *through*, unlike the
+  floating action bar the token was tuned for, and the blur that was meant to
+  cover the difference is the first thing a locked-down host drops. Sheets now
+  take a 96% material of their own.
+- The time fields show the whole time. At 88px "04:00 PM" lost its meridiem
+  behind the browser's picker glyph, so a sheet opened to check an afternoon
+  entry couldn't answer whether it was one.
+- The `Billed to` row names its fields the way the rest of the company does:
+  **Ratio** and **Jira Ticket**, matching the Dataverse columns and the CSV
+  headers, instead of `Account` and `Ticket`. The ratio is still an account
+  identifier and still never a multiplier
+  ([#71](https://github.com/TheShield2594/timeflow/issues/71)); only the words
+  on screen changed, on the project sheet as well as the entry sheet.
 
 ### Accessibility
 
