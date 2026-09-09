@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, within, fireEvent } from "@testing-library/react";
+import { screen, cleanup, within, fireEvent } from "@testing-library/react";
 import { TeamPage } from "./TeamPage";
+import { renderWithData } from "../test/dataHarness";
 import type { TeamEntry } from "../services/teamService";
 import type { Task } from "../types";
 
@@ -71,37 +72,39 @@ const projects = [
 ];
 const tasks: Task[] = [];
 
+/** The page reads projects and tasks from the data context now — only the
+ *  team rows come from the hierarchy-scoped service read. */
+const renderTeam = () =>
+  renderWithData(<TeamPage teamContext={teamContext} />, { projects, tasks });
+
 describe("TeamPage", () => {
   it("shows per-member week totals, flags missing weekdays, and rolls up projects", async () => {
     getTeamTimeEntries.mockResolvedValue([
       entry({}), // Avery, Monday, 2h on Project One
       entry({ id: "te-2", ownerId: "su-me", ownerName: "User One", userId: "su-me", date: "2026-07-28", durationMinutes: 60 }),
     ]);
-    render(<TeamPage teamContext={teamContext} projects={projects} tasks={tasks} />);
+    renderTeam();
 
-    const averyRow = (await screen.findByText("Avery Example")).closest("tr")!;
-    // 2h logged Monday; Tue + Wed (today) are empty and already past → 2
-    // missing. "2h" shows in both the Monday cell and the Total cell.
-    expect(within(averyRow).getAllByText("2h")).toHaveLength(2);
-    expect(within(averyRow).getByText("2 missing days")).toBeTruthy();
+    // Direct reports only, by default — the manager's own row is in the whole
+    // line, not in the list of people they manage.
+    const averyRow = (await screen.findByText("Avery Example")).closest<HTMLElement>(".team__row")!;
+    expect(within(averyRow).getByText("2h")).toBeTruthy();
+    // 2h logged Monday; Tue + Wed (today) are empty and already past → 2 missing.
+    expect(within(averyRow).getByText("2 missing")).toBeTruthy();
 
     // Jordan logged nothing all week → Mon/Tue/Wed missing.
-    const jordanRow = screen.getByText("Jordan Sample").closest("tr")!;
-    expect(within(jordanRow).getByText("3 missing days")).toBeTruthy();
+    const jordanRow = screen.getByText("Jordan Sample").closest<HTMLElement>(".team__row")!;
+    expect(within(jordanRow).getByText("3 missing")).toBeTruthy();
 
-    // The manager's own row is labeled and never flagged.
-    const meRow = screen.getByText("User One").closest("tr")!;
-    expect(within(meRow).getByText("you")).toBeTruthy();
+    // The manager's own row appears on the whole line, labelled, never flagged.
+    fireEvent.click(screen.getByRole("tab", { name: /Whole line/ }));
+    const meRow = screen.getByText("User One (you)").closest<HTMLElement>(".team__row")!;
     expect(within(meRow).queryByText(/missing/)).toBeNull();
-
-    // Project rollup aggregates the whole team's week.
-    expect(screen.getByText("Projects this week")).toBeTruthy();
-    expect(screen.getByText("Project One")).toBeTruthy();
   });
 
   it("keeps zero-entry reports visible instead of dropping them", async () => {
     getTeamTimeEntries.mockResolvedValue([]);
-    render(<TeamPage teamContext={teamContext} projects={projects} tasks={tasks} />);
+    renderTeam();
     expect(await screen.findByText("Avery Example")).toBeTruthy();
     expect(screen.getByText("Jordan Sample")).toBeTruthy();
   });
@@ -113,28 +116,26 @@ describe("TeamPage", () => {
     getTeamTimeEntries.mockResolvedValue([
       entry({ id: "te-mine", ownerId: "su-me", ownerName: "User One", userId: "su-me" }),
     ]);
-    render(<TeamPage teamContext={teamContext} projects={projects} tasks={tasks} />);
+    renderTeam();
     await screen.findByText("Avery Example");
 
-    expect(screen.getByText(/returned\s+none of their entries/)).toBeTruthy();
-    expect(screen.getByText(/hierarchy security is off/)).toBeTruthy();
+    expect(screen.getByText(/none of their rows came back/)).toBeTruthy();
   });
 
   it("says nothing about it once a report's rows come back", async () => {
     getTeamTimeEntries.mockResolvedValue([entry({})]);
-    render(<TeamPage teamContext={teamContext} projects={projects} tasks={tasks} />);
+    renderTeam();
     await screen.findByText("Avery Example");
 
-    expect(screen.queryByText(/hierarchy security is off/)).toBeNull();
+    expect(screen.queryByText(/none of their rows came back/)).toBeNull();
   });
 
   it("surfaces load failures with a retry", async () => {
     getTeamTimeEntries.mockRejectedValueOnce(new Error("hierarchy security not enabled"));
     getTeamTimeEntries.mockResolvedValue([entry({})]);
-    render(<TeamPage teamContext={teamContext} projects={projects} tasks={tasks} />);
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("hierarchy security not enabled");
-    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    renderTeam();
+    expect(await screen.findByText(/hierarchy security not enabled/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect((await screen.findAllByText("2h")).length).toBeGreaterThan(0);
   });
 });
@@ -164,13 +165,13 @@ describe("TeamPage export controls", () => {
 
   it("disables the export button until the visible week has entries", async () => {
     getTeamTimeEntries.mockResolvedValue([]);
-    render(<TeamPage teamContext={teamContext} projects={projects} tasks={tasks} />);
+    renderTeam();
     await screen.findByText("Avery Example");
     expect(screen.getByRole("button", { name: /Export CSV/ }).hasAttribute("disabled")).toBe(true);
     cleanup();
 
     getTeamTimeEntries.mockResolvedValue([entry({})]);
-    render(<TeamPage teamContext={teamContext} projects={projects} tasks={tasks} />);
+    renderTeam();
     await screen.findAllByText("2h");
     expect(screen.getByRole("button", { name: /Export CSV/ }).hasAttribute("disabled")).toBe(false);
   });
@@ -180,7 +181,7 @@ describe("TeamPage export controls", () => {
       entry({}), // Avery
       entry({ id: "te-2", ownerId: "su-me", ownerName: "User One", userId: "su-me", date: "2026-07-28", durationMinutes: 60 }),
     ]);
-    render(<TeamPage teamContext={teamContext} projects={projects} tasks={tasks} />);
+    renderTeam();
     await screen.findByText("Avery Example");
 
     const csv = (await captureExport()).replace("﻿", "");
@@ -192,9 +193,9 @@ describe("TeamPage export controls", () => {
 
   it("remembers the chosen rounding rule as its own device preference, separate from Reports", async () => {
     getTeamTimeEntries.mockResolvedValue([entry({})]);
-    render(<TeamPage teamContext={teamContext} projects={projects} tasks={tasks} />);
+    renderTeam();
     await screen.findByText("Avery Example");
-    fireEvent.change(screen.getByLabelText("Duration rounding applied to the CSV export"), {
+    fireEvent.change(screen.getByLabelText("Rounding applied to exported durations"), {
       target: { value: "up15" },
     });
     expect(localStorage.getItem("tt_team_export_rounding")).toBe("up15");

@@ -9,33 +9,47 @@ Tracks time against projects and tasks, stores data in Microsoft Dataverse, and 
 
 | Feature | Status |
 |---|---|
-| Overview landing page (today strip, weekly target ring, activity heatmap, quick-start) | ✅ |
-| Timer (start / stop, Ctrl/Cmd + .) | ✅ |
+| Timer screen — running clock, the day as a bar, the week as a ring | ✅ |
+| Timer (start / stop, Ctrl/Cmd + . from anywhere in the app) | ✅ |
+| Stop sheet — confirm, correct and file the entry the stop just wrote | ✅ |
 | Project & task tagging | ✅ |
-| Timesheet view (grouped by day, search + project filter) | ✅ |
-| Manual entry creation (timesheet + calendar click-to-log) | ✅ |
+| Timesheet view (grouped by day, with untracked gaps as rows) | ✅ |
+| Manual entry creation (drag the day bar, drag the calendar, or Log time) | ✅ |
 | Week calendar (24h grid, overlap layout, running session) | ✅ |
 | Calendar drag-to-reschedule + drag-to-resize (Shift + arrows by keyboard) | ✅ |
-| Untracked-gap detection (calendar + today strip, one click to log) | ✅ ([working hours are fixed](#untracked-gap-detection)) |
-| Reports dashboard (daily/weekly bar chart, project %, top tasks) | ✅ |
-| KPI strip (total, avg per active day, sessions, projects) | ✅ |
-| Projects management (create, edit, archive/restore) | ✅ |
-| Tasks (create, rename, delete with undo) | ✅ |
-| Continue a past entry (one-click timer restart) | ✅ |
-| Weekly target with progress (overview ring, calendar + timesheet) | ✅ |
+| Untracked-gap detection (calendar, timesheet and day bar; one click to fill) | ✅ ([working hours are per user](#untracked-gap-detection)) |
+| Reports (daily bars with an average line, project shares, top tasks) | ✅ |
+| Projects management (create, edit, archive/restore) with tasks nested inline | ✅ |
+| Tasks (create, delete with undo) | ✅ |
+| Continue a past entry (one-click timer restart from the timer screen) | ✅ |
+| Weekly target with progress, and a sentence about pace | ✅ |
 | Timer persists across page refresh | ✅ |
 | Multi-tab timer sync | ✅ |
 | Idle detection + 12h auto-stop safety net | ✅ ([client-side only](#the-12h-auto-stop-is-client-side)) |
 | Delete with Undo | ✅ |
 | CSV export (incl. Jira ticket + ratio, billing-style rounding) | ✅ |
-| Reports: project × period matrix, all-time range | ✅ |
 | Light + dark theme | ✅ |
 | Dataverse backend wired (@microsoft/power-apps SDK) | ✅ |
 | Outlook meeting overlay + log-from-meeting, with per-subject muting | ✅ (connector wired; needs [DLP + consent](#outlook-calendar-overlay)) |
-| Manager Team view — reports' week totals, missing-day flags, project rollup, CSV export | ✅ (needs [hierarchy security](#manager-team-view-hierarchy-security)) |
-| Focus mode (Pomodoro) — focus/break cadence on the timer, daily block count | ✅ |
+| Manager Team view — direct/whole-line scope, missing-day flags, CSV export | ✅ (needs [hierarchy security](#manager-team-view-hierarchy-security)) |
 
-The **Overview** page is the default landing page (`App.tsx`).
+The **Timer** screen is the default landing page (`App.tsx`). Navigation is five
+items, six for managers.
+
+### Deliberately not here
+
+Each of these shipped once and was taken out in the 2026-09 redesign, so
+re-adding one is a decision rather than an oversight:
+
+| Removed | Why |
+|---|---|
+| **Overview page** | Its content is the lower half of the timer screen. Two landing pages is one too many. |
+| **Focus mode (Pomodoro)** | A second, prescriptive clock competing with the descriptive one, whose prompts die with the tab. |
+| **Activity heatmap** | Twelve weeks of 3px squares is not a readable shape, and it answered a question nobody asked. |
+| **Day-streak KPI** | Gamified compliance in a billing app. |
+| **The KPI strips** | Today, This week and the target ring said the same thing three ways. One ring and one sentence replace them. |
+| **Ratio + ticket in the timer bar** | Optional on most entries; they live on the stop sheet, inherited from the project. |
+| **Inline "+ New task…" before starting** | Naming work before doing it produces bad names. Task creation moved to the stop sheet. |
 
 ---
 
@@ -47,6 +61,7 @@ The **Overview** page is the default landing page (`App.tsx`).
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | Deploy, rollback, Dataverse backup/restore, first-line support triage, the environment admin checklist |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Settled decisions and their reasoning; open decisions with an owner and a date |
 | [CHANGELOG.md](CHANGELOG.md) | What shipped, per version |
+| [docs/design/2026-09-redesign-handoff.md](docs/design/2026-09-redesign-handoff.md) | The brief the 2026-09 redesign was built from: tokens, type scale, every screen, and what was removed — plus where the implementation deviates and why |
 | [docs/reviews/](docs/reviews/) | The 2026-08-12 six-discipline application review, and the reconstructed July design-review register |
 | [CLAUDE.md](CLAUDE.md) | Orientation for coding agents: commands, the date rule, the mock-vs-host split |
 
@@ -60,19 +75,29 @@ A timer running past 12 hours is stopped automatically — but the check is a
 `setInterval` in the browser (`useTimerSafety.ts`), not a server-side job. Close
 the tab on a running timer and **nothing stops it**; the running entry is
 reconciled from the server draft the next time the app launches, and the user
-fixes the end time on the Timesheet. Same underlying limitation as focus mode's
-prompts: a Code App has no presence when its tab is gone.
+fixes the end time on the Timesheet. A Code App has no presence when its tab is
+gone.
+
+When the cap does fire while the tab is open, it stops and saves at exactly 12h
+00m and raises a sheet saying so, with one action that opens the entry at the
+end time it should have had. It is deliberately not a toast: a message that
+reports something the user did not ask for *and* needs an answer is not a toast.
 
 ### Untracked-gap detection
 
-The Calendar and the Overview today strip surface stretches of the day nothing
-was logged against, and offer each as a one-click log. The rules live in one
-place (`src/utils/gaps.ts`) so the two surfaces can never disagree:
+The Calendar, the Timesheet and every day bar surface stretches of the day
+nothing was logged against, and offer each as one click to fill. The rules live
+in one place (`src/utils/gaps.ts`) so no two surfaces can disagree:
 
-- **Working hours are hardcoded 08:00–18:00**, and the **minimum gap is 15
-  minutes**. Neither is configurable — there is no per-user settings store
-  (see [Decisions](docs/DECISIONS.md)). Anyone working a non-standard shift
-  gets under-reported gaps, silently.
+- **Working hours and the minimum gap are per user**, set from the sidebar and
+  stored in `localStorage` alongside the weekly target (`useWorkingHours.ts`).
+  They default to 08:00–18:00 and "longer than 15 minutes". They used to be
+  hardcoded, which was a correctness bug rather than a preference: anyone on a
+  different shift was told their day was complete while hours of it sat outside
+  the search window.
+- A stored window that ends at or before it starts is rejected on read — an
+  inverted window makes every day gapless, which is the exact failure the
+  setting exists to prevent.
 - Today is capped at the current minute; future days are skipped entirely.
 - A day with no entries at all reports nothing, so weekends don't each show a
   ten-hour gap.
@@ -176,18 +201,10 @@ are the only records the app hard-deletes.
 
 User preferences live in `localStorage` — Code Apps have no per-user settings
 store, and this keeps the app free of extra Dataverse tables. Weekly target
-hours, export rounding, focus-mode settings/session counts, the Outlook
-overlay toggle and its logged-meeting checkmarks are scoped per environment +
-user; the theme is a device/browser preference stored under a flat `tt_theme`
-key so it applies before sign-in resolves (see `useTheme`).
-
-**Focus mode (Pomodoro):** the "Focus" chip in the timer bar layers a
-prescriptive cadence on the descriptive timer — after each focus block
-(default 25m, editable via the pencil) a prompt offers a break or keep-going;
-taking the break stops and saves the entry, counts the block, and counts the
-break down in the chip, then offers to restart the timer on the same work.
-Prompts only fire while the app tab is open — a Code App has no OS-level
-presence for background notifications.
+hours, working hours, export rounding, the Outlook overlay toggle and its
+logged-meeting checkmarks are scoped per environment + user; the theme is a
+device/browser preference stored under a flat `tt_theme` key so it applies
+before sign-in resolves (see `useTheme`).
 
 > **Row security matters.** Reads filter server-side via FetchXML's
 > `eq-userid` operator (Dataverse resolves this to "the calling user" itself,
@@ -462,7 +479,7 @@ src/
     useTimeEntries.ts      — Entries for the loaded range + the isolation check
     useTimer.ts            — Running timer: persistence, multi-tab sync, drafts
     useTimerSafety.ts      — Activity tracking, idle detection, 12h auto-stop
-    useFocusMode.ts        — Pomodoro cadence layered on the timer
+    useIdleGuard.ts        — The trim/keep/discard state machine behind the idle sheet
     useOutlookEvents.ts    — The Outlook read itself, per range
     useOutlookOverlay.ts   — Overlay mode, muting, logged marks, ghost placement
     useCalendarDrag.ts     — Drag to create / resize / move, and the keyboard nudge
@@ -472,40 +489,44 @@ src/
     useTheme.ts            — Light/dark, applied before sign-in resolves
     useToday.ts            — "Today" that survives the app being open past midnight
     useWeeklyTarget.ts     — Weekly target hours (localStorage)
-    useFocusTrap.ts        — Modal focus containment
+    useWorkingHours.ts     — Working hours + minimum gap, per user (localStorage)
+    useFocusTrap.ts        — Sheet focus containment
     formatters.ts          — Elapsed/minutes formatting, ratio parsing
     _shared.ts             — Temp ids and error-message helpers
   utils/
     dates.ts               — Local-timezone date helpers (never toISOString for dates)
-    gaps.ts                — Untracked-gap detection shared by Calendar + Overview
+    gaps.ts                — Untracked-gap detection, shared by every surface that shows one
+    dayBar.ts              — Day-bar geometry: the segments a day is drawn as
     calendarGeometry.ts    — Calendar maths: slots, snapping, day columns, layout
-    reportAggregations.ts  — Pure aggregation behind the Reports dashboard
+    reportAggregations.ts  — Pure aggregation behind Reports
+    ranges.ts              — The date presets the segmented controls offer
+    pace.ts                — The one sentence the week rail says out loud
     entityIndex.ts         — id→record Maps so render loops don't scan
   components/
-    PageRouter.tsx         — Which page is mounted
-    TimerBar.tsx           — Sticky timer bar at the top
-    OverviewPage.tsx       — Landing page: today strip, target ring, heatmap
-    TimesheetPage.tsx      — Day-grouped list of time entries
+    PageRouter.tsx         — Which page is mounted, and the skeleton it waits behind
+    TimerPage.tsx          — The landing page: clock, day bar, entries, week rail
+    TimesheetPage.tsx      — Day-grouped list, with untracked gaps as rows
     CalendarPage.tsx       — Week calendar: drag to create, resize, reschedule
-    ReportsPage.tsx        — Dashboard with charts and KPIs
-    ProjectsPage.tsx       — Project/task management
-    TeamPage.tsx           — Manager view of direct reports' weeks + CSV export
-    EntryModal.tsx         — Create/edit a time entry
-    FocusModal.tsx         — Focus/break prompts
-    IdleModal.tsx          — Idle prompt (trim / discard / keep)
-    TodayStrip.tsx         — Today on a clock, with gaps offered as one-click logs
-    TargetRing.tsx         — Weekly target progress ring
-    ActivityHeatmap.tsx    — Year-at-a-glance activity grid
-    SvgBarChart.tsx        — Bar chart with a real axis and empty state
-    Sparkline.tsx          — Inline 7-day trend on project cards
-    EntryRow.tsx           — One timesheet row
-    Combobox.tsx           — Type-ahead single-select (projects, tasks)
-    DateRangeFilter.tsx    — Range picker shared by the data-driven pages
-    RangeSpinner.tsx       — Background-fetch indicator
-    HelpTip.tsx            — Keyboard-reachable explanatory tip
-    Icons.tsx              — Inline SVG icons
-  App.tsx                  — Root layout, error boundary, sign-in bootstrap, nav
-  styles.css               — Full theme CSS, light + dark (no external UI library needed)
+    ReportsPage.tsx        — Daily bars, project shares, top tasks
+    ProjectsPage.tsx       — One list, tasks nested under the open project
+    TeamPage.tsx           — Manager view of the line's week + CSV export
+    EntrySheet.tsx         — One sheet, three modes: stop, edit, create
+    IdleSheet.tsx          — Idle prompt (trim / keep / discard)
+    AutoStopSheet.tsx      — What the 12h safety net did, and how to correct it
+    SettingsSheet.tsx      — Working hours and the minimum gap
+    WeekRail.tsx           — The week as one ring and one sentence
+    ── shared primitives, in the order the design direction defines them ──
+    Pill.tsx               — Every button in the app
+    SegmentedControl.tsx   — A filter that shows its own alternatives
+    ListCard.tsx           — ListCard + ListRow: the time entry as a list row
+    DayBar.tsx             — The time entry as a bar; also the drag-to-fill surface
+    Sheet.tsx              — The app's one dismissible surface
+    FloatingActionBar.tsx  — The screen's gesture, and its one primary action
+    ErrorBoundary.tsx      — One boundary per page, not one for the app
+  test/
+    dataHarness.tsx        — The three contexts a page expects, over fixed data
+  App.tsx                  — Root layout, sidebar, sheets, sign-in bootstrap, nav
+  styles.css               — Tokens, type scale, primitives, screens (no UI library)
   main.tsx                 — React entry point
 ```
 
@@ -513,7 +534,12 @@ src/
 
 ## Customisation Tips
 
-- **Colors**: Edit CSS variables in `styles.css` under `:root` to change the theme.
+- **Colours**: the token blocks at the top of `styles.css` — `:root` for light,
+  `:root[data-theme="dark"]` for dark. `styles.contrast.test.ts` fails the build
+  if a text token drops below 4.5:1 on either surface, if `--decor` lands on a
+  rule that sets a `font-size`, or if `--dim-display` is used more than once.
+- **Type**: the ten steps of the scale are the `.t-*` classes in `styles.css`.
+  A screen that needs an eleventh size is a screen that has drifted.
 - **Adding fields**: Add columns to your Dataverse tables and update the TypeScript types + service layer.
 - **Auth**: Power Apps Code Apps use Zero-config Microsoft Entra ID auth — no extra setup needed.
 - **Sharing**: Deploy to your Power Apps environment and share with users as you would any Power App.

@@ -70,6 +70,15 @@ export function useTimeEntries(from?: string, to?: string) {
   // including re-fetches triggered by ensureRangeLoaded widening from/to,
   // so pages can show an inline indicator without unmounting their content.
   const [isFetching, setIsFetching] = useState(false);
+  /**
+   * Sticky once set, and never cleared for the life of the session.
+   *
+   * A row-security misconfiguration doesn't come and go: once one foreign row
+   * has been read, everything on every screen is suspect until an
+   * administrator has looked at the table. The banner it raises is the only
+   * full-width alarm in the app, and the only one that cannot be dismissed.
+   */
+  const [isolationBreach, setIsolationBreach] = useState(false);
   const toast = useToast();
 
   const entriesRef = useRef<TimeEntry[]>([]);
@@ -90,7 +99,12 @@ export function useTimeEntries(from?: string, to?: string) {
       const currentUser = getCurrentUser();
       sessionStorage.removeItem(`tt_isolation_warned:${currentUser.id}`);
       const warningKey = isolationWarningKey(currentUser.environmentId, currentUser.id);
-      if (!sessionStorage.getItem(warningKey) && svc.hasForeignUserEntries(rows, currentUser.id)) {
+      if (!svc.hasForeignUserEntries(rows, currentUser.id)) return;
+      // The banner is raised on every detection; the sessionStorage key only
+      // de-duplicates the *telemetry*, which is a report about a
+      // configuration and not a per-read event.
+      setIsolationBreach(true);
+      if (!sessionStorage.getItem(warningKey)) {
         sessionStorage.setItem(warningKey, "1");
         // Reported, not just logged. This is the one signal in the app that
         // means the whole company's time data may be cross-visible, and until
@@ -107,13 +121,12 @@ export function useTimeEntries(from?: string, to?: string) {
             foreignRows: rows.filter((e) => e.userId && e.userId !== currentUser.id).length,
           },
         });
-        toast("Data isolation warning: you may be seeing other users' time entries. Contact your administrator.", "error");
       }
     } catch {
       // Never let a failure in the isolation-warning check (e.g. sessionStorage
       // unavailable) mask the data load that already succeeded above.
     }
-  }, [toast]);
+  }, []);
 
   /**
    * Load `from`..`to`, reading only what isn't already held.
@@ -268,5 +281,5 @@ export function useTimeEntries(from?: string, to?: string) {
     }
   }, [toast]);
 
-  return { entries, loading, isFetching, refresh, deleteEntry, createEntry, editEntry };
+  return { entries, loading, isFetching, isolationBreach, refresh, deleteEntry, createEntry, editEntry };
 }

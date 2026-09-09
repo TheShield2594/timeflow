@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, createEvent, fireEvent, waitFor, within } from "@testing-library/react";
+import { screen, cleanup, createEvent, fireEvent, waitFor, within } from "@testing-library/react";
 import { CalendarPage } from "./CalendarPage";
-import { DataRangeProvider } from "../contexts/DataRangeContext";
+import { renderWithData, TEST_WORKING_HOURS } from "../test/dataHarness";
+import type { TimeEntry } from "../types";
 
 // The SDK's app entrypoint has an extensionless internal import that Node's
 // ESM resolver can't follow, which is why userService used to be replaced
@@ -37,18 +38,7 @@ afterEach(() => {
 });
 
 function renderCalendar() {
-  return render(
-    <DataRangeProvider>
-      <CalendarPage
-        entries={[]}
-        projects={[]}
-        tasks={[]}
-        onCreateEntry={vi.fn()}
-        onEdit={vi.fn()}
-        onDelete={vi.fn()}
-      />
-    </DataRangeProvider>
-  );
+  return renderWithData(<CalendarPage workingHours={TEST_WORKING_HOURS} />);
 }
 
 // A local YYYY-MM-DD for a day in the currently-displayed week (the calendar
@@ -61,20 +51,12 @@ function todayStr(): string {
 const project = { id: "p1", name: "Project One", color: "#719500", isActive: true, createdAt: "" };
 
 function renderCalendarWith(
-  entries: Parameters<typeof CalendarPage>[0]["entries"],
-  onEdit: Parameters<typeof CalendarPage>[0]["onEdit"] = vi.fn(),
+  entries: TimeEntry[],
+  editEntry: (id: string, data: Partial<TimeEntry>) => Promise<TimeEntry> = vi.fn(),
 ) {
-  return render(
-    <DataRangeProvider>
-      <CalendarPage
-        entries={entries}
-        projects={[project]}
-        tasks={[]}
-        onCreateEntry={vi.fn()}
-        onEdit={onEdit}
-        onDelete={vi.fn()}
-      />
-    </DataRangeProvider>
+  return renderWithData(
+    <CalendarPage workingHours={TEST_WORKING_HOURS} />,
+    { entries, projects: [project], editEntry },
   );
 }
 
@@ -131,11 +113,11 @@ describe("CalendarPage keyboard navigation", () => {
   it("opens the create modal at the focused slot's time on Enter", () => {
     renderCalendar();
     const cell = screen.getAllByRole("gridcell").find((c) => c.getAttribute("tabindex") === "0")!;
-    expect(cell.getAttribute("aria-label")).toContain("7:00 AM");
+    expect(cell.getAttribute("aria-label")).toContain("07:00");
 
     fireEvent.keyDown(cell, { key: "Enter" });
 
-    expect(screen.getByText("Log Time")).not.toBeNull();
+    expect(screen.getByRole("dialog", { name: "Log time" })).not.toBeNull();
     expect(screen.getByDisplayValue("07:00")).not.toBeNull();
   });
 });
@@ -287,8 +269,8 @@ describe("CalendarPage drag-to-move (#79)", () => {
     const columns = document.querySelectorAll(".calendar__day-col");
     const ghost = columns[2].querySelector(".cal-move-preview");
     expect(ghost).not.toBeNull();
-    expect(ghost!.textContent).toContain("11:00 AM");
-    expect(ghost!.textContent).toContain("12:00 PM");
+    expect(ghost!.textContent).toContain("11:00");
+    expect(ghost!.textContent).toContain("12:00");
     expect(columns[0].querySelector(".cal-move-preview")).toBeNull();
 
     // The block keeps the pointer capture, so it must stay exactly where it
@@ -344,7 +326,7 @@ describe("CalendarPage drag-to-move (#79)", () => {
     fireEvent.click(block);
 
     expect(onEdit).not.toHaveBeenCalled();
-    expect(screen.getByText("Edit Entry")).not.toBeNull();
+    expect(screen.getByRole("dialog", { name: "Edit entry" })).not.toBeNull();
   });
 
   it("does not open the editor on the click that ends a real drag", () => {
@@ -359,7 +341,7 @@ describe("CalendarPage drag-to-move (#79)", () => {
     fireEvent.click(block);
 
     expect(onEdit).toHaveBeenCalledTimes(1);
-    expect(screen.queryByText("Edit Entry")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Edit entry" })).toBeNull();
   });
 
   it("drops the move on Escape, and doesn't open the editor on the way out", () => {
@@ -375,7 +357,7 @@ describe("CalendarPage drag-to-move (#79)", () => {
     fireEvent.click(block);
 
     expect(onEdit).not.toHaveBeenCalled();
-    expect(screen.queryByText("Edit Entry")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Edit entry" })).toBeNull();
   });
 
   it("ignores a drop that lands the entry exactly where it started", () => {
@@ -489,17 +471,9 @@ describe("CalendarPage drag-to-move (#79)", () => {
       const onEdit = vi.fn().mockResolvedValue({});
       const view = renderCalendarWith([entry], onEdit);
       const rerenderWith = (patch: Record<string, unknown>) =>
-        view.rerender(
-          <DataRangeProvider>
-            <CalendarPage
-              entries={[{ ...entry, ...patch } as typeof entry]}
-              projects={[project]}
-              tasks={[]}
-              onCreateEntry={vi.fn()}
-              onEdit={onEdit}
-              onDelete={vi.fn()}
-            />
-          </DataRangeProvider>
+        view.rerenderWithData(
+          <CalendarPage workingHours={TEST_WORKING_HOURS} />,
+          { entries: [{ ...entry, ...patch } as typeof entry], projects: [project], editEntry: onEdit },
         );
       return { onEdit, rerenderWith };
     }
@@ -554,10 +528,11 @@ describe("CalendarPage drag-to-move (#79)", () => {
       const block = screen.getByRole("button", { name: /Edit entry: Standup/ });
       fireEvent.keyDown(block, { key: "ArrowDown", shiftKey: true });
 
-      const status = screen.getByRole("status");
+      // The toast regions are role="status" too, so pick the one that speaks.
+      const status = screen.getAllByRole("status").find((el) => el.textContent?.includes("Standup moved to"))!;
       expect(status.textContent).toContain("Standup moved to");
-      expect(status.textContent).toContain("9:15 AM");
-      expect(status.textContent).toContain("10:15 AM");
+      expect(status.textContent).toContain("09:15");
+      expect(status.textContent).toContain("10:15");
     });
   });
 });
@@ -587,9 +562,8 @@ describe("CalendarPage totals include the running session (#74)", () => {
 
     // The running entry has no durationMinutes, so both totals used to read
     // zero while the block on screen visibly grew.
-    expect(screen.getByText("3h this week")).not.toBeNull();
+    expect(document.querySelector(".calendar__week-total")!.textContent).toBe("3h");
     expect(screen.getAllByText("3h").length).toBeGreaterThan(0);
-    expect(screen.queryByText(/Nothing logged this week/)).toBeNull();
   });
 
   it("adds the running time on top of completed entries for the same day", () => {
@@ -606,7 +580,7 @@ describe("CalendarPage totals include the running session (#74)", () => {
       },
     ]);
 
-    expect(screen.getByText("4h this week")).not.toBeNull();
+    expect(document.querySelector(".calendar__week-total")!.textContent).toBe("4h");
   });
 
   it("leaves totals alone when nothing is running", () => {
@@ -619,7 +593,7 @@ describe("CalendarPage totals include the running session (#74)", () => {
       },
     ]);
 
-    expect(screen.getByText("1h this week")).not.toBeNull();
+    expect(document.querySelector(".calendar__week-total")!.textContent).toBe("1h");
   });
 });
 
@@ -693,8 +667,8 @@ describe("CalendarPage untracked gaps (P2-15)", () => {
     fireEvent.click(gapButtons()[1]);
 
     expect(screen.getByRole("dialog")).not.toBeNull();
-    expect((screen.getByLabelText("Start") as HTMLInputElement).value).toBe("10:00");
-    expect((screen.getByLabelText("End") as HTMLInputElement).value).toBe("11:30");
+    expect((screen.getByLabelText("Time") as HTMLInputElement).value).toBe("10:00");
+    expect((screen.getByLabelText("End time") as HTMLInputElement).value).toBe("11:30");
   });
 
   // Past days are scanned once and cached, so they no longer see the current
@@ -716,9 +690,9 @@ describe("CalendarPage untracked gaps (P2-15)", () => {
     // would invent an untracked afternoon the timer was in fact running for.
     const yesterdayGaps = gapButtons()
       .map((b) => b.getAttribute("aria-label") ?? "")
-      .filter((label) => label.includes("August 11"));
+      .filter((label) => label.includes("11 August"));
     expect(yesterdayGaps).toHaveLength(1);
-    expect(yesterdayGaps[0]).toContain("8:00 AM – 9:00 AM");
+    expect(yesterdayGaps[0]).toContain("08:00 – 09:00");
   });
 
   it("does not offer gaps on a day that hasn't happened yet", () => {
@@ -883,10 +857,10 @@ describe("Outlook overlay under the real service (#114)", () => {
     // the whole suite passed while covering less than it looked like.
     renderCalendar();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /^Outlook: (on|faded)$/ })).toBeTruthy();
+      expect(screen.getByRole("button", { name: /^Outlook (on|faded)$/ })).toBeTruthy();
     });
     // The error affordance is the tell: if it's on screen, the load threw.
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Outlook: not connected" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Outlook not connected" })).toBeNull();
   });
 });

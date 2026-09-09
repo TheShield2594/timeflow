@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { CalendarPage } from "./CalendarPage";
-import { DataRangeProvider } from "../contexts/DataRangeContext";
-import type { OutlookEvent } from "../types";
+import { renderWithData, TEST_WORKING_HOURS } from "../test/dataHarness";
+import type { Mock } from "vitest";
+import type { NewTimeEntry, OutlookEvent, TimeEntry } from "../types";
 
 // The SDK's app entrypoint has an extensionless internal import that Node's
 // ESM resolver can't follow, which is why userService used to be replaced
@@ -68,20 +69,17 @@ function meetingToday(): OutlookEvent {
   };
 }
 
-function renderCalendar(onCreateEntry = vi.fn().mockResolvedValue({})) {
-  const utils = render(
-    <DataRangeProvider>
-      <CalendarPage
-        entries={[]}
-        projects={[{ id: "p1", name: "Project One", color: "#719500", isActive: true, createdAt: "" }]}
-        tasks={[]}
-        onCreateEntry={onCreateEntry}
-        onEdit={vi.fn()}
-        onDelete={vi.fn()}
-      />
-    </DataRangeProvider>
+type CreateEntry = (data: NewTimeEntry) => Promise<TimeEntry>;
+
+function renderCalendar(createEntry: Mock<CreateEntry> = vi.fn<CreateEntry>().mockResolvedValue({} as TimeEntry)) {
+  const utils = renderWithData(
+    <CalendarPage workingHours={TEST_WORKING_HOURS} />,
+    {
+      projects: [{ id: "p1", name: "Project One", color: "#719500", isActive: true, createdAt: "" }],
+      createEntry,
+    },
   );
-  return { ...utils, onCreateEntry };
+  return { ...utils, onCreateEntry: createEntry };
 }
 
 describe("CalendarPage Outlook overlay", () => {
@@ -89,7 +87,7 @@ describe("CalendarPage Outlook overlay", () => {
     getCalendarEvents.mockResolvedValue([meetingToday()]);
     renderCalendar();
     expect(await screen.findByRole("button", { name: /Log time for Outlook meeting: Design review/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Outlook: on" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Outlook on" })).toBeTruthy();
   });
 
   it("clicking a ghost opens Log Time prefilled from the meeting, and saving marks it logged", async () => {
@@ -97,11 +95,11 @@ describe("CalendarPage Outlook overlay", () => {
     const { onCreateEntry } = renderCalendar();
     fireEvent.click(await screen.findByRole("button", { name: /Log time for Outlook meeting: Design review/ }));
 
-    const dialog = screen.getByRole("dialog", { name: "Log Time" });
+    const dialog = screen.getByRole("dialog", { name: "Log time" });
     expect(dialog).toBeTruthy();
     expect((screen.getByLabelText("Description") as HTMLInputElement).value).toBe("Design review");
-    expect((screen.getByLabelText("Start") as HTMLInputElement).value).toBe("10:00");
-    expect((screen.getByLabelText("End") as HTMLInputElement).value).toBe("11:00");
+    expect((screen.getByLabelText("Time") as HTMLInputElement).value).toBe("10:00");
+    expect((screen.getByLabelText("End time") as HTMLInputElement).value).toBe("11:00");
 
     // Meetings prefill the times but never the project — pick one and save.
     fireEvent.change(screen.getByLabelText("Project"), { target: { value: "p1" } });
@@ -119,18 +117,18 @@ describe("CalendarPage Outlook overlay", () => {
 
     // Faded keeps the meetings present and clickable — with twenty-plus a
     // week, "on" and "off" are both wrong most of the time.
-    fireEvent.click(await screen.findByRole("button", { name: "Outlook: on" }));
-    expect(screen.getByRole("button", { name: "Outlook: faded" })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Outlook on" }));
+    expect(screen.getByRole("button", { name: "Outlook faded" })).toBeTruthy();
     expect(localStorage.getItem("tt_show_outlook:env-1:user-1")).toBe("faded");
     expect(screen.queryByRole("button", { name: /Log time for Outlook meeting/ })).not.toBeNull();
     expect(container.querySelector(".calendar--outlook-faded")).not.toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Outlook: faded" }));
+    fireEvent.click(screen.getByRole("button", { name: "Outlook faded" }));
     expect(screen.queryByRole("button", { name: /Log time for Outlook meeting/ })).toBeNull();
     expect(localStorage.getItem("tt_show_outlook:env-1:user-1")).toBe("off");
 
-    fireEvent.click(screen.getByRole("button", { name: "Outlook: off" }));
-    expect(screen.getByRole("button", { name: "Outlook: on" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Outlook off" }));
+    expect(screen.getByRole("button", { name: "Outlook on" })).toBeTruthy();
   });
 
   it("migrates the old boolean preference rather than resetting it", async () => {
@@ -138,14 +136,14 @@ describe("CalendarPage Outlook overlay", () => {
     localStorage.setItem("tt_show_outlook:env-1:user-1", "0");
     getCalendarEvents.mockResolvedValue([meetingToday()]);
     renderCalendar();
-    expect(await screen.findByRole("button", { name: "Outlook: off" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Outlook off" })).toBeTruthy();
   });
 
   it("shows the not-connected hint when the connector isn't set up", async () => {
     const { OutlookNotConnectedError } = await import("../services/outlookService");
     getCalendarEvents.mockRejectedValue(new OutlookNotConnectedError());
     renderCalendar();
-    expect(await screen.findByRole("button", { name: "Outlook: not connected" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Outlook not connected" })).toBeTruthy();
   });
 
   it("mutes a recurring subject across the whole week, and offers an undo", async () => {
@@ -189,7 +187,7 @@ describe("CalendarPage Outlook overlay", () => {
     const { onCreateEntry } = renderCalendar();
 
     fireEvent.click(await screen.findByRole("button", { name: "Log 2" }));
-    expect(screen.getByRole("dialog", { name: "Log Time · 1 of 2" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Log time · 1 of 2" })).toBeTruthy();
     expect((screen.getByLabelText("Description") as HTMLInputElement).value).toBe("Design review");
 
     fireEvent.change(screen.getByLabelText("Project"), { target: { value: "p1" } });
@@ -197,7 +195,7 @@ describe("CalendarPage Outlook overlay", () => {
 
     // Saving advances to the next meeting instead of dropping you back on
     // the grid to hunt down the rest.
-    await waitFor(() => expect(screen.getByRole("dialog", { name: "Log Time · 2 of 2" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Log time · 2 of 2" })).toBeTruthy());
     expect((screen.getByLabelText("Description") as HTMLInputElement).value).toBe("Standup");
 
     // Cancelling abandons the rest of the run — only a save advances it.
@@ -219,7 +217,7 @@ describe("CalendarPage Outlook overlay", () => {
         endTime: new Date(`${todayStr()}T14:30:00`).toISOString(),
       },
     ]);
-    const onCreateEntry = vi.fn().mockRejectedValue(new Error("network"));
+    const onCreateEntry = vi.fn<CreateEntry>().mockRejectedValue(new Error("network"));
     renderCalendar(onCreateEntry);
 
     fireEvent.click(await screen.findByRole("button", { name: "Log 2" }));
@@ -228,13 +226,12 @@ describe("CalendarPage Outlook overlay", () => {
 
     await waitFor(() => expect(onCreateEntry).toHaveBeenCalledTimes(1));
     // Still on the first meeting, and nothing was marked logged.
-    expect(screen.getByRole("dialog", { name: "Log Time · 1 of 2" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Log time · 1 of 2" })).toBeTruthy();
     expect(markEventLogged).not.toHaveBeenCalled();
 
-    // The form has a project picked, so Cancel asks before throwing it away
-    // (#104); giving up means answering the question.
+    // Cancel is a deliberate way out and closes without a second question;
+    // it's the *backdrop* that stays inert on a form with work in it (#104).
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
@@ -251,26 +248,25 @@ describe("CalendarPage Outlook overlay", () => {
         endTime: new Date(`${todayStr()}T14:30:00`).toISOString(),
       },
     ]);
-    const onCreateEntry = vi.fn()
-      .mockResolvedValueOnce({})                       // first half saves
+    const onCreateEntry = vi.fn<CreateEntry>()
+      .mockResolvedValueOnce({} as TimeEntry)          // first half saves
       .mockRejectedValue(new Error("network"));        // second half fails
     renderCalendar(onCreateEntry);
 
     fireEvent.click(await screen.findByRole("button", { name: "Log 2" }));
     fireEvent.change(screen.getByLabelText("Project"), { target: { value: "p1" } });
     // End before start = overnight; take the split.
-    fireEvent.change(screen.getByLabelText("End"), { target: { value: "09:00" } });
+    fireEvent.change(screen.getByLabelText("End time"), { target: { value: "09:00" } });
     fireEvent.click(await screen.findByRole("button", { name: "Split at midnight" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(onCreateEntry).toHaveBeenCalledTimes(2));
-    expect(screen.getByRole("dialog", { name: "Log Time · 1 of 2" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Log time · 1 of 2" })).toBeTruthy();
     expect(markEventLogged).not.toHaveBeenCalled();
 
-    // The form has a project picked, so Cancel asks before throwing it away
-    // (#104); giving up means answering the question.
+    // Cancel is a deliberate way out and closes without a second question;
+    // it's the *backdrop* that stays inert on a form with work in it (#104).
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 

@@ -25,6 +25,11 @@ interface Options {
 
 interface IdleGuard {
   idleAlert: IdleAlert | null;
+  /** The entry the 12h safety net stopped and saved, awaiting acknowledgement.
+   *  It used to be a toast — the wrong shape for something the user didn't
+   *  ask for and has to answer. */
+  autoStopped: TimeEntry | null;
+  dismissAutoStop: () => void;
   onTrim: () => Promise<void>;
   onKeep: () => void;
   onDiscard: () => Promise<void>;
@@ -47,6 +52,7 @@ export function useIdleGuard({
   saveToastSuppressed,
 }: Options): IdleGuard {
   const [idleAlert, setIdleAlert] = useState<IdleAlert | null>(null);
+  const [autoStopped, setAutoStopped] = useState<TimeEntry | null>(null);
   const lastActivity = useActivityTracker();
 
   const handleIdleDetected = useCallback((lastActiveAt: number) => {
@@ -66,8 +72,10 @@ export function useIdleGuard({
     // would, plus why the timer stopped on its own.
     saveToastSuppressed.current = true;
     try {
-      await stopAt(cappedEnd);
-      toast("Timer auto-stopped after 12 hours — edit the entry if needed.", "info");
+      const entry = await stopAt(cappedEnd);
+      // The sheet explains what happened and offers the correction; nothing
+      // here toasts, because a message that needs an answer is not a toast.
+      if (entry) setAutoStopped(entry);
     } catch {
       // stopAt already toasted the save error
     } finally {
@@ -75,7 +83,7 @@ export function useIdleGuard({
       // clear it here so the suppression can't leak onto the retry.
       saveToastSuppressed.current = false;
     }
-  }, [timer.startTime, stopAt, toast, saveToastSuppressed]);
+  }, [timer.startTime, stopAt, saveToastSuppressed]);
 
   useTimerSafetyMonitor({
     isRunning: timer.isRunning,
@@ -141,5 +149,7 @@ export function useIdleGuard({
     });
   }, [cancel, restore, refresh, toast]);
 
-  return { idleAlert, onTrim, onKeep, onDiscard };
+  const dismissAutoStop = useCallback(() => setAutoStopped(null), []);
+
+  return { idleAlert, autoStopped, dismissAutoStop, onTrim, onKeep, onDiscard };
 }

@@ -44,7 +44,7 @@ Run by: ______________  Date: ______________
 | # | Check | Signed off |
 |---|---|---|
 | 1 | Signed in as **A**: Timesheet shows only A's entries — no row named for B, on any day in the range | ☐ |
-| 2 | As **A**: Calendar, Overview and Reports agree with the Timesheet. Reports' total for the week equals the sum of A's own entries only | ☐ |
+| 2 | As **A**: Calendar, Timer and Reports agree with the Timesheet. Reports' total for the week equals the sum of A's own entries only | ☐ |
 | 3 | As **A**: the CSV export contains only A's rows (open it — the User column is the one to read) | ☐ |
 | 4 | Repeat 1–3 signed in as **B** | ☐ |
 | 5 | **No "Data isolation warning" toast** for either user, at any point | ☐ |

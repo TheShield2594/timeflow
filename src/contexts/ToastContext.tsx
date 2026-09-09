@@ -1,5 +1,4 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { IconX } from "../components/Icons";
 
 export type ToastKind = "info" | "success" | "error";
 
@@ -35,11 +34,20 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // No timer is armed here: each toast owns its own dismissal countdown so it
-  // can be paused, and so unmounting the toast clears it instead of leaving a
-  // setState-after-unmount pending.
+  /**
+   * One toast at a time, replaced by the next.
+   *
+   * No timer is armed here: each toast owns its own dismissal countdown so it
+   * can be paused, and so unmounting the toast clears it instead of leaving a
+   * setState-after-unmount pending.
+   *
+   * A stack of toasts is a queue of things the user is being told while they
+   * are trying to do something else. Anything they must actually act on is
+   * not a toast at all — it's the failed-save hero or the isolation banner —
+   * so replacing rather than stacking loses nothing but the pile.
+   */
   const push = useCallback<ToastApi["push"]>((message, kind = "info", action) => {
-    setToasts((prev) => [...prev, { id: crypto.randomUUID(), message, kind, action }]);
+    setToasts([{ id: crypto.randomUUID(), message, kind, action }]);
   }, []);
 
   return (
@@ -136,13 +144,19 @@ const ToastItem: React.FC<{ toast: Toast; onDismiss: () => void }> = ({ toast, o
       onFocusCapture={() => setHeld(true)}
       onBlurCapture={() => setHeld(false)}
     >
+      {/* Three shapes, one row: a dot for the ones reporting an outcome, the
+          message, and the action if there is one. No close button — a toast
+          that needs dismissing is a toast that should have been something
+          else. */}
+      {toast.kind !== "info" && (
+        <span className={`toast__dot${toast.kind === "error" ? " toast__dot--warn" : ""}`} />
+      )}
       <span className="toast__message">{toast.message}</span>
       {toast.action && (
         <button className="toast__action" onClick={handleAction}>
           {toast.action.label}
         </button>
       )}
-      <button className="toast__close" onClick={onDismiss} aria-label="Dismiss"><IconX size={14} /></button>
     </div>
   );
 };

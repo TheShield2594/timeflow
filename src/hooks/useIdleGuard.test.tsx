@@ -157,7 +157,7 @@ describe("useIdleGuard — trim and keep", () => {
 });
 
 describe("useIdleGuard — safety net", () => {
-  it("auto-stops at the 12h cap and suppresses the generic save toast", async () => {
+  it("auto-stops at the 12h cap and raises the sheet instead of a toast", async () => {
     const started = new Date(Date.now() - (MAX_DURATION_MS + 60_000)).toISOString();
     const { result, stopAt, toast } = setup({ ...RUNNING, startTime: started });
 
@@ -166,7 +166,11 @@ describe("useIdleGuard — safety net", () => {
     expect(stopAt).toHaveBeenCalledWith(
       new Date(new Date(started).getTime() + MAX_DURATION_MS).toISOString()
     );
-    expect(toast).toHaveBeenCalledWith(expect.stringContaining("auto-stopped"), "info");
+    // A message that reports something the user didn't ask for *and* needs an
+    // answer is not a toast: the capped entry is handed up so the shell can
+    // put a sheet over it.
+    expect(toast).not.toHaveBeenCalled();
+    expect(result.current.guard.autoStopped).not.toBeNull();
     // Cleared once the stop resolved, so the suppression can't leak onto a
     // later save the user makes themselves.
     expect(result.current.saveToastSuppressed.current).toBe(false);

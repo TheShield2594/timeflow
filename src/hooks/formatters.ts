@@ -20,13 +20,21 @@ export function formatElapsed(seconds: number): string {
   return [h, m, s].map((v) => String(v).padStart(2, "0")).join(":");
 }
 
+/**
+ * "5h 41m", "2h 05m", "48m", "3h".
+ *
+ * The minutes are zero-padded when an hour is present and not when they stand
+ * alone, because these are read down a column: "2h 5m" against "2h 41m" puts
+ * two different digits under the same tabular figure and the column stops
+ * lining up. On its own, "05m" would just be a leading zero nobody asked for.
+ */
 export function formatMinutes(minutes: number): string {
   const total = Math.floor(nonNegative(minutes));
   const h = Math.floor(total / 60);
   const m = total % 60;
   if (h === 0) return `${m}m`;
   if (m === 0) return `${h}h`;
-  return `${h}h ${m}m`;
+  return `${h}h ${String(m).padStart(2, "0")}m`;
 }
 
 /**

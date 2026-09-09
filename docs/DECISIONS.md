@@ -59,7 +59,7 @@ created.
 
 The framing in #129 was "do task names need to be private, or only tidy" — but
 the honest third answer is that they should be *shared*. Task pickers are
-already filtered to the selected project (`TimerBar`, `EntryModal`), and
+already filtered to the selected project (`EntrySheet`, `ProjectsPage`), and
 projects themselves are org-wide, so nobody is scrolling a global list of
 strangers' work. What a per-project task list actually is, is a shared
 vocabulary: one "Code review" that everyone bills against, so reports aggregate
@@ -111,11 +111,36 @@ implementation that is currently broken; the findings are preserved in
 [the review's Appendix A](reviews/2026-08-12-multi-agent-review.md#appendix-a--deferred-mobile-findings)
 in case that changes.
 
-### Working hours are hardcoded 08:00–18:00, gaps floor at 15 minutes
+### Working hours are per user, not hardcoded (2026-09-09, reversed)
 
-`src/utils/gaps.ts` confines untracked-gap detection to a fixed working day
-with a 15-minute minimum. Deliberate for a single-company internal app, and
-deliberately not configurable — a settings surface for it would need a
-per-user store this app doesn't have. The consequence is that anyone on a
-non-standard shift gets under-reported gaps, silently. Revisit if shift work
-ever becomes real.
+This entry used to record the opposite: that `src/utils/gaps.ts` confined
+untracked-gap detection to a fixed 08:00–18:00 day with a 15-minute minimum,
+deliberately, because a settings surface would need a per-user store this app
+doesn't have.
+
+That reasoning was wrong about what kind of thing it was. It isn't a
+preference — it is the window the app searches before telling somebody their
+day is complete, so on any other shift the app was quietly wrong about the one
+thing it exists to get right. The store objection was answered by the entry
+above it: preferences already live in `localStorage`, scoped per environment +
+user, and this is one more of them (`useWorkingHours.ts`), set from the
+sidebar.
+
+Its cost is the same as every other preference here: it travels with the
+browser rather than the account, so a new machine starts at the 08:00–18:00
+default. That is a far smaller failure than being told a day is complete when
+two hours of it were never in the search.
+
+**The guard that matters:** a stored window ending at or before it starts is
+rejected on read. An inverted window makes `findUntrackedGaps` return nothing
+at all — a silent, total regression to the bug this reverses.
+
+### The 2026-09 redesign removed features on purpose (2026-09-09)
+
+Overview, focus mode (Pomodoro), the activity heatmap, the day-streak KPI, both
+KPI strips, the timer bar's ratio/ticket fields and its inline "+ New task…"
+are gone. The reasoning for each is in the README's *Deliberately not here*
+table and, at length, in
+[the redesign brief](design/2026-09-redesign-handoff.md); the point of
+recording it here is that removing them was the work, not a casualty of it.
+Re-adding one is a decision.

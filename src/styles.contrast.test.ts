@@ -6,15 +6,30 @@ import css from "./styles.css?raw";
 /**
  * Contrast is the one design property in this app that a reviewer can't eyeball
  * reliably — `--text-faint` shipped at 2.46:1 for a long time while carrying the
- * calendar's hour labels and the Project × Period headers (#88). These tokens
- * are load-bearing enough to assert on.
+ * calendar's hour labels and the Project × Period headers (#88).
+ *
+ * The redesign narrowed the palette to two text colours per theme precisely so
+ * this file can be short and absolute: everything a reader reads is --label or
+ * --label-secondary, and both clear AA on every surface. The two deliberate
+ * exceptions each have a rule of their own below — --decor may never carry
+ * text at all, and --dim-display may be used exactly once.
  */
 
-function block(selector: string): string {
-  const start = css.indexOf(`${selector} {`);
-  if (start === -1) throw new Error(`No ${selector} block in styles.css`);
-  const end = css.indexOf("\n}", start);
-  return css.slice(start, end);
+/**
+ * The declaration body of a rule, picked by selector and — because `:root`
+ * carries the Everence project palette in one block and the theme's own
+ * tokens in another — optionally by a token it must contain.
+ */
+function block(selector: string, contains?: string): string {
+  let from = 0;
+  for (;;) {
+    const start = css.indexOf(`${selector} {`, from);
+    if (start === -1) throw new Error(`No ${selector} block in styles.css declaring ${contains ?? "anything"}`);
+    const end = css.indexOf("\n}", start);
+    const body = css.slice(start, end);
+    if (!contains || body.includes(contains)) return body;
+    from = end + 1;
+  }
 }
 
 function token(scope: string, name: string): string {
@@ -36,18 +51,22 @@ function contrast(a: string, b: string): number {
 }
 
 const THEMES = [
-  { name: "light", scope: block(":root") },
+  { name: "light", scope: block(":root", "--canvas") },
   { name: "dark", scope: block(':root[data-theme="dark"]') },
 ];
 
-// Every surface a text token can land on. --surface-3 is the tightest of the
-// four, so it's the one that decides whether a value is usable app-wide.
-const SURFACES = ["bg", "surface", "surface-2", "surface-3"];
+/**
+ * Every opaque surface a text token can land on. --material is deliberately
+ * not here: it is 72% of a background that is always one of these two, so it
+ * sits between them and neither bound moves.
+ */
+const SURFACES = ["canvas", "surface"];
 
 describe.each(THEMES)("$name theme", ({ scope }) => {
-  // 4.5:1 is WCAG 1.4.3 for body text. None of these tokens are reserved for
-  // large text, so the large-text exemption doesn't apply to any of them.
-  it.each(["text", "text-muted", "text-faint", "warn"])(
+  // 4.5:1 is WCAG 1.4.3 for body text. None of these tokens is reserved for
+  // large text, so the large-text exemption doesn't apply to any of them —
+  // --accent included, which carries 15px pill labels and section actions.
+  it.each(["label", "label-secondary", "accent", "danger", "warn"])(
     "--%s reads at AA on every surface",
     (name) => {
       const fg = token(scope, name);
@@ -60,20 +79,44 @@ describe.each(THEMES)("$name theme", ({ scope }) => {
     }
   );
 
-  // --text-decor is deliberately below AA: it exists so placeholders and the
-  // "·" separators can stay quiet. The test is that it stays *distinguishable*
-  // from the surface, and that nobody promotes it back into a text token by
-  // giving it the same value as --text-faint.
-  it("--text-decor stays visible but distinct from --text-faint", () => {
-    const decor = token(scope, "text-decor");
-    expect(decor).not.toBe(token(scope, "text-faint"));
+  // The accent inverts its role between themes: white on green in light, near
+  // black on lime in dark. Whichever way round it is, the label on the app's
+  // one primary button has to be readable.
+  it("--on-accent reads at AA against the accent fill", () => {
+    expect(
+      Number(contrast(token(scope, "on-accent"), token(scope, "accent")).toFixed(2))
+    ).toBeGreaterThanOrEqual(4.5);
+  });
+
+  // --decor is deliberately below AA: it exists so bar tracks, dots and empty
+  // fills can stay quiet. The test is that it stays *visible*, and that nobody
+  // promotes it back into a text token by giving it --label-secondary's value.
+  it("--decor stays visible but distinct from --label-secondary", () => {
+    const decor = token(scope, "decor");
+    expect(decor).not.toBe(token(scope, "label-secondary"));
     expect(contrast(decor, token(scope, "surface"))).toBeGreaterThan(2);
+  });
+
+  // The idle clock is 96px, so WCAG's large-text threshold is the one that
+  // applies to it. It is the only text in the app that gets that exemption.
+  it("--dim-display clears the 3:1 large-text threshold", () => {
+    const fg = token(scope, "dim-display");
+    for (const surface of SURFACES) {
+      expect(
+        Number(contrast(fg, token(scope, surface)).toFixed(2)),
+        `--dim-display on --${surface}`
+      ).toBeGreaterThanOrEqual(3);
+    }
   });
 });
 
 // Declarations only. These assertions are about what the stylesheet *does*, and
 // the comments here quote the very patterns being banned.
 const rules = css.replace(/\/\*[\s\S]*?\*\//g, "");
+
+/** Innermost declaration blocks — the bodies between `{` and `}` with no
+ *  nested braces, which is every rule and no @media/@supports wrapper. */
+const declarationBlocks = [...rules.matchAll(/\{([^{}]*)\}/g)].map((m) => m[1]);
 
 describe("token definitions", () => {
   // The bug in #101 wasn't a badly chosen colour, it was five rules leaning on
@@ -93,11 +136,12 @@ describe("token definitions", () => {
 
   // Every semantic token should be reachable from a rule. An unused one is
   // either dead weight or, worse, a lie about where a colour comes from —
-  // --accent and --accent-hover claimed to be the app's accent while the actual
-  // accent lived in --accent-solid and --ev-green-dark (#101).
+  // --accent and --accent-hover once claimed to be the app's accent while the
+  // actual accent lived in --accent-solid and --ev-green-dark (#101).
   //
-  // The --ev-* block is exempt: it declares the Everence palette in full, as a
-  // reference, and stays complete whether or not every brand colour is in use.
+  // The --ev-* block is exempt: it declares the Everence palette in full, as
+  // the list a project's colour is picked from, and stays complete whether or
+  // not every colour in it is currently assigned to a project.
   it("defines no semantic token that nothing references", () => {
     const defined = new Set(
       [...rules.matchAll(/^\s*(--[\w-]+):/gm)].map((m) => m[1])
@@ -112,19 +156,25 @@ describe("token definitions", () => {
   });
 });
 
-describe("--text-decor usage", () => {
+describe("--decor usage", () => {
   // The split only holds if decoration is the *only* thing on it. A rule that
-  // sets a font-size is styling text someone is meant to read, which is the
-  // exact mistake #88 was about.
-  it("is only used on placeholders, separators and decorative marks", () => {
-    const offenders = css
-      .split("\n")
-      .filter((line: string) => line.includes("var(--text-decor)"))
-      .filter((line: string) => !line.trim().startsWith("--text-decor"))
-      .filter(
-        (line: string) =>
-          !/::placeholder|__sep|-sep\b|::before|__empty-icon|scrollbar-thumb|__dot\b/.test(line)
-      );
+  // puts --decor on something with a font-size is styling text someone is
+  // meant to read, which is the exact mistake #88 was about. Checked per
+  // declaration block rather than per line so it can't be dodged by wrapping.
+  it("never lands on a rule that sets a font-size", () => {
+    const offenders = declarationBlocks
+      .filter((body) => body.includes("var(--decor)"))
+      .filter((body) => /font-size\s*:/.test(body));
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("--dim-display usage", () => {
+  // "The idle clock at 96px only" is not a comment anybody can enforce by
+  // reading. One reference is the whole rule: a second use is by definition
+  // some other piece of text wearing a 3.2:1 grey.
+  it("is referenced by exactly one rule", () => {
+    const uses = [...rules.matchAll(/var\(--dim-display\)/g)];
+    expect(uses).toHaveLength(1);
   });
 });

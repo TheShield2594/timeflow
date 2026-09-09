@@ -26,7 +26,8 @@ import { useCallback, useRef, useState } from "react";
 import type React from "react";
 import type { Project, TimeEntry } from "../types";
 import {
-  addDaysStr, dateAtMinutes, localDateStr, minutesBetween, minutesOfDay,
+  DATE_LOCALE,
+  addDaysStr, clockAt, dateAtMinutes, localDateStr, minutesBetween, minutesOfDay,
 } from "../utils/dates";
 import {
   ColumnRect,
@@ -434,11 +435,12 @@ export function useEntryMove({ gridRef, weekDays, weekBounds, projectById, onEdi
     // put focus back on once the new node is in the DOM (#89).
     refocusIdRef.current = entry.id;
     const label = entry.description || projectById.get(entry.projectId)?.name || "Entry";
-    const time = (iso: string) =>
-      new Date(iso).toLocaleTimeString("en", { hour: "numeric", minute: "2-digit" });
+    // The same 24-hour clock every other time in the app is set in, so what
+    // is announced matches what is on screen.
+    const time = (iso: string) => clockAt(minutesOfDay(iso));
     setNudgeMessage(
-      `${label} moved to ${new Date(placed.startTime).toLocaleDateString("en", {
-        weekday: "long", month: "long", day: "numeric",
+      `${label} moved to ${new Date(placed.startTime).toLocaleDateString(DATE_LOCALE, {
+        weekday: "long", day: "numeric", month: "long",
       })}, ${time(placed.startTime)} – ${time(placed.endTime)}`
     );
     void onEdit(entry.id, { date, ...placed }).catch(() => {});

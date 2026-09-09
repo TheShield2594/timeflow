@@ -1,22 +1,17 @@
 import React, { useMemo, useState } from "react";
-import type { Project, Task } from "../types";
 import type { TeamContext, TeamEntry } from "../services/teamService";
 import { hasNoReportRows, useTeamEntries } from "../hooks/useTeam";
 import { formatMinutes } from "../hooks";
+import { useData } from "../contexts/DataContext";
 import { addDaysStr, localDateStr, weekStartStr } from "../utils/dates";
-import { indexById } from "../utils/entityIndex";
-import { DEFAULT_PROJECT_COLOR } from "../utils/colors";
-import {
-  exportToCSV, RoundingRule, ROUNDING_LABELS,
-} from "../services/csvExport";
-import { IconChevronLeft, IconChevronRight, IconDownload } from "./Icons";
-import { RangeSpinner } from "./RangeSpinner";
+import { rangeLabel } from "../utils/ranges";
+import { exportToCSV, ROUNDING_LABELS, type RoundingRule } from "../services/csvExport";
+import { SegmentedControl } from "./SegmentedControl";
+import { FloatingActionBar } from "./FloatingActionBar";
+import { Pill } from "./Pill";
 
-interface Props {
-  teamContext: TeamContext;
-  projects: Project[];
-  tasks: Task[];
-}
+const PAGE_SIZE = 9;
+const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 
 // The rounding choice is a device preference, not data — persisted separately
 // from the personal Reports export so a manager can pick different rounding
@@ -31,73 +26,64 @@ function readStoredRounding(): RoundingRule {
   return "exact";
 }
 
+type Scope = "direct" | "hierarchy";
+
 interface MemberRow {
   id: string;
   name: string;
   isSelf: boolean;
+  isDirect: boolean;
   dayMinutes: Map<string, number>;
   totalMinutes: number;
   missingDays: string[];
 }
 
+interface Props {
+  teamContext: TeamContext;
+}
+
 /**
- * Manager view (issue #61): the signed-in user's direct reports' week —
- * per-member day/week totals, missing-weekday flags, and a team project
- * rollup. Only rendered when the user has direct reports; the data read is
- * scoped server-side by Dataverse hierarchy security (see teamService).
+ * The manager view: one row per person, five bars each, sorted by hours.
+ *
+ * Sorted *descending* so the person with the least logged lands at the bottom
+ * of the list, next to the pagination — the end of a list is where a reader
+ * stops, and they are the row the page exists for.
+ *
+ * Bars here are the accent rather than a project colour: they encode hours per
+ * person, and a person is not a project. Totals only — no descriptions, no
+ * tickets. What a manager needs is whether the week is accounted for, not what
+ * anybody wrote in a field.
  */
-export const TeamPage: React.FC<Props> = ({ teamContext, projects, tasks }) => {
+export const TeamPage: React.FC<Props> = ({ teamContext }) => {
+  const { projects, tasks } = useData();
   const today = localDateStr();
   const [weekStart, setWeekStart] = useState(() => weekStartStr(today));
-  const weekDays = useMemo(
-    () => Array.from({ length: 7 }, (_, i) => addDaysStr(weekStart, i)),
-    [weekStart]
-  );
-  const weekEnd = weekDays[6];
+  const [scope, setScope] = useState<Scope>("direct");
+  const [search, setSearch] = useState("");
+  const [visible, setVisible] = useState(PAGE_SIZE);
   const [rounding, setRounding] = useState<RoundingRule>(readStoredRounding);
-  const [exporting, setExporting] = useState(false);
 
-  const handleRoundingChange = (rule: RoundingRule) => {
-    setRounding(rule);
-    try { localStorage.setItem(TEAM_ROUNDING_STORAGE_KEY, rule); } catch { /* in-memory only */ }
-  };
+  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDaysStr(weekStart, i)), [weekStart]);
+  const weekEnd = weekDays[6];
 
   const { entries, loading, error, truncated, refresh } = useTeamEntries(weekStart, weekEnd, teamContext);
 
-  // Exports exactly what the table shows for the visible week (every member
-  // row, including the manager's own) so a manager can hand this straight to
-  // whoever needs the team's time instead of exporting it themselves.
-  const handleExport = () => {
-    setExporting(true);
-    try {
-      // `ownerName` (not `userDisplayName`) is the reliable per-row owner —
-      // see teamService's FormattedValue-annotation fallback — so the CSV's
-      // "User" column reflects who actually logged each row.
-      const exportEntries = entries.map((e) => ({ ...e, userDisplayName: e.ownerName }));
-      exportToCSV(exportEntries, projects, tasks, `timeflow-team-${weekStart}-to-${weekEnd}.csv`, rounding);
-    } finally {
-      setTimeout(() => setExporting(false), 800);
-    }
-  };
-
-  const memberRows = useMemo<MemberRow[]>(() => {
+  const rows = useMemo<MemberRow[]>(() => {
+    const directIds = new Set(teamContext.reports.map((m) => m.id));
     const byOwner = new Map<string, { name: string; entries: TeamEntry[] }>();
-    // Reports first so members with nothing logged still get a row (that
-    // silence is exactly what a manager needs to see).
+    // Reports first, so somebody with nothing logged still gets a row — that
+    // silence is exactly what this page exists to show.
     teamContext.reports.forEach((m) => byOwner.set(m.id, { name: m.name, entries: [] }));
     entries.forEach((e) => {
       if (!e.ownerId) return;
       const bucket = byOwner.get(e.ownerId);
-      if (bucket) {
-        bucket.entries.push(e);
-      } else {
-        // Includes the manager themself and (at hierarchy depth > 1) indirect
-        // reports — anyone whose rows the server said we may see.
-        byOwner.set(e.ownerId, { name: e.ownerName || "Unknown user", entries: [e] });
-      }
+      if (bucket) bucket.entries.push(e);
+      // Includes the manager themself and, at hierarchy depth > 1, indirect
+      // reports — anyone whose rows the server said we may see.
+      else byOwner.set(e.ownerId, { name: e.ownerName || "Unknown user", entries: [e] });
     });
 
-    const rows: MemberRow[] = [];
+    const out: MemberRow[] = [];
     byOwner.forEach(({ name, entries: memberEntries }, id) => {
       const dayMinutes = new Map<string, number>();
       memberEntries.forEach((e) => {
@@ -106,222 +92,197 @@ export const TeamPage: React.FC<Props> = ({ teamContext, projects, tasks }) => {
         dayMinutes.set(e.date, (dayMinutes.get(e.date) || 0) + (e.durationMinutes || 0));
       });
       const isSelf = id === teamContext.myUserId;
-      // Missing = a weekday of this week that's already past (or today) with
-      // nothing logged. The manager's own row isn't flagged — this page is
-      // about the team, and their own gaps show on their personal pages.
-      const missingDays = isSelf ? [] : weekDays.filter((d, i) => i < 5 && d <= today && !(dayMinutes.get(d) ?? 0));
-      rows.push({
-        id,
-        name,
-        isSelf,
+      // Missing = a weekday of this week already past (or today) with nothing
+      // logged. The manager's own row isn't flagged — this page is about the
+      // team, and their own gaps show on their own screens.
+      const missingDays = isSelf
+        ? []
+        : weekDays.filter((d, i) => i < 5 && d <= today && !(dayMinutes.get(d) ?? 0));
+      out.push({
+        id, name, isSelf,
+        isDirect: directIds.has(id),
         dayMinutes,
-        totalMinutes: [...dayMinutes.values()].reduce((s, n) => s + n, 0),
+        totalMinutes: [...dayMinutes.values()].reduce((sum, n) => sum + n, 0),
         missingDays,
       });
     });
-    // Self last; reports alphabetically.
-    return rows.sort((a, b) =>
-      a.isSelf !== b.isSelf ? (a.isSelf ? 1 : -1) : a.name.localeCompare(b.name)
-    );
+    return out.sort((a, b) => b.totalMinutes - a.totalMinutes);
   }, [entries, teamContext, weekDays, today]);
 
-  const teamTotal = useMemo(
-    () => memberRows.reduce((s, r) => s + r.totalMinutes, 0),
-    [memberRows]
-  );
+  const directCount = rows.filter((r) => r.isDirect).length;
+  const lineCount = rows.length;
 
-  // Names but no rows: see hasNoReportRows. Worth its own line on the page
-  // because the manager reading it is the one person who can tell "nobody
-  // logged anything" from "I am not being shown what they logged", and the
-  // admin who can fix the second one needs to be told which it was.
+  const scoped = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return rows
+      .filter((r) => (scope === "direct" ? r.isDirect : true))
+      .filter((r) => !q || r.name.toLowerCase().includes(q));
+  }, [rows, scope, search]);
+
+  const shown = scoped.slice(0, visible);
+  const hidden = scoped.length - shown.length;
+  const teamTotal = scoped.reduce((sum, r) => sum + r.totalMinutes, 0);
+  const peak = Math.max(...scoped.flatMap((r) => [...r.dayMinutes.values()]), 1);
+  const loggedPeople = scoped.filter((r) => r.totalMinutes > 0).length;
+  const todayIndex = weekDays.indexOf(today);
+
+  // Names but no rows: worth its own line, because the manager reading it is
+  // the one person who can tell "nobody logged anything" from "I am not being
+  // shown what they logged", and the admin who can fix the second needs to be
+  // told which it was.
   const noReportRows = !loading && !error && hasNoReportRows(entries, teamContext, weekStart, today);
 
-  // Team-wide project rollup for the visible week, largest first.
-  const projectRollup = useMemo(() => {
-    const projectById = indexById(projects);
-    const byProject = new Map<string, number>();
-    entries.forEach((e) => {
-      if (!e.endTime) return;
-      byProject.set(e.projectId, (byProject.get(e.projectId) || 0) + (e.durationMinutes || 0));
-    });
-    return [...byProject.entries()]
-      .map(([projectId, minutes]) => {
-        const project = projectById.get(projectId);
-        return {
-          projectId,
-          minutes,
-          name: project?.name || "Unassigned",
-          color: project?.color || DEFAULT_PROJECT_COLOR,
-        };
-      })
-      .filter((p) => p.minutes > 0)
-      .sort((a, b) => b.minutes - a.minutes);
-  }, [entries, projects]);
+  const handleExport = () => {
+    // `ownerName` (not `userDisplayName`) is the reliable per-row owner — see
+    // teamService's FormattedValue-annotation fallback — so the CSV's "User"
+    // column reflects who actually logged each row.
+    const exportEntries = entries.map((e) => ({ ...e, userDisplayName: e.ownerName }));
+    exportToCSV(exportEntries, projects, tasks, `timeflow-team-${weekStart}-to-${weekEnd}.csv`, rounding);
+  };
 
-  // Bar widths scale against the rollup's own sum, not teamTotal: the two
-  // can differ (rollup counts entries whose owner id didn't resolve), and a
-  // mismatch would push a bar past 100% — or to NaN if teamTotal were 0.
-  const rollupTotal = useMemo(
-    () => projectRollup.reduce((s, p) => s + p.minutes, 0),
-    [projectRollup]
-  );
-
-  const fmtDay = (ds: string) =>
-    new Date(`${ds}T00:00:00`).toLocaleDateString("en", { month: "short", day: "numeric" });
-  const weekLabel = `${fmtDay(weekStart)} – ${fmtDay(weekEnd)}`;
-  const missingTotal = memberRows.reduce((s, r) => s + r.missingDays.length, 0);
+  const setRoundingRule = (rule: RoundingRule) => {
+    setRounding(rule);
+    try { localStorage.setItem(TEAM_ROUNDING_STORAGE_KEY, rule); } catch { /* in-memory only */ }
+  };
 
   return (
-    <div className="team">
-      <div className="team__header">
-        <div className="team__title-group">
-          <h2 className="team__title">Team</h2>
-          <span className="team__week-total">{formatMinutes(teamTotal)} this week</span>
-          {missingTotal > 0 && (
-            <span className="team__missing-badge" title="Weekdays so far this week with nothing logged">
-              {missingTotal} missing {missingTotal === 1 ? "day" : "days"}
-            </span>
-          )}
-          {loading && <RangeSpinner label="Loading team entries…" />}
-        </div>
-        <div className="team__nav">
-          <button className="cal-nav-btn" onClick={() => setWeekStart(addDaysStr(weekStart, -7))} aria-label="Previous week">
-            <IconChevronLeft />
-          </button>
-          <button className="cal-nav-btn cal-nav-btn--today" onClick={() => setWeekStart(weekStartStr(today))}>
-            This week
-          </button>
-          <button className="cal-nav-btn" onClick={() => setWeekStart(addDaysStr(weekStart, 7))} aria-label="Next week">
-            <IconChevronRight />
-          </button>
+    <>
+      <div className="page__head">
+        <h1 className="page__title t-large-title">Team</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <span className="t-subhead t-secondary">{rangeLabel(weekStart, weekEnd)}</span>
+          <div className="calendar__nav">
+            <button className="cal-nav-btn" onClick={() => setWeekStart(addDaysStr(weekStart, -7))} aria-label="Previous week">‹</button>
+            <button className="cal-nav-btn cal-nav-btn--today" onClick={() => setWeekStart(weekStartStr(today))}>This week</button>
+            <button className="cal-nav-btn" onClick={() => setWeekStart(addDaysStr(weekStart, 7))} aria-label="Next week">›</button>
+          </div>
         </div>
       </div>
-      <p className="team__scope-note">
-        {weekLabel}. You see your own time and your direct reports&rsquo; (set via the
-        Manager field in Dataverse; entries stay private to everyone else).
-      </p>
 
-      <div className="team__export-bar">
-        <span className="team__export-label">Export</span>
-        <div className="team__export-controls">
-          <select
-            className="rounding-select"
-            value={rounding}
-            onChange={(e) => handleRoundingChange(e.target.value as RoundingRule)}
-            aria-label="Duration rounding applied to the CSV export"
-            title="Billing-style rounding applied to the export's duration columns (stored entries are unchanged)"
-          >
-            {(Object.keys(ROUNDING_LABELS) as RoundingRule[]).map((rule) => (
-              <option key={rule} value={rule}>{ROUNDING_LABELS[rule]}</option>
-            ))}
-          </select>
-          <button
-            type="button"
-            className={`export-btn btn-icon ${exporting ? "export-btn--loading" : ""}`}
-            onClick={handleExport}
-            disabled={entries.length === 0 || exporting || loading}
-            title={loading ? "Waiting for this week's entries to load…" : "Export the team's week to CSV"}
-          >
-            <IconDownload /> {exporting ? "Exporting…" : "Export CSV"}
-          </button>
+      <div className="team__headline">
+        <span className="t-display">{formatMinutes(teamTotal)}</span>
+        <span className="t-body t-secondary">
+          logged by {loggedPeople} {loggedPeople === 1 ? "person" : "people"}
+          {weekStart === weekStartStr(today) ? " so far this week" : " that week"}
+        </span>
+      </div>
+
+      <div className="page__toolbar">
+        <SegmentedControl
+          ariaLabel="Which reports to show"
+          value={scope}
+          onChange={(next) => { setScope(next); setVisible(PAGE_SIZE); }}
+          options={[
+            { value: "direct", label: `Direct ${directCount}` },
+            { value: "hierarchy", label: `Whole line ${lineCount}` },
+          ]}
+        />
+        <div className="page__toolbar-right">
+          <input
+            className="search"
+            placeholder="Search people"
+            aria-label="Search people"
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setVisible(PAGE_SIZE); }}
+          />
         </div>
       </div>
 
       {error ? (
-        <div className="team__error" role="alert">
-          Could not load team entries: {error}{" "}
-          <button className="btn-sm btn-ghost" onClick={refresh}>Retry</button>
+        <div className="empty">
+          <div className="empty__title t-title2">Couldn&rsquo;t read your team&rsquo;s time</div>
+          <p className="empty__body t-body">{error}</p>
+          <button type="button" className="empty__action" onClick={refresh}>Try again</button>
+        </div>
+      ) : loading ? (
+        <div className="skeleton-stack" aria-hidden="true" style={{ marginTop: 24 }}>
+          {[0, 1, 2, 3, 4].map((i) => <div key={i} className="skeleton" style={{ height: 40 }} />)}
         </div>
       ) : (
         <>
-          {noReportRows && (
-            <div className="team__hint">
-              Dataverse lists {teamContext.reports.length}{" "}
-              {teamContext.reports.length === 1 ? "person" : "people"} as reporting to you, but returned
-              none of their entries for this week. If they logged time, the app isn&rsquo;t being handed
-              their rows — hierarchy security is off, or <code>ever_timeentries</code> has been excluded
-              from it. An admin can check both in runbook §5.6.
-            </div>
-          )}
-          {/* A short read here under-reports someone's week, which is the one
-              direction that must never be silent on a billable-time record. */}
-          {truncated && (
-            <div className="team__error" role="alert">
-              {truncated}{" "}
-              <button className="btn-sm btn-ghost" onClick={refresh}>Retry</button>
-            </div>
-          )}
-          <div className="team__table-wrap">
-            <table className="team__table">
-              <thead>
-                <tr>
-                  <th scope="col" className="team__member-col">Member</th>
-                  {weekDays.map((d) => (
-                    <th scope="col" key={d} className={d === today ? "team__day--today" : ""}>
-                      {new Date(`${d}T00:00:00`).toLocaleDateString("en", { weekday: "short" })}
-                      <span className="team__day-num">{Number(d.slice(-2))}</span>
-                    </th>
-                  ))}
-                  <th scope="col">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {memberRows.map((row) => (
-                  <tr key={row.id}>
-                    <th scope="row" className="team__member-col">
-                      <span className="team__member-name">
-                        {row.name}
-                        {row.isSelf && <span className="team__you-badge">you</span>}
-                      </span>
-                      {row.missingDays.length > 0 && (
-                        <span className="team__member-missing">
-                          {row.missingDays.length} missing {row.missingDays.length === 1 ? "day" : "days"}
-                        </span>
-                      )}
-                    </th>
-                    {weekDays.map((d) => {
-                      const minutes = row.dayMinutes.get(d) ?? 0;
-                      const missing = row.missingDays.includes(d);
-                      return (
-                        <td key={d} className={`team__cell ${missing ? "team__cell--missing" : ""} ${d === today ? "team__day--today" : ""}`}>
-                          {minutes > 0 ? formatMinutes(minutes) : missing ? "—" : ""}
-                        </td>
-                      );
-                    })}
-                    <td className="team__cell team__cell--total">{row.totalMinutes > 0 ? formatMinutes(row.totalMinutes) : "—"}</td>
-                  </tr>
-                ))}
-                {memberRows.length === 0 && !loading && (
-                  <tr>
-                    <td colSpan={9} className="team__empty">No team entries this week.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+          <div className="team__grid-head" style={{ marginTop: 24 }}>
+            <span />
+            {WEEKDAY_LABELS.map((label, i) => (
+              <span key={label} className={`team__col-label${i === todayIndex ? " team__col-label--today" : ""}`}>
+                {label}
+              </span>
+            ))}
+            <span className="team__col-label team__col-label--week">Week</span>
           </div>
 
-          {projectRollup.length > 0 && (
-            <div className="team__rollup">
-              <h3 className="team__rollup-title">Projects this week</h3>
-              <ul className="team__rollup-list">
-                {projectRollup.map((p) => (
-                  <li key={p.projectId || "unassigned"} className="team__rollup-item">
-                    <span className="team__rollup-dot" style={{ background: p.color }} />
-                    <span className="team__rollup-name">{p.name}</span>
-                    <span className="team__rollup-bar-track">
-                      <span
-                        className="team__rollup-bar"
-                        style={{ width: `${Math.min(100, Math.max(2, Math.round((p.minutes / (rollupTotal || 1)) * 100)))}%`, background: p.color }}
-                      />
-                    </span>
-                    <span className="team__rollup-minutes">{formatMinutes(p.minutes)}</span>
-                  </li>
-                ))}
-              </ul>
+          {shown.map((row) => (
+            <div key={row.id} className="team__row">
+              <span className="team__name">
+                <span className="team__name-text">{row.name}{row.isSelf ? " (you)" : ""}</span>
+                {row.missingDays.length > 0 && (
+                  <span className="chip chip--warn">
+                    {row.missingDays.length} missing
+                  </span>
+                )}
+              </span>
+              {weekDays.slice(0, 5).map((date, i) => {
+                const minutes = row.dayMinutes.get(date) ?? 0;
+                const missing = row.missingDays.includes(date);
+                const cls = missing
+                  ? "team__bar team__bar--missing"
+                  : minutes === 0
+                    ? "team__bar team__bar--empty"
+                    : `team__bar${date === today ? " team__bar--today" : ""}`;
+                return (
+                  <span key={date} className="team__bar-box">
+                    <span
+                      className={cls}
+                      style={{ height: missing ? "40%" : minutes === 0 ? "9%" : `${Math.max(10, (minutes / peak) * 100)}%` }}
+                      title={`${WEEKDAY_LABELS[i]}: ${formatMinutes(minutes)}`}
+                    />
+                  </span>
+                );
+              })}
+              <span className="team__week">{formatMinutes(row.totalMinutes)}</span>
+            </div>
+          ))}
+
+          {hidden > 0 && (
+            <button type="button" className="team__more" onClick={() => setVisible((n) => n + PAGE_SIZE)}>
+              Show {hidden} more
+            </button>
+          )}
+
+          {scoped.length === 0 && (
+            <div className="empty">
+              <div className="empty__title t-title2">Nobody matches that</div>
+              <p className="empty__body t-body">Try a shorter search, or switch to the whole line.</p>
             </div>
           )}
+
+          <p className="team__note">
+            Hierarchy security decides who appears here — the page never widens the read.
+            Totals only; no descriptions, no tickets.
+            {noReportRows && " Your reports' names resolved but none of their rows came back, which is either a quiet week or a read this app isn't permitted."}
+            {truncated && ` ${truncated}`}
+          </p>
         </>
       )}
-    </div>
+
+      <FloatingActionBar
+        hint={
+          <label>
+            Rounding ·{" "}
+            <select
+              className="field-row__select"
+              value={rounding}
+              onChange={(e) => setRoundingRule(e.target.value as RoundingRule)}
+              aria-label="Rounding applied to exported durations"
+            >
+              {(Object.keys(ROUNDING_LABELS) as RoundingRule[]).map((rule) => (
+                <option key={rule} value={rule}>{ROUNDING_LABELS[rule].toLowerCase()}</option>
+              ))}
+            </select>
+          </label>
+        }
+      >
+        <Pill tone="primary" onClick={handleExport} disabled={entries.length === 0}>Export CSV</Pill>
+      </FloatingActionBar>
+    </>
   );
 };

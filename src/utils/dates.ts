@@ -11,6 +11,16 @@
  *  `dayLengthMinutes`. */
 export const MINUTES_PER_DAY = 24 * 60;
 
+/**
+ * The locale every date in the app is formatted in.
+ *
+ * Day-first — "Tuesday 8 September", "31 August – 6 September" — rather than
+ * the month-first ordering an "en" locale produces. It reads unambiguously
+ * beside the 24-hour clock the rest of the app uses, and it is one decision
+ * in one place rather than an argument object repeated in nine files.
+ */
+export const DATE_LOCALE = "en-GB";
+
 export function localDateStr(d: Date = new Date()): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -39,8 +49,8 @@ export function friendlyDate(dateStr: string): string {
   yesterday.setDate(today.getDate() - 1);
   if (dateStr === localDateStr(today)) return "Today";
   if (dateStr === localDateStr(yesterday)) return "Yesterday";
-  return new Date(dateStr + "T00:00:00").toLocaleDateString("en", {
-    weekday: "long", month: "long", day: "numeric",
+  return new Date(dateStr + "T00:00:00").toLocaleDateString(DATE_LOCALE, {
+    weekday: "long", day: "numeric", month: "long",
   });
 }
 
@@ -112,4 +122,21 @@ export function minutesBetween(start: string | Date, end: string | Date): number
  *  the days the clocks move. */
 export function dayLengthMinutes(dateStr: string): number {
   return minutesBetween(dateAtMinutes(dateStr, 0), dateAtMinutes(dateStr, MINUTES_PER_DAY));
+}
+
+/**
+ * "HH:MM" on a 24-hour clock for a minutes-of-day offset.
+ *
+ * Every time in the app reads this way. A 12-hour clock spends two characters
+ * on AM/PM to say something the surrounding day already says, and it makes
+ * "9:05 AM" and "12:05 PM" different widths in a column of times that is
+ * meant to be scanned — which is the same reason every duration in the app is
+ * set in tabular figures.
+ *
+ * 1440 reads as 24:00 rather than 00:00: at the end of a day's last slot it
+ * is the end of *this* day, not the start of the next.
+ */
+export function clockAt(minutes: number): string {
+  const total = Math.max(0, Math.min(MINUTES_PER_DAY, Math.round(minutes)));
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
