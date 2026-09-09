@@ -4,8 +4,6 @@ import {
   bucketKeyFor,
   bucketKeysFor,
   buildChartData,
-  buildMatrix,
-  buildMatrixDisplay,
   buildProjectBreakdown,
   buildTaskBreakdown,
   countActiveDays,
@@ -13,7 +11,6 @@ import {
   findNarrowestRangeWithData,
   getDaysInRange,
   pickBucket,
-  resolveEffectiveRange,
   sumMinutes,
 } from "./reportAggregations";
 
@@ -114,35 +111,6 @@ describe("bucketing", () => {
     expect(bucketKeysFor(getDaysInRange("2026-01-15", "2026-03-02"), "month"))
       .toEqual(["2026-01", "2026-02", "2026-03"]);
     expect(bucketKeysFor([], "day")).toEqual([]);
-  });
-});
-
-describe("resolveEffectiveRange", () => {
-  it("passes a normal preset range through untouched", () => {
-    expect(resolveEffectiveRange("7d", [], "2026-03-01", "2026-03-07", "2026-03-07"))
-      .toEqual({ effFrom: "2026-03-01", effTo: "2026-03-07" });
-  });
-
-  it("collapses an inverted custom range instead of enumerating backwards", () => {
-    expect(resolveEffectiveRange("custom", [], "2026-03-07", "2026-03-01", "2026-03-07"))
-      .toEqual({ effFrom: "2026-03-07", effTo: "2026-03-07" });
-  });
-
-  it("clamps the all-time sentinel range to the data, extended to today", () => {
-    const entries = [entry("2025-11-02", 60), entry("2026-01-15", 60)];
-    expect(resolveEffectiveRange("all", entries, "1970-01-01", "9999-12-31", "2026-03-07"))
-      .toEqual({ effFrom: "2025-11-02", effTo: "2026-03-07" });
-  });
-
-  it("keeps future-dated entries inside the all-time range", () => {
-    const entries = [entry("2026-01-15", 60), entry("2026-12-24", 60)];
-    expect(resolveEffectiveRange("all", entries, "1970-01-01", "9999-12-31", "2026-03-07"))
-      .toEqual({ effFrom: "2026-01-15", effTo: "2026-12-24" });
-  });
-
-  it("falls back to today when there is no data at all", () => {
-    expect(resolveEffectiveRange("all", [], "1970-01-01", "9999-12-31", "2026-03-07"))
-      .toEqual({ effFrom: "2026-03-07", effTo: "2026-03-07" });
   });
 });
 
@@ -263,151 +231,6 @@ describe("buildChartData", () => {
     const keys = bucketKeysFor(getDaysInRange("2026-03-01", "2026-03-02"), "day");
     const data = buildChartData([entry("2026-04-01", 60)], keys, "day");
     expect(data.every((d) => d.minutes === 0)).toBe(true);
-  });
-});
-
-describe("buildMatrix", () => {
-  const entries = [
-    entry("2026-03-01", 60, "p1"),
-    entry("2026-03-01", 30, "p2"),
-    entry("2026-03-02", 90, "p1"),
-  ];
-  const keys = bucketKeysFor(getDaysInRange("2026-03-01", "2026-03-03"), "day");
-
-  it("lays out project rows sorted by total, with per-bucket cells", () => {
-    const { rows } = buildMatrix(entries, projects, keys, "day");
-    expect(rows.map((r) => r.project.name)).toEqual(["Alpha", "Beta"]);
-    expect(rows[0].total).toBe(150);
-    expect(rows[0].cells.get("2026-03-01")).toBe(60);
-    expect(rows[0].cells.get("2026-03-02")).toBe(90);
-    expect(rows[0].cells.get("2026-03-03")).toBeUndefined();
-  });
-
-  it("computes column totals that agree with the grand total", () => {
-    const { rows, colTotals } = buildMatrix(entries, projects, keys, "day");
-    expect(colTotals).toEqual([90, 90, 0]);
-    const rowSum = rows.reduce((s, r) => s + r.total, 0);
-    expect(colTotals.reduce((s, m) => s + m, 0)).toBe(rowSum);
-    expect(rowSum).toBe(sumMinutes(entries));
-  });
-
-  it("excludes rows for projects that no longer exist, and their time with them", () => {
-    const withOrphan = [...entries, entry("2026-03-01", 500, "gone")];
-    const { rows, colTotals } = buildMatrix(withOrphan, projects, keys, "day");
-    expect(rows).toHaveLength(2);
-    expect(colTotals[0]).toBe(90);
-  });
-
-  it("is empty for a range with no entries", () => {
-    const { rows, colTotals } = buildMatrix([], projects, keys, "day");
-    expect(rows).toEqual([]);
-    expect(colTotals).toEqual([0, 0, 0]);
-  });
-});
-
-describe("buildMatrixDisplay", () => {
-  const threeProjects: Project[] = [
-    { id: "p1", name: "Alpha", color: "#111", isActive: true, createdAt: "" },
-    { id: "p2", name: "Beta", color: "#222", isActive: true, createdAt: "" },
-    { id: "p3", name: "Gamma", color: "#333", isActive: true, createdAt: "" },
-  ];
-
-  /** What the grid actually prints, at one decimal. */
-  const hours = (displayMinutes: number) => Number((displayMinutes / 60).toFixed(1));
-  const sum = (ns: number[]) => Number(ns.reduce((s, n) => s + n, 0).toFixed(10));
-
-  it("prints a column that adds up to the total under it (#93)", () => {
-    // The reported case: three projects at 50 minutes in one bucket. Rounded
-    // independently the cells read 0.8+0.8+0.8 = 2.4 under a total of 2.5.
-    const keys = bucketKeysFor(getDaysInRange("2026-03-01", "2026-03-01"), "day");
-    const { rows } = buildMatrix(
-      [entry("2026-03-01", 50, "p1"), entry("2026-03-01", 50, "p2"), entry("2026-03-01", 50, "p3")],
-      threeProjects, keys, "day",
-    );
-    const d = buildMatrixDisplay(rows, keys);
-
-    expect(d.cells.map((r) => hours(r[0]))).toEqual([0.9, 0.8, 0.8]);
-    expect(hours(d.colTotals[0])).toBe(2.5);
-    expect(sum(d.cells.map((r) => hours(r[0])))).toBe(hours(d.colTotals[0]));
-  });
-
-  it("adds up in every direction a reader can add it up in", () => {
-    const keys = bucketKeysFor(getDaysInRange("2026-03-01", "2026-03-04"), "day");
-    // Deliberately awkward minute counts — none of them land on a tenth.
-    const { rows } = buildMatrix(
-      [
-        entry("2026-03-01", 50, "p1"), entry("2026-03-02", 25, "p1"), entry("2026-03-04", 7, "p1"),
-        entry("2026-03-01", 50, "p2"), entry("2026-03-03", 95, "p2"),
-        entry("2026-03-01", 50, "p3"), entry("2026-03-02", 13, "p3"), entry("2026-03-03", 41, "p3"),
-      ],
-      threeProjects, keys, "day",
-    );
-    const d = buildMatrixDisplay(rows, keys);
-
-    // Each project row against its own total.
-    d.cells.forEach((row, i) => {
-      expect(sum(row.map(hours))).toBe(hours(d.rowTotals[i]));
-    });
-    // Each period column against the total under it.
-    keys.forEach((_, j) => {
-      expect(sum(d.cells.map((row) => hours(row[j])))).toBe(hours(d.colTotals[j]));
-    });
-    // And both margins against the grand total in the corner.
-    expect(sum(d.rowTotals.map(hours))).toBe(hours(d.grandTotal));
-    expect(sum(d.colTotals.map(hours))).toBe(hours(d.grandTotal));
-  });
-
-  it("keeps every printed figure within one 0.1h increment of the truth", () => {
-    const keys = bucketKeysFor(getDaysInRange("2026-03-01", "2026-03-04"), "day");
-    const { rows, colTotals } = buildMatrix(
-      [
-        entry("2026-03-01", 50, "p1"), entry("2026-03-02", 25, "p1"), entry("2026-03-04", 7, "p1"),
-        entry("2026-03-01", 50, "p2"), entry("2026-03-03", 95, "p2"),
-        entry("2026-03-01", 50, "p3"), entry("2026-03-02", 13, "p3"), entry("2026-03-03", 41, "p3"),
-      ],
-      threeProjects, keys, "day",
-    );
-    const d = buildMatrixDisplay(rows, keys);
-
-    rows.forEach((row, i) => {
-      keys.forEach((k, j) => {
-        expect(Math.abs(d.cells[i][j] - (row.cells.get(k) || 0))).toBeLessThan(6);
-      });
-      expect(Math.abs(d.rowTotals[i] - row.total)).toBeLessThan(6);
-    });
-    colTotals.forEach((exact, j) => {
-      expect(Math.abs(d.colTotals[j] - exact)).toBeLessThanOrEqual(6);
-    });
-    // 331 real minutes, snapped to the nearest 0.1h: 55 increments, 5.5 h.
-    expect(d.grandTotal).toBe(330);
-  });
-
-  it("never rounds an empty cell up into time nobody logged", () => {
-    const keys = bucketKeysFor(getDaysInRange("2026-03-01", "2026-03-03"), "day");
-    const { rows } = buildMatrix(
-      [entry("2026-03-01", 55, "p1"), entry("2026-03-03", 55, "p1")],
-      projects, keys, "day",
-    );
-    const d = buildMatrixDisplay(rows, keys);
-    expect(d.cells[0][1]).toBe(0);
-  });
-
-  it("totals only the projects the grid actually shows", () => {
-    const keys = bucketKeysFor(getDaysInRange("2026-03-01", "2026-03-01"), "day");
-    // 500 minutes against a project that no longer exists: buildMatrix drops
-    // the row, so the footer must not claim those hours either.
-    const { rows } = buildMatrix(
-      [entry("2026-03-01", 60, "p1"), entry("2026-03-01", 500, "gone")],
-      projects, keys, "day",
-    );
-    expect(buildMatrixDisplay(rows, keys).grandTotal).toBe(60);
-  });
-
-  it("is empty for a grid with no rows", () => {
-    const keys = bucketKeysFor(getDaysInRange("2026-03-01", "2026-03-02"), "day");
-    expect(buildMatrixDisplay([], keys)).toEqual({
-      cells: [], rowTotals: [], colTotals: [0, 0], grandTotal: 0,
-    });
   });
 });
 

@@ -359,12 +359,14 @@ this is not that.
 empty report that can say "you logged 10h in the month" and switch to it is a
 recovery rather than a dead end, which is the brief's own empty-state rule.
 
-**`buildMatrix` / `buildMatrixDisplay` in `reportAggregations.ts` are now
-unused.** The project × period matrix is not on the redesigned Reports screen.
-The helpers and their tests were left in place because the brief asks
-explicitly that `reportAggregations`' tests keep passing untouched; removing
-them is a small, separate cleanup rather than something to fold into this
-change.
+**`buildMatrix` / `buildMatrixDisplay` in `reportAggregations.ts` were left
+unused, and have since been deleted.** The project × period matrix is not on
+the redesigned Reports screen. The helpers and their tests stayed in place for
+the redesign itself because the brief asks explicitly that
+`reportAggregations`' tests keep passing untouched; the cleanup followed as
+[#150](https://github.com/TheShield2594/timeflow/issues/150), which also took
+`resolveEffectiveRange` — the redesigned page recovers from an empty range
+through `findNarrowestRangeWithData` instead.
 
 **`--dim-display` is exempt from the 4.5:1 rule the brief states above.** The
 token table gives it as 3.2:1 while the sentence introducing the tables says
@@ -376,3 +378,26 @@ large-text threshold is 3:1, and the idle clock is 96px. So the test asserts
 and 3:1 for `--dim-display` alone — held to that one use by a separate
 assertion that the token is referenced exactly once, which is what stops the
 exemption spreading to text nobody exempted.
+
+**Dates are month-first and the clock is 12-hour, not what the mocks show.**
+The brief writes every time as `HH:MM` and every date day-first, and the
+redesign shipped `en-GB` and a 24-hour `clockAt` to match. Both went in as a
+detail of a large change rather than as a decision of their own, and for a
+US-based company `8 September` and `17:30` are not what people read
+([#152](https://github.com/TheShield2594/timeflow/issues/152)). `DATE_LOCALE`
+is `en-US` and `clockAt` reads `5:30 PM`; the two places the 24-hour form was
+narrower — the calendar's 52px hour gutter and the day bar's five axis ticks —
+use `clockAtCompact` ("9 AM"), which is narrower still. The 24-hour form
+survives as `timeInputAt`, because that is the value format
+`<input type="time">` takes whatever it renders.
+
+**The entry sheet has a `Date` row the brief doesn't give it.** The brief
+specifies the entry sheet as "the stop sheet plus a `Time` row"; that left
+dragging a block on the calendar as the only way to move an entry to another
+day, and no way at all from the Timesheet
+([#151](https://github.com/TheShield2594/timeflow/issues/151)). Mis-dated time
+is a billing error, so the row went in and the day bar and gap nudge recompute
+from the edited date rather than the date the sheet opened on. Outside the
+loaded range the sheet has no day to draw and says so instead of drawing an
+empty one. The stop sheet keeps neither row, for the reason it already keeps
+no `Time` row: the clock decided both.

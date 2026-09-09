@@ -126,14 +126,14 @@ describe("TimesheetPage untracked gaps", () => {
     const card = document.querySelector(".list-card")!;
     const lines = [...card.children].map((el) =>
       el.classList.contains("list-gap-row")
-        ? `gap ${el.textContent!.match(/\d{2}:\d{2} – \d{2}:\d{2}/)![0]}`
+        ? `gap ${el.textContent!.match(/\d{1,2}:\d{2} [AP]M – \d{1,2}:\d{2} [AP]M/)![0]}`
         : el.querySelector(".list-row__title")!.textContent
     );
     expect(lines).toEqual([
       "Invoicing",
-      "gap 10:00 – 11:00",
+      "gap 10:00 AM – 11:00 AM",
       "Standup",
-      "gap 08:00 – 09:00",
+      "gap 8:00 AM – 9:00 AM",
     ]);
 
     const gapRow = card.querySelector<HTMLElement>(".list-gap-row")!;

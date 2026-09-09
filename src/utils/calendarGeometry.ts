@@ -12,7 +12,7 @@
  * face and elapsed time disagree, so anything written to `durationMinutes`
  * must be derived from real instants via utils/dates (#87).
  */
-import { MINUTES_PER_DAY, clockAt, dateAtMinutes } from "./dates";
+import { MINUTES_PER_DAY, clockAt, clockAtCompact, dateAtMinutes } from "./dates";
 import type { TimeEntry } from "../types";
 
 /** px per 30-minute slot. */
@@ -108,9 +108,10 @@ export function getWeekDays(anchor: Date): Date[] {
   return days;
 }
 
-/** "09:00" for an hour of the day, for the grid's left gutter. */
+/** "9 AM" for an hour of the day, for the grid's left gutter — the compact
+ *  form, because the gutter is a fixed 52px column of tick marks. */
 export function formatHour(h: number): string {
-  return clockAt(h * 60);
+  return clockAtCompact(h * 60);
 }
 
 /**
@@ -143,8 +144,9 @@ export function placeEntry(date: string, startDt: Date, durationMin: number): {
   };
 }
 
-// "09:15" for a minutes-of-day offset. 24:00 (the end of the last slot) reads
-// as the end of this day rather than the start of the next.
+// "9:15 AM" for a minutes-of-day offset — a reading rather than a tick, so it
+// keeps its minutes. A span's end at midnight reads "12:00 AM" like its start
+// would; the dash between the two is what says which is which.
 export function clockLabel(minutes: number): string {
   return clockAt(minutes);
 }

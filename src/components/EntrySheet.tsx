@@ -3,6 +3,7 @@ import type { Project, Task, TimeEntry } from "../types";
 import { formatMinutes, parseRatioInput } from "../hooks";
 import {
   DATE_LOCALE, MINUTES_PER_DAY, addDaysStr, clockAt, isoAtMinutes, localDateStr, minutesOfDay,
+  timeInputAt,
 } from "../utils/dates";
 import { isDirtyDraft } from "../utils/forms";
 import { findUntrackedGaps, type Gap } from "../utils/gaps";
@@ -45,9 +46,16 @@ interface Props {
   initial: EntryDraft;
   projects: Project[];
   tasks: Task[];
-  /** Every entry on the draft's date, so the bar can show where this one sits
-   *  among the others. */
-  dayEntries: TimeEntry[];
+  /**
+   * Entries on a given date, or null when that date is outside the window the
+   * app has loaded. Called with the *draft's* date rather than the one the
+   * sheet opened on, so the day bar and the gap nudge follow the date field
+   * (#151); `useEntriesOnDate` is the caller's side of this.
+   *
+   * Null and "no entries" are different answers on purpose: a day that was
+   * never fetched must not be drawn as a day nobody worked.
+   */
+  entriesOnDate: (date: string) => TimeEntry[] | null;
   workingHours: WorkingHours;
   nowMinutes: number;
   /** The record this sheet is about, so the bar can draw it in the accent. */
@@ -67,8 +75,10 @@ interface Props {
   onClose: () => void;
   onLoadTasksForProject?: (projectId: string) => void;
   onAddTask?: (data: Omit<Task, "id">) => Promise<Task>;
-  /** Open a second sheet on the gap this entry left behind. */
-  onFillGap?: (startMin: number, endMin: number) => void;
+  /** Open a second sheet on the gap this entry left behind. Takes the date the
+   *  gap was found on — which is the draft's, not the sheet's opening date,
+   *  now that the date is editable. */
+  onFillGap?: (date: string, startMin: number, endMin: number) => void;
 }
 
 function timeToMinutes(hhmm: string): number {
@@ -83,7 +93,7 @@ const TITLE: Record<SheetMode, string> = {
 };
 
 export const EntrySheet: React.FC<Props> = ({
-  mode, title, initial, projects, tasks, dayEntries, workingHours, nowMinutes, entryId,
+  mode, title, initial, projects, tasks, entriesOnDate, workingHours, nowMinutes, entryId,
   onSave, onSaved, onDelete, onClose, onLoadTasksForProject, onAddTask, onFillGap,
 }) => {
   const [draft, setDraft] = useState<EntryDraft>(initial);
@@ -94,6 +104,16 @@ export const EntrySheet: React.FC<Props> = ({
   const pristine = useRef(initial);
   const [addingTask, setAddingTask] = useState(false);
   const [newTaskName, setNewTaskName] = useState("");
+  // Whether the task field is open, mirrored in a ref: state drives the
+  // render, this answers "is it still unclaimed?" from inside a promise that
+  // may settle after the user has moved on. Opens and closes go through
+  // `openTaskField` so the flag and the name can never disagree.
+  const taskFieldOpen = useRef(false);
+  const openTaskField = (open: boolean, name = "") => {
+    taskFieldOpen.current = open;
+    setAddingTask(open);
+    setNewTaskName(name);
+  };
   // null = no overnight conflict; 'ask' = choice pending; 'keep' = end is next
   // day; 'split' = save two entries either side of midnight.
   const [overnightMode, setOvernightMode] = useState<"ask" | "keep" | "split" | null>(null);
@@ -118,6 +138,13 @@ export const EntrySheet: React.FC<Props> = ({
     }
     setDraft((d) => ({ ...d, ...patch }));
   };
+
+  /**
+   * The day the sheet is currently describing. Recomputed from `draft.date`,
+   * so re-dating an entry moves the bar and the nudge with it instead of
+   * leaving them describing the day the sheet opened on.
+   */
+  const dayEntries = useMemo(() => entriesOnDate(draft.date), [entriesOnDate, draft.date]);
 
   const isOvernightConflict = !!(
     draft.startTime && draft.endTime && draft.endTime !== "00:00" &&
@@ -161,7 +188,11 @@ export const EntrySheet: React.FC<Props> = ({
   const timeError = mode !== "stop" && durationMinutes !== null && durationMinutes <= 0 && overnightMode !== "ask"
     ? "End time must be after the start time."
     : null;
-  const canSave = !!draft.projectId && !!startDt && !!endDt && !timeError && overnightMode !== "ask" && !saving;
+  // The date field can be cleared, and an empty one produces no instants at
+  // all — say so rather than leaving Save inert with nothing explaining why.
+  const dateError = !draft.date ? "Pick a date." : null;
+  const canSave = !!draft.projectId && !!startDt && !!endDt && !timeError && !dateError
+    && overnightMode !== "ask" && !saving;
 
   /**
    * The bar shows the day *including* this entry as it currently reads in the
@@ -169,7 +200,7 @@ export const EntrySheet: React.FC<Props> = ({
    * the accent block while you watch.
    */
   const barEntries = useMemo(() => {
-    const others = dayEntries.filter((e) => e.id !== entryId);
+    const others = (dayEntries ?? []).filter((e) => e.id !== entryId);
     if (!startDt || !endDt || durationMinutes === null || durationMinutes <= 0) return others;
     const preview: TimeEntry = {
       id: entryId ?? "__draft__",
@@ -197,7 +228,7 @@ export const EntrySheet: React.FC<Props> = ({
    * time just before the thing they remembered to track.
    */
   const nudge = useMemo(() => {
-    if (!startDt) return null;
+    if (!startDt || !dayEntries) return null;
     const gaps: Gap[] = findUntrackedGaps({
       entries: barEntries, date: draft.date,
       nowMinutes: dayEnd,
@@ -211,7 +242,7 @@ export const EntrySheet: React.FC<Props> = ({
     const before = gaps.filter((g) => g.endMin <= startMin).pop();
     const gap = before ?? gaps[0];
     return { gap, when: gap.endMin <= startMin ? "earlier" : "later" };
-  }, [barEntries, draft.date, dayEnd, isToday, nowMinutes, startDt, workingHours]);
+  }, [barEntries, dayEntries, draft.date, dayEnd, isToday, nowMinutes, startDt, workingHours]);
 
   const activeProject = projects.find((p) => p.id === draft.projectId);
 
@@ -220,21 +251,26 @@ export const EntrySheet: React.FC<Props> = ({
     if (!name || !draft.projectId || !onAddTask) {
       // An empty field that lost focus is somebody changing their mind, not a
       // task waiting to be named.
-      setAddingTask(false);
-      setNewTaskName("");
+      openTaskField(false);
       return;
     }
     // Cleared *before* the await: the field commits on Enter and again on
     // blur, and pressing Enter then clicking away sent the same name twice
     // while the first request was still in flight.
-    setAddingTask(false);
-    setNewTaskName("");
+    openTaskField(false);
     try {
       const task = await onAddTask({ projectId: draft.projectId, name, isActive: true });
       set({ taskId: task.id });
     } catch {
-      // Toasted upstream. A lost keystroke is recoverable; a duplicate task is
-      // a name somebody else will bill against.
+      // Toasted upstream — and the field reopens holding what was typed. The
+      // clear above is what closes the double-submit path; a write that
+      // *failed* left nothing to duplicate, so nothing is traded by handing
+      // the name back (#153).
+      //
+      // Unless the user has since started naming something else: a failure
+      // that arrives after they moved on must not overwrite what is in front
+      // of them now.
+      if (!taskFieldOpen.current) openTaskField(true, name);
     }
   };
 
@@ -291,9 +327,14 @@ export const EntrySheet: React.FC<Props> = ({
   const headlineDuration = durationMinutes !== null && durationMinutes >= 0
     ? formatMinutes(durationMinutes)
     : "—";
-  const dateLabel = new Date(`${draft.date}T00:00:00`).toLocaleDateString(DATE_LOCALE, {
-    weekday: "long", day: "numeric", month: "long",
-  });
+  const dateLabel = draft.date
+    ? new Date(`${draft.date}T00:00:00`).toLocaleDateString(DATE_LOCALE, {
+      weekday: "long", day: "numeric", month: "long",
+    })
+    : "No date";
+  // Draft times are "HH:MM" because that is what <input type="time"> takes;
+  // the heading reads them back on the user's clock.
+  const timeLabel = (hhmm: string) => (hhmm ? clockAt(timeToMinutes(hhmm)) : "—");
 
   return (
     <Sheet
@@ -304,34 +345,45 @@ export const EntrySheet: React.FC<Props> = ({
     >
       <div className="t-large-title">{headlineDuration}</div>
       <div className="sheet__meta t-subhead">
-        {draft.startTime} – {draft.endTime}{endsNextDay ? " (next day)" : ""} · {dateLabel}
+        {timeLabel(draft.startTime)} – {timeLabel(draft.endTime)}{endsNextDay ? " (next day)" : ""} · {dateLabel}
       </div>
 
-      <div className="sheet__section">
-        <DayBar
-          entries={barEntries}
-          projects={projects}
-          date={draft.date}
-          nowMinutes={dayEnd}
-          workingHours={workingHours}
-          upperBoundMin={isToday ? nowMinutes : undefined}
-          accentEntryId={entryId ?? "__draft__"}
-          warnGaps
-          small
-          showAxis={false}
-        />
-        <div className="sheet__nudge">
-          <span>
-            {mode === "stop" ? "This lands here." : "Where this entry sits in the day."}
-            {nudge && ` ${formatMinutes(nudge.gap.endMin - nudge.gap.startMin)} ${nudge.when} the same day is still untracked.`}
-          </span>
-          {nudge && onFillGap && (
-            <Pill size="inline" onClick={() => onFillGap(nudge.gap.startMin, nudge.gap.endMin)}>
-              Fill it
-            </Pill>
-          )}
+      {dayEntries ? (
+        <div className="sheet__section">
+          <DayBar
+            entries={barEntries}
+            projects={projects}
+            date={draft.date}
+            nowMinutes={dayEnd}
+            workingHours={workingHours}
+            upperBoundMin={isToday ? nowMinutes : undefined}
+            accentEntryId={entryId ?? "__draft__"}
+            warnGaps
+            small
+            showAxis={false}
+          />
+          <div className="sheet__nudge">
+            <span>
+              {mode === "stop" ? "This lands here." : "Where this entry sits in the day."}
+              {nudge && ` ${formatMinutes(nudge.gap.endMin - nudge.gap.startMin)} ${nudge.when} the same day is still untracked.`}
+            </span>
+            {nudge && onFillGap && (
+              <Pill size="inline" onClick={() => onFillGap(draft.date, nudge.gap.startMin, nudge.gap.endMin)}>
+                Fill it
+              </Pill>
+            )}
+          </div>
         </div>
-      </div>
+      ) : (
+        /* Saying nothing beats drawing an empty day: outside the loaded window
+           this sheet has no entries for the date, and a bar built from that
+           would report the whole day as untracked. */
+        <p className="sheet__note">
+          {draft.date
+            ? `${dateLabel} is outside the range loaded, so there is no day view for it here. The entry saves to it all the same.`
+            : "Pick a date to see where this sits in the day."}
+        </p>
+      )}
 
       <div className="sheet__section field-list">
         <div className="field-row">
@@ -381,7 +433,7 @@ export const EntrySheet: React.FC<Props> = ({
                 onChange={(e) => setNewTaskName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") { e.preventDefault(); handleCreateTask(); }
-                  if (e.key === "Escape") { setAddingTask(false); setNewTaskName(""); }
+                  if (e.key === "Escape") openTaskField(false);
                 }}
                 onBlur={handleCreateTask}
                 autoFocus
@@ -392,7 +444,7 @@ export const EntrySheet: React.FC<Props> = ({
                     creation lives here — at the point the work is over and the
                     person knows what it was. */}
                 {onAddTask && draft.projectId && (
-                  <button type="button" className="field-row__action is-inline" onClick={() => setAddingTask(true)}>
+                  <button type="button" className="field-row__action is-inline" onClick={() => openTaskField(true)}>
                     New task…
                   </button>
                 )}
@@ -410,6 +462,23 @@ export const EntrySheet: React.FC<Props> = ({
             )}
           </span>
         </div>
+
+        {/* Re-dating lives here rather than only on the calendar: mis-dated
+            time is a billing error, and dragging a block to another day is not
+            a fix anyone finds from the Timesheet (#151). A stop sheet keeps no
+            date field for the same reason it keeps no time one — the clock
+            just decided both. */}
+        {mode !== "stop" && (
+          <div className="field-row">
+            <label className="field-row__label" htmlFor="entry-date">Date</label>
+            <span className="field-row__value">
+              <input
+                id="entry-date" type="date" className="input"
+                value={draft.date} onChange={(e) => set({ date: e.target.value })}
+              />
+            </span>
+          </div>
+        )}
 
         {mode !== "stop" && (
           <div className="field-row">
@@ -463,6 +532,7 @@ export const EntrySheet: React.FC<Props> = ({
         </p>
       )}
 
+      {dateError && <p className="form-error" role="alert">{dateError}</p>}
       {timeError && <p className="form-error" role="alert">{timeError}</p>}
       {overnightMode === "ask" && (
         <p className="sheet__note" role="alert">
@@ -474,7 +544,7 @@ export const EntrySheet: React.FC<Props> = ({
       )}
       {overnightMode === "split" && (
         <p className="sheet__note">
-          Saves two entries: {draft.startTime}–00:00, then 00:00–{draft.endTime} on the next day.
+          Saves two entries: {timeLabel(draft.startTime)}–midnight, then midnight–{timeLabel(draft.endTime)} on the next day.
         </p>
       )}
 
@@ -502,8 +572,8 @@ export const EntrySheet: React.FC<Props> = ({
 export function draftForSpan(date: string, startMin: number, endMin: number, projectId = ""): EntryDraft {
   return {
     date,
-    startTime: clockAt(startMin),
-    endTime: clockAt(endMin),
+    startTime: timeInputAt(startMin),
+    endTime: timeInputAt(endMin),
     description: "",
     projectId,
     taskId: "",
@@ -517,8 +587,8 @@ export function draftForEntry(entry: TimeEntry): EntryDraft {
   const end = entry.endTime ?? isoAtMinutes(entry.date, minutesOfDay(entry.startTime));
   return {
     date: entry.date,
-    startTime: clockAt(minutesOfDay(entry.startTime)),
-    endTime: clockAt(minutesOfDay(end)),
+    startTime: timeInputAt(minutesOfDay(entry.startTime)),
+    endTime: timeInputAt(minutesOfDay(end)),
     description: entry.description ?? "",
     projectId: entry.projectId,
     taskId: entry.taskId ?? "",

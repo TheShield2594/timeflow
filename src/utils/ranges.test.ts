@@ -45,10 +45,10 @@ describe("previousPeriod", () => {
 
 describe("rangeLabel", () => {
   it("names the month once when both ends share it", () => {
-    expect(rangeLabel("2026-09-07", "2026-09-13")).toBe("7 – 13 September");
+    expect(rangeLabel("2026-09-07", "2026-09-13")).toBe("September 7 – 13");
   });
 
   it("names both months when the range crosses one", () => {
-    expect(rangeLabel("2026-08-31", "2026-09-06")).toBe("31 August – 6 September");
+    expect(rangeLabel("2026-08-31", "2026-09-06")).toBe("August 31 – September 6");
   });
 });

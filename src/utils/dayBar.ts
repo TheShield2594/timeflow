@@ -13,7 +13,7 @@
  * subtracting two of these (#87).
  */
 import { spanOnDate, type Gap } from "./gaps";
-import { MINUTES_PER_DAY, clockAt } from "./dates";
+import { MINUTES_PER_DAY, clockAt, clockAtCompact } from "./dates";
 import { DEFAULT_PROJECT_COLOR } from "./colors";
 import type { Project, TimeEntry } from "../types";
 
@@ -173,6 +173,6 @@ export function buildDaySpans({
 export function axisLabels(window: DayWindow, count = 5): string[] {
   const span = window.endMin - window.startMin;
   return Array.from({ length: count }, (_, i) =>
-    clockAt(window.startMin + Math.round(((i + 0.5) * span) / count / 60) * 60)
+    clockAtCompact(window.startMin + Math.round(((i + 0.5) * span) / count / 60) * 60)
   );
 }

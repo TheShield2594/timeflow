@@ -135,6 +135,62 @@ two hours of it were never in the search.
 rejected on read. An inverted window makes `findUntrackedGaps` return nothing
 at all — a silent, total regression to the bug this reverses.
 
+### Dates are month-first, the clock is 12-hour (2026-09-09)
+
+[#152](https://github.com/TheShield2594/timeflow/issues/152). The 2026-09
+redesign switched every date to day-first (`Tuesday 8 September`) and every
+time to 24-hour, following the mocks. Both are reverted: `DATE_LOCALE` is
+`en-US` and `clockAt` reads `5:30 PM`.
+
+The arguments for the 24-hour clock were real — AM/PM spends two characters
+saying what the surrounding day already says, and `9:05 AM` and `12:05 PM`
+scan at different widths in a column meant to be read down. They lost to the
+larger fact that this is a US company and `17:30` is not what its people read.
+A display convention nobody asked for is not worth a support ticket, and it
+had arrived as one detail of a large redesign rather than as a decision.
+
+Three things follow from it, and re-litigating this means re-checking them:
+
+- **`clockAt` is a display format and `timeInputAt` is not.**
+  `<input type="time">` takes 24-hour `HH:MM` whatever it renders to the
+  reader. Swapping one for the other silently empties every time field in the
+  app.
+- **Axes use `clockAtCompact`** ("9 AM"), because the calendar's hour gutter is
+  a fixed 52px column and the day bar's ticks are laid out against the narrow
+  form. The compact form is narrower than the `09:00` it replaced; the full
+  one is not.
+- **The end of a day and its start now read alike.** The 24-hour form could
+  say `24:00` for the end of a day's last slot and `00:00` for the start of
+  the next; 12-hour has no such notation, so both read `12:00 AM` and the
+  `–` or `to` beside them carries the direction.
+
+Display only. Stored dates are untouched, and the CSV export goes through
+`formatDecimalHours` rather than either of these.
+
+### An entry can be re-dated from the sheet that edits it (2026-09-09)
+
+[#151](https://github.com/TheShield2594/timeflow/issues/151). The redesign's
+`EntrySheet` replaced a modal that had a date field with one that didn't, so
+an entry logged against the wrong day could only be moved by dragging it on
+the Calendar — and not at all from the Timesheet. Mis-dated time is a billing
+error, and a fix that only exists somewhere the user has to already know about
+is not a fix. The `Date` row is back.
+
+The reason it was left out is a real one and is answered rather than ignored:
+the sheet draws a day bar and an untracked-gap nudge for the entry's day, and
+a date that changes mid-edit would leave both describing the previous one. So
+they are recomputed from the draft's date — the sheet is handed a lookup
+(`useEntriesOnDate`) rather than one day's entries.
+
+That lookup returns `null`, not `[]`, for a date outside the range the app has
+loaded, and the sheet draws no bar at all for one. The two are not the same
+answer: a day nobody fetched and a day nobody worked both hold zero entries,
+and a bar that can't tell them apart would greet a re-date to last year with a
+confident eight hours of untracked time.
+
+The stop sheet still has no date field, for the reason it has no time one: the
+clock decided both.
+
 ### The 2026-09 redesign removed features on purpose (2026-09-09)
 
 Overview, focus mode (Pomodoro), the activity heatmap, the day-streak KPI, both

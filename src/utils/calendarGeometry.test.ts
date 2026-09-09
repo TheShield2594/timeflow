@@ -7,6 +7,7 @@ import {
   clampMoveStart,
   clockLabel,
   dayIndexFromClientX,
+  formatHour,
   formatSlotTime,
   getWeekDays,
   layoutDay,
@@ -180,21 +181,34 @@ describe("layoutDay", () => {
   });
 });
 
+describe("formatHour", () => {
+  it("names the gutter's hours compactly — it is a 52px column of tick marks", () => {
+    expect(formatHour(0)).toBe("12 AM");
+    expect(formatHour(9)).toBe("9 AM");
+    expect(formatHour(12)).toBe("12 PM");
+    expect(formatHour(17)).toBe("5 PM");
+  });
+});
+
 describe("clockLabel and formatSlotTime", () => {
-  it("reads the end of the last slot as 24:00, not the next day's 00:00", () => {
-    expect(clockLabel(24 * 60)).toBe("24:00");
-    expect(clockLabel(0)).toBe("00:00");
+  it("reads midnight the same at both ends of the day", () => {
+    // The 24-hour form could distinguish these — 24:00 for the end of the last
+    // slot, 00:00 for the start of the first. A 12-hour clock has no such
+    // notation, so the dash or the "to" beside them is what carries the
+    // direction (#152).
+    expect(clockLabel(24 * 60)).toBe("12:00 AM");
+    expect(clockLabel(0)).toBe("12:00 AM");
   });
 
-  it("labels every time on the same two-digit 24-hour clock", () => {
-    expect(clockLabel(12 * 60)).toBe("12:00");
-    expect(clockLabel(13 * 60 + 5)).toBe("13:05");
-    expect(clockLabel(9 * 60 + 15)).toBe("09:15");
+  it("labels every time on the 12-hour clock, minutes always padded", () => {
+    expect(clockLabel(12 * 60)).toBe("12:00 PM");
+    expect(clockLabel(13 * 60 + 5)).toBe("1:05 PM");
+    expect(clockLabel(9 * 60 + 15)).toBe("9:15 AM");
   });
 
   it("describes a slot index for the gridcell label", () => {
-    expect(formatSlotTime(0)).toBe("00:00");
-    expect(formatSlotTime(19)).toBe("09:30");
-    expect(formatSlotTime(24)).toBe("12:00");
+    expect(formatSlotTime(0)).toBe("12:00 AM");
+    expect(formatSlotTime(19)).toBe("9:30 AM");
+    expect(formatSlotTime(24)).toBe("12:00 PM");
   });
 });

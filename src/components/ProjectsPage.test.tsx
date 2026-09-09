@@ -6,7 +6,7 @@
  * project from another's.
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { screen, cleanup, fireEvent, within } from "@testing-library/react";
+import { screen, cleanup, fireEvent, within, act } from "@testing-library/react";
 import { ProjectsPage } from "./ProjectsPage";
 import { renderWithData } from "../test/dataHarness";
 import type { Project, Task, TimeEntry } from "../types";
@@ -73,6 +73,68 @@ describe("ProjectsPage list", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Archived 1" }));
     expect(screen.getByText(/Archived One/)).toBeTruthy();
     expect(screen.queryByText("Alpha")).toBeNull();
+  });
+});
+
+describe("ProjectsPage task creation", () => {
+  it("hands the typed name back when the write fails (#153)", async () => {
+    const addTask = vi.fn().mockRejectedValue(new Error("Dataverse said no"));
+    renderPage({ addTask });
+
+    fireEvent.click(screen.getByRole("button", { name: /Alpha/ }));
+    fireEvent.click(screen.getByRole("button", { name: "New task" }));
+    const field = screen.getByLabelText("New task name") as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "Discovery call" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+
+    // The clear happens before the await, so the field is empty while the
+    // write is in flight — that is what stops Enter-then-blur sending twice.
+    expect(screen.queryByLabelText("New task name")).toBeNull();
+
+    await vi.waitFor(() => {
+      const reopened = screen.getByLabelText("New task name") as HTMLInputElement;
+      expect(reopened.value).toBe("Discovery call");
+    });
+    expect(addTask).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not shove a slow failure's name over a draft started since", async () => {
+    // Enter fires the write and clears the field; the user reopens it and
+    // starts typing something else while that request is still in flight.
+    let reject: (e: Error) => void = () => {};
+    const addTask = vi.fn().mockReturnValue(new Promise((_, r) => { reject = r; }));
+    renderPage({ addTask });
+
+    fireEvent.click(screen.getByRole("button", { name: /Alpha/ }));
+    fireEvent.click(screen.getByRole("button", { name: "New task" }));
+    fireEvent.change(screen.getByLabelText("New task name"), { target: { value: "First name" } });
+    fireEvent.keyDown(screen.getByLabelText("New task name"), { key: "Enter" });
+
+    fireEvent.click(screen.getByRole("button", { name: "New task" }));
+    fireEvent.change(screen.getByLabelText("New task name"), { target: { value: "Second name" } });
+
+    // act, not waitFor: the clobber lands in the rejection's own microtask, and
+    // a waitFor whose condition already holds would return before it does.
+    await act(async () => { reject(new Error("Dataverse said no")); });
+    expect(addTask).toHaveBeenCalledTimes(1);
+
+    // The field belongs to what the user is typing now, not to the write that
+    // failed after they moved on.
+    expect((screen.getByLabelText("New task name") as HTMLInputElement).value).toBe("Second name");
+  });
+
+  it("keeps the field clear when the write succeeds", async () => {
+    const addTask = vi.fn().mockResolvedValue({ id: "t9", projectId: "p1", name: "Discovery call", isActive: true });
+    renderPage({ addTask });
+
+    fireEvent.click(screen.getByRole("button", { name: /Alpha/ }));
+    fireEvent.click(screen.getByRole("button", { name: "New task" }));
+    const field = screen.getByLabelText("New task name") as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "Discovery call" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+
+    await vi.waitFor(() => expect(addTask).toHaveBeenCalledTimes(1));
+    expect(screen.queryByLabelText("New task name")).toBeNull();
   });
 });
 

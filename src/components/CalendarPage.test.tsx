@@ -113,11 +113,12 @@ describe("CalendarPage keyboard navigation", () => {
   it("opens the create modal at the focused slot's time on Enter", () => {
     renderCalendar();
     const cell = screen.getAllByRole("gridcell").find((c) => c.getAttribute("tabindex") === "0")!;
-    expect(cell.getAttribute("aria-label")).toContain("07:00");
+    expect(cell.getAttribute("aria-label")).toContain("7:00 AM");
 
     fireEvent.keyDown(cell, { key: "Enter" });
 
     expect(screen.getByRole("dialog", { name: "Log time" })).not.toBeNull();
+    // The <input type="time"> value stays 24-hour whatever the label reads.
     expect(screen.getByDisplayValue("07:00")).not.toBeNull();
   });
 });
@@ -531,8 +532,8 @@ describe("CalendarPage drag-to-move (#79)", () => {
       // The toast regions are role="status" too, so pick the one that speaks.
       const status = screen.getAllByRole("status").find((el) => el.textContent?.includes("Standup moved to"))!;
       expect(status.textContent).toContain("Standup moved to");
-      expect(status.textContent).toContain("09:15");
-      expect(status.textContent).toContain("10:15");
+      expect(status.textContent).toContain("9:15 AM");
+      expect(status.textContent).toContain("10:15 AM");
     });
   });
 });
@@ -690,9 +691,9 @@ describe("CalendarPage untracked gaps (P2-15)", () => {
     // would invent an untracked afternoon the timer was in fact running for.
     const yesterdayGaps = gapButtons()
       .map((b) => b.getAttribute("aria-label") ?? "")
-      .filter((label) => label.includes("11 August"));
+      .filter((label) => label.includes("August 11"));
     expect(yesterdayGaps).toHaveLength(1);
-    expect(yesterdayGaps[0]).toContain("08:00 – 09:00");
+    expect(yesterdayGaps[0]).toContain("8:00 AM – 9:00 AM");
   });
 
   it("does not offer gaps on a day that hasn't happened yet", () => {

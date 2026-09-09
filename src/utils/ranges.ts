@@ -72,13 +72,17 @@ export function previousPeriod(from: string, to: string): { from: string; to: st
   return { from: addDaysStr(from, -days), to: addDaysStr(to, -days) };
 }
 
-/** "31 August – 6 September", or a single date when the range is one day. */
+/** "August 31 – September 6", or a single date when the range is one day. */
 export function rangeLabel(from: string, to: string): string {
   const start = new Date(`${from}T00:00:00`);
   const end = new Date(`${to}T00:00:00`);
   const sameMonth = start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear();
-  const fmt = (d: Date, withMonth: boolean) =>
-    d.toLocaleDateString(DATE_LOCALE, withMonth ? { day: "numeric", month: "long" } : { day: "numeric" });
-  if (from === to) return fmt(start, true);
-  return `${fmt(start, !sameMonth)} – ${fmt(end, true)}`;
+  const withMonth = (d: Date) => d.toLocaleDateString(DATE_LOCALE, { day: "numeric", month: "long" });
+  const dayOnly = (d: Date) => d.toLocaleDateString(DATE_LOCALE, { day: "numeric" });
+  if (from === to) return withMonth(start);
+  // Month-first ordering carries the shared month on the *start* of the span —
+  // "September 1 – 6", not the day-first "1 – 6 September" (#152).
+  return sameMonth
+    ? `${withMonth(start)} – ${dayOnly(end)}`
+    : `${withMonth(start)} – ${withMonth(end)}`;
 }

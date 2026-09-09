@@ -113,7 +113,9 @@ describe("buildDaySpans", () => {
 
 describe("axisLabels", () => {
   it("labels the centre of each fifth, so no label sits on a segment join", () => {
+    // The compact form: an axis tick names a position, and its minutes are
+    // always zero.
     expect(axisLabels({ startMin: 480, endMin: 1080 }))
-      .toEqual(["09:00", "11:00", "13:00", "15:00", "17:00"]);
+      .toEqual(["9 AM", "11 AM", "1 PM", "3 PM", "5 PM"]);
   });
 });

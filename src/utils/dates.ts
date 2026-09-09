@@ -14,12 +14,15 @@ export const MINUTES_PER_DAY = 24 * 60;
 /**
  * The locale every date in the app is formatted in.
  *
- * Day-first — "Tuesday 8 September", "31 August – 6 September" — rather than
- * the month-first ordering an "en" locale produces. It reads unambiguously
- * beside the 24-hour clock the rest of the app uses, and it is one decision
- * in one place rather than an argument object repeated in nine files.
+ * US ordering — "Tuesday, September 8" — because that is what the people
+ * using this read by default. The 2026-09 redesign shipped day-first
+ * ("Tuesday 8 September") from the mocks; it was internally consistent and
+ * nobody outside the mocks had asked for it (#152).
+ *
+ * One decision in one place rather than an argument object repeated in nine
+ * files.
  */
-export const DATE_LOCALE = "en-GB";
+export const DATE_LOCALE = "en-US";
 
 export function localDateStr(d: Date = new Date()): string {
   const y = d.getFullYear();
@@ -124,19 +127,62 @@ export function dayLengthMinutes(dateStr: string): number {
   return minutesBetween(dateAtMinutes(dateStr, 0), dateAtMinutes(dateStr, MINUTES_PER_DAY));
 }
 
+/** Minutes-of-day, clamped to the clock face, as {hour 1-12, minute, suffix}. */
+function twelveHourParts(minutes: number): { h: number; m: number; suffix: string } {
+  const total = Math.max(0, Math.min(MINUTES_PER_DAY, Math.round(minutes)));
+  const h24 = Math.floor(total / 60);
+  return { h: h24 % 12 === 0 ? 12 : h24 % 12, m: total % 60, suffix: h24 < 12 || h24 === 24 ? "AM" : "PM" };
+}
+
 /**
- * "HH:MM" on a 24-hour clock for a minutes-of-day offset.
+ * "5:30 PM" for a minutes-of-day offset — every time the app displays.
  *
- * Every time in the app reads this way. A 12-hour clock spends two characters
- * on AM/PM to say something the surrounding day already says, and it makes
- * "9:05 AM" and "12:05 PM" different widths in a column of times that is
- * meant to be scanned — which is the same reason every duration in the app is
- * set in tabular figures.
+ * The redesign shipped a 24-hour clock, on the argument that AM/PM spends two
+ * characters saying what the surrounding day already says and that "9:05 AM"
+ * and "12:05 PM" scan at different widths. Both true, and both lost to the
+ * larger fact that "17:30" is not what the people reading this screen read
+ * (#152). Times are still set in tabular figures, so the digits line up even
+ * where the suffix doesn't.
  *
- * 1440 reads as 24:00 rather than 00:00: at the end of a day's last slot it
- * is the end of *this* day, not the start of the next.
+ * This is a *display* format and nothing else. `<input type="time">` takes
+ * 24-hour "HH:MM" whatever the user's locale shows — that is `timeInputAt`.
+ *
+ * The 24-hour form could say 24:00 for the end of a day's last slot and
+ * distinguish it from that day's 00:00; a 12-hour clock has no such notation,
+ * so 0 and 1440 both read "12:00 AM" and the surrounding "to"/"–" is what
+ * carries the direction.
  */
 export function clockAt(minutes: number): string {
-  const total = Math.max(0, Math.min(MINUTES_PER_DAY, Math.round(minutes)));
+  const { h, m, suffix } = twelveHourParts(minutes);
+  return `${h}:${String(m).padStart(2, "0")} ${suffix}`;
+}
+
+/**
+ * `clockAt` with the ":00" dropped on the hour — "5 PM", "10:30 AM".
+ *
+ * For tick marks rather than readings: the calendar's hour gutter and the day
+ * bar's axis, where the label names a position on a scale and the minutes are
+ * always zero. Narrower than the 24-hour form it replaces, which is what keeps
+ * both fitting the widths they were laid out at.
+ */
+export function clockAtCompact(minutes: number): string {
+  const { h, m, suffix } = twelveHourParts(minutes);
+  return m === 0 ? `${h} ${suffix}` : `${h}:${String(m).padStart(2, "0")} ${suffix}`;
+}
+
+/**
+ * "HH:MM" on a 24-hour clock, for `<input type="time">` values.
+ *
+ * Not a display format: the element's value is always 24-hour regardless of
+ * what it renders to the user, so this must never be swapped for `clockAt`.
+ *
+ * A valid HTML time string runs 00:00–23:59, and a browser sanitizes anything
+ * else to the empty string — so the end of the day has to be written as the
+ * *next* day's 00:00 rather than 24:00, or a span ending at midnight renders
+ * a blank field. That is the same instant, and it is the form EntrySheet
+ * already reads as "ends next day".
+ */
+export function timeInputAt(minutes: number): string {
+  const total = Math.max(0, Math.min(MINUTES_PER_DAY, Math.round(minutes))) % MINUTES_PER_DAY;
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }

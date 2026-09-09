@@ -4,13 +4,13 @@
  * These are the numbers people bill from, so they live outside the component
  * that renders them and are unit-tested directly: a rendering test can only
  * ever check the handful of figures that reach the screen, while a silent
- * off-by-one in bucketing or a dropped entry in the matrix is exactly the
+ * off-by-one in bucketing or a dropped entry in a breakdown is exactly the
  * kind of thing that looks plausible on a dashboard.
  */
 import type { Project, Task, TimeEntry } from "../types";
 import { localDateStr, weekStartStr } from "./dates";
 import { byId, indexById } from "./entityIndex";
-import { allocateLargestRemainder, allocatePercentages } from "./rounding";
+import { allocatePercentages } from "./rounding";
 
 export type Bucket = "day" | "week" | "month";
 
@@ -68,35 +68,6 @@ export function sumMinutes(entries: TimeEntry[]): number {
  *  "average per day". */
 export function countActiveDays(entries: TimeEntry[]): number {
   return new Set(entries.map((e) => e.date)).size;
-}
-
-/**
- * The display range for the axes. Everything but the "all" preset uses the
- * requested range as-is (an inverted custom range collapses to a single day);
- * "all" resolves to 1970→9999, which the axes must never enumerate, so it is
- * clamped to the dates that actually hold data — widened to today so an
- * all-time view of past-only data still ends at the present.
- */
-export function resolveEffectiveRange(
-  preset: string,
-  entries: TimeEntry[],
-  from: string,
-  to: string,
-  today: string,
-): { effFrom: string; effTo: string } {
-  if (preset !== "all") {
-    return { effFrom: from, effTo: to >= from ? to : from };
-  }
-  let min = "";
-  let max = "";
-  for (const e of entries) {
-    if (!e.date) continue;
-    if (!min || e.date < min) min = e.date;
-    if (!max || e.date > max) max = e.date;
-  }
-  const lower = min || today;
-  const upper = max > today ? max : today;
-  return { effFrom: lower, effTo: upper >= lower ? upper : lower };
 }
 
 export interface RangeCandidate {
@@ -189,89 +160,6 @@ export function buildChartData(entries: TimeEntry[], bucketKeys: string[], bucke
     byBucket.set(k, (byBucket.get(k) || 0) + (e.durationMinutes || 0));
   });
   return bucketKeys.map((k) => ({ key: k, minutes: byBucket.get(k) || 0, bucket }));
-}
-
-export interface MatrixRow {
-  project: Project;
-  cells: Map<string, number>;
-  total: number;
-}
-
-/** The classic timesheet grid: a row of per-bucket minutes per project, plus
- *  the column totals under it. */
-export function buildMatrix(
-  entries: TimeEntry[],
-  projects: Project[],
-  bucketKeys: string[],
-  bucket: Bucket,
-): { rows: MatrixRow[]; colTotals: number[] } {
-  const projectById = indexById(projects);
-  const byProject = new Map<string, Map<string, number>>();
-  entries.forEach((e) => {
-    const k = bucketKeyFor(e.date, bucket);
-    if (!byProject.has(e.projectId)) byProject.set(e.projectId, new Map());
-    const row = byProject.get(e.projectId)!;
-    row.set(k, (row.get(k) || 0) + (e.durationMinutes || 0));
-  });
-  const rows = [...byProject.entries()]
-    .map(([id, cells]) => ({
-      project: projectById.get(id),
-      cells,
-      total: [...cells.values()].reduce((s, m) => s + m, 0),
-    }))
-    .filter((r): r is MatrixRow => Boolean(r.project))
-    .sort((a, b) => b.total - a.total);
-  const colTotals = bucketKeys.map((k) => rows.reduce((s, r) => s + (r.cells.get(k) || 0), 0));
-  return { rows, colTotals };
-}
-
-/** The 0.1-hour grid the matrix is printed on, in minutes. */
-const DISPLAY_STEP_MIN = 6;
-
-export interface MatrixDisplay {
-  /** Display minutes per project row, aligned to `bucketKeys`. */
-  cells: number[][];
-  rowTotals: number[];
-  colTotals: number[];
-  grandTotal: number;
-}
-
-/**
- * The matrix as it is actually *printed*: every figure snapped to the 0.1-hour
- * display grid, allocated so that every addition a reader can perform on
- * screen comes out right — each project row against its total, each period
- * column against its total, and both margins against the grand total (#93).
- *
- * Rows are allocated first and columns fall out as sums of the printed cells,
- * rather than the other way round, for two reasons: a project's total over the
- * range is the figure that gets transcribed onto an invoice, so it is the one
- * worth anchoring to the truth; and the drift that has to land *somewhere*
- * lands on the margin summed over projects, which is the shorter of the two
- * axes (a range wide enough to have many columns has already been re-bucketed
- * to weeks or months). Every printed number stays within one 0.1h increment of
- * its true value, and the exact minutes are on hover either way.
- *
- * Takes the matrix's own total, not the report's: rows for vanished projects
- * are already gone by here, and borrowing the page-level total would hand
- * their time to whoever is left.
- */
-export function buildMatrixDisplay(rows: MatrixRow[], bucketKeys: string[]): MatrixDisplay {
-  const steps = (minutes: number) => minutes / DISPLAY_STEP_MIN;
-  const grandSteps = Math.round(steps(rows.reduce((s, r) => s + r.total, 0)));
-
-  const rowTotalSteps = allocateLargestRemainder(rows.map((r) => steps(r.total)), grandSteps);
-  const cellSteps = rows.map((r, i) =>
-    allocateLargestRemainder(bucketKeys.map((k) => steps(r.cells.get(k) || 0)), rowTotalSteps[i])
-  );
-  const colTotalSteps = bucketKeys.map((_, j) => cellSteps.reduce((s, row) => s + row[j], 0));
-
-  const toMinutes = (n: number) => n * DISPLAY_STEP_MIN;
-  return {
-    cells: cellSteps.map((row) => row.map(toMinutes)),
-    rowTotals: rowTotalSteps.map(toMinutes),
-    colTotals: colTotalSteps.map(toMinutes),
-    grandTotal: toMinutes(grandSteps),
-  };
 }
 
 export interface TaskBreakdownRow {
