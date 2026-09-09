@@ -401,3 +401,21 @@ from the edited date rather than the date the sheet opened on. Outside the
 loaded range the sheet has no day to draw and says so instead of drawing an
 empty one. The stop sheet keeps neither row, for the reason it already keeps
 no `Time` row: the clock decided both.
+
+**Sheets take a 96% material, not the 72% the token table gives.** The brief
+gives one `--material` for "floating action bars, sheets", and 72% is right for
+the action bar: it carries a hint over an empty grid and the translucency is
+most of what says it floats. A sheet is different — it is read *through*, and
+over the calendar the entry sheet's own values competed with the blocks behind
+them. Blur doesn't settle that either, because `backdrop-filter` is the first
+thing a locked-down host drops, and where it does the sheet is 72% of nothing.
+So `--material-sheet` is the modal's fill at 96%, the blur stays as the bonus
+it now is, and the action bar keeps `--material` unchanged.
+
+**The `Billed to` row's two fields are labelled `Ratio` and `Jira Ticket`.**
+The brief names the row but neither placeholder; they read `Account` and
+`Ticket`. Everywhere else the company meets these values they are the ratio and
+the Jira ticket — the Dataverse columns, both CSV headers, the Projects list —
+and a field that answers to two names in one app is a field people fill in
+wrong. The ratio is still an account identifier and still never a multiplier
+(#71); only the words on screen changed.

@@ -292,7 +292,7 @@ export const ProjectsPage: React.FC = () => {
                       </span>
                       <span className="projects__sub">
                         {taskCount} {taskCount === 1 ? "task" : "tasks"} ·{" "}
-                        {project.ratio !== undefined ? `Account ${project.ratio}` : "no billing account"}
+                        {project.ratio !== undefined ? `Ratio ${project.ratio}` : "no billing account"}
                       </span>
                     </span>
                     <span className="projects__bar">
@@ -431,15 +431,15 @@ export const ProjectsPage: React.FC = () => {
               <span className="field-row__value">
                 <input
                   id="project-ratio" className="field-row__input" type="number" step="1" min="0"
-                  style={{ maxWidth: 110 }} placeholder="Account"
+                  style={{ maxWidth: 110 }} placeholder="Ratio"
                   /* A billing account identifier, never a multiplier (#71). */
-                  aria-label="Billing account this project's time is billed to"
+                  aria-label="Ratio — the billing account this project's time is billed to"
                   value={draft.ratio} onChange={(e) => setDraft({ ...draft, ratio: e.target.value })}
                 />
                 <span className="field-row__sep" aria-hidden="true">·</span>
                 <input
-                  className="field-row__input" style={{ maxWidth: 140 }} placeholder="Ticket"
-                  aria-label="Default ticket reference"
+                  className="field-row__input" style={{ maxWidth: 140 }} placeholder="Jira Ticket"
+                  aria-label="Default Jira ticket for this project's entries"
                   value={draft.jiraTicket} onChange={(e) => setDraft({ ...draft, jiraTicket: e.target.value })}
                   maxLength={50}
                 />

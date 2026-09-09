@@ -81,7 +81,7 @@ export const WeekRail: React.FC<Props> = ({ dailyMinutes, weekMinutes, targetHou
       {editing !== null && (
         <div className="week-rail__target-edit">
           <input
-            className="input input--time"
+            className="input input--num"
             type="number" min="1" max={MAX_TARGET_HOURS} step="0.5"
             value={editing}
             onChange={(e) => setEditing(e.target.value)}
