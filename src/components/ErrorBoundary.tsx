@@ -68,33 +68,31 @@ export class ErrorBoundary extends Component<Props, State> {
 
     const isPage = this.props.scope !== "app";
     return (
-      <div className={`error-boundary ${isPage ? "error-boundary--page" : ""}`} role="alert">
-        <div className="error-boundary__card">
-          <h2 className="error-boundary__title">Something went wrong</h2>
-          {/* A plain sentence, and the raw message folded away behind it. The
-              raw text used to be the whole message: accurate, and useless to
-              the person reading it — it named a property on an object they've
-              never heard of. It still matters for support, so it's one click
-              away rather than gone. */}
-          <p className="error-boundary__detail">
-            {isPage
-              ? "This page couldn’t be displayed. Your time entries are safe — switching pages or reloading usually clears it."
-              : "TimeFlow couldn’t finish loading. Your time entries are safe; reloading usually clears it."}
-          </p>
-          <details className="error-boundary__raw">
-            <summary>Technical detail (for support)</summary>
-            <p className="error-boundary__raw-text">{error.message || String(error)}</p>
-          </details>
-          <div className="error-boundary__actions">
-            {isPage && (
-              <button type="button" className="btn-ghost" onClick={this.retry}>
-                Try again
-              </button>
-            )}
-            <button type="button" className="btn-primary" onClick={() => window.location.reload()}>
-              Reload app
+      <div className="error-boundary" role="alert">
+        <h2 className="error-boundary__title t-title2">Something went wrong</h2>
+        {/* A plain sentence, and the raw message folded away behind it. The
+            raw text used to be the whole message: accurate, and useless to the
+            person reading it — it named a property on an object they've never
+            heard of. It still matters for support, so it's one click away
+            rather than gone. */}
+        <p className="error-boundary__body t-body">
+          {isPage
+            ? "This page couldn’t be displayed. Your time entries are safe — switching pages or reloading usually clears it."
+            : "TimeFlow couldn’t finish loading. Your time entries are safe; reloading usually clears it."}
+        </p>
+        <details className="error-boundary__detail">
+          <summary>Technical detail (for support)</summary>
+          <p>{error.message || String(error)}</p>
+        </details>
+        <div className="error-boundary__actions">
+          {isPage && (
+            <button type="button" className="pill pill--tint" onClick={this.retry}>
+              Try again
             </button>
-          </div>
+          )}
+          <button type="button" className="pill pill--primary" onClick={() => window.location.reload()}>
+            Reload app
+          </button>
         </div>
       </div>
     );

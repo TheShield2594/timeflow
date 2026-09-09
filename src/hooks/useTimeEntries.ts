@@ -70,6 +70,15 @@ export function useTimeEntries(from?: string, to?: string) {
   // including re-fetches triggered by ensureRangeLoaded widening from/to,
   // so pages can show an inline indicator without unmounting their content.
   const [isFetching, setIsFetching] = useState(false);
+  /**
+   * Sticky once set, and never cleared for the life of the session.
+   *
+   * A row-security misconfiguration doesn't come and go: once one foreign row
+   * has been read, everything on every screen is suspect until an
+   * administrator has looked at the table. The banner it raises is the only
+   * full-width alarm in the app, and the only one that cannot be dismissed.
+   */
+  const [isolationBreach, setIsolationBreach] = useState(false);
   const toast = useToast();
 
   const entriesRef = useRef<TimeEntry[]>([]);
@@ -86,11 +95,27 @@ export function useTimeEntries(from?: string, to?: string) {
    * is the signal, not a foreign row in a full one.
    */
   const assertOwnRows = useCallback((rows: TimeEntry[]) => {
+    // The detection and the alarm come first, in their own try, and touch
+    // nothing that can fail. sessionStorage throws outright in some hardened
+    // and private-browsing configurations, and when the very first statement
+    // in this function was a `removeItem`, that throw skipped the ownership
+    // check entirely: foreign rows stayed loaded with no warning at all, in
+    // exactly the browsers most likely to be locked down.
+    try {
+      const currentUser = getCurrentUser();
+      if (!svc.hasForeignUserEntries(rows, currentUser.id)) return;
+      setIsolationBreach(true);
+    } catch {
+      return;
+    }
+
+    // Everything below is de-duplication of the *telemetry* — a report about a
+    // configuration, not a per-read event — and none of it gates the banner.
     try {
       const currentUser = getCurrentUser();
       sessionStorage.removeItem(`tt_isolation_warned:${currentUser.id}`);
       const warningKey = isolationWarningKey(currentUser.environmentId, currentUser.id);
-      if (!sessionStorage.getItem(warningKey) && svc.hasForeignUserEntries(rows, currentUser.id)) {
+      if (!sessionStorage.getItem(warningKey)) {
         sessionStorage.setItem(warningKey, "1");
         // Reported, not just logged. This is the one signal in the app that
         // means the whole company's time data may be cross-visible, and until
@@ -107,13 +132,12 @@ export function useTimeEntries(from?: string, to?: string) {
             foreignRows: rows.filter((e) => e.userId && e.userId !== currentUser.id).length,
           },
         });
-        toast("Data isolation warning: you may be seeing other users' time entries. Contact your administrator.", "error");
       }
     } catch {
-      // Never let a failure in the isolation-warning check (e.g. sessionStorage
-      // unavailable) mask the data load that already succeeded above.
+      // Never let a failure here (e.g. sessionStorage unavailable) mask the
+      // data load that already succeeded above, or the banner already raised.
     }
-  }, [toast]);
+  }, []);
 
   /**
    * Load `from`..`to`, reading only what isn't already held.
@@ -268,5 +292,5 @@ export function useTimeEntries(from?: string, to?: string) {
     }
   }, [toast]);
 
-  return { entries, loading, isFetching, refresh, deleteEntry, createEntry, editEntry };
+  return { entries, loading, isFetching, isolationBreach, refresh, deleteEntry, createEntry, editEntry };
 }

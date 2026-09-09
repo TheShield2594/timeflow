@@ -57,16 +57,19 @@ git push origin v1.2.0
 2. Start the timer on any project, refresh the page: the timer survives.
 3. Stop it: the entry lands on the Timesheet with the right duration.
 4. Calendar renders the week; if Outlook is wired up, the chip reads
-   "Outlook: on".
-5. **Open every page in the sidebar once** — Overview, Timesheet, Calendar,
+   "Outlook on".
+5. **Open every page in the sidebar once** — Timer, Timesheet, Calendar,
    Reports, Projects, and Team if you manage people. Since
    [#116](https://github.com/TheShield2594/timeflow/issues/116) the last four
    are separate JS chunks fetched on first navigation, so a page that shows a
    skeleton and never resolves means the host isn't serving those chunk URLs.
    That failure mode cannot appear on step 1, and the rollback for it is
    [§3.1](#31-app-code).
-6. **No "Data isolation warning" toast.** If one appears, stop and go to
-   [§5.5](#55-a-user-reports-a-data-isolation-warning-toast) — that is a P0.
+6. **No isolation banner.** If the red "This workspace is showing other
+   people's time" banner appears above the page, stop and go to
+   [§5.5](#55-a-user-reports-the-data-isolation-warning-banner) — that is a P0.
+   Since the 2026-09 redesign it is a persistent full-width banner rather than
+   a toast, so it cannot be missed and cannot be dismissed.
 
 **After a solution import** (not needed for a code-only `pac code push`), the
 smoke test is not enough: run
@@ -244,22 +247,26 @@ the entry by editing its end time on the Timesheet.
 
 The Calendar chip tells you which layer failed:
 
-- **"Outlook: not connected"** — the connector isn't wired up in this
+- **"Outlook not connected"** — the connector isn't wired up in this
   environment, or the DLP policy blocks it, or the user declined the consent
   prompt. Walk §6's Outlook block.
-- **"Outlook: on" but a specific meeting is absent** — all-day events are never
+- **"Outlook on" but a specific meeting is absent** — all-day events are never
   shown (no time span to lay out), meetings crossing midnight are clamped to
   their start day, and a *muted subject* hides an entire recurring series.
   Muting is per-device; the Calendar shows a count of what's hidden and can
   unmute.
 
-### 5.5 "A user reports a Data isolation warning toast"
+### 5.5 "A user reports the data isolation warning banner"
 
 **This is a P0. Treat it as a possible cross-user data exposure.**
 
-The toast means `hasForeignUserEntries()` found a row belonging to someone other
-than the signed-in user in a personal-page read, which the server-side
-`eq-userid` filter should make impossible.
+The banner — full-width, red, above every page, and not dismissible — means
+`hasForeignUserEntries()` found a row belonging to someone other than the
+signed-in user in a personal-page read, which the server-side `eq-userid`
+filter should make impossible. It used to be a toast, which told the one
+person who could not act on it and then vanished; it now stays up for the rest
+of the session and carries a **Copy details for IT** button, so the report you
+receive should already have the detail in it.
 
 1. Get a screenshot and the browser console output. If telemetry is configured
    (README § Production telemetry) the same event is in the sink as
@@ -373,9 +380,9 @@ both operations. Do not redo those steps. What remains per environment:
       "worked in dev, blocked in prod" failure.
 - [ ] **Per-user consent**: each user gets a one-time prompt for the Office 365
       Outlook connection on their first launch after this ships. Tell users it
-      is expected; a declined prompt shows as "Outlook: not connected" for that
+      is expected; a declined prompt shows as "Outlook not connected" for that
       user only.
-- [ ] Verify: Calendar shows the "Outlook: on" chip and this week's meetings as
+- [ ] Verify: Calendar shows the "Outlook on" chip and this week's meetings as
       dashed ghost blocks.
 
 ### Manager Team view
@@ -462,11 +469,18 @@ both operations. Do not redo those steps. What remains per environment:
       truncated load — narrow `MAX_PAGES` locally, or check for
       `pagination_truncated` after a very wide date range on a busy environment.
 
-### Focus mode
+### Working hours
 
-Nothing to configure — it's a per-user toggle in the timer bar. One limitation
-to have ready when people ask: break/focus prompts only fire while the app tab
-is open, because a Code App has no OS-level presence.
+Nothing to configure centrally — each person sets their own from the sidebar
+("Working hours · 08:00–18:00"), stored in that browser's `localStorage`. Two
+things to have ready when people ask:
+
+- It travels with the browser, not the account: a new machine starts at the
+  08:00–18:00 default. Code Apps have no per-user settings table.
+- It decides which stretches of a day are *offered* as untracked gaps, and it
+  is also the window the day bar is drawn across — so a 06:00 start widens the
+  bar on the timer screen as well as the gaps under it. It changes no stored
+  entry, no total, and nothing in an export.
 
 ---
 

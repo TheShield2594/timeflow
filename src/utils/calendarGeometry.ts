@@ -12,7 +12,7 @@
  * face and elapsed time disagree, so anything written to `durationMinutes`
  * must be derived from real instants via utils/dates (#87).
  */
-import { MINUTES_PER_DAY, dateAtMinutes } from "./dates";
+import { MINUTES_PER_DAY, clockAt, dateAtMinutes } from "./dates";
 import type { TimeEntry } from "../types";
 
 /** px per 30-minute slot. */
@@ -108,11 +108,9 @@ export function getWeekDays(anchor: Date): Date[] {
   return days;
 }
 
-/** "9 AM" for an hour of the day, for the grid's left gutter. */
+/** "09:00" for an hour of the day, for the grid's left gutter. */
 export function formatHour(h: number): string {
-  const suffix = h >= 12 ? "PM" : "AM";
-  const display = h > 12 ? h - 12 : h === 0 ? 12 : h;
-  return `${display} ${suffix}`;
+  return clockAt(h * 60);
 }
 
 /**
@@ -145,25 +143,15 @@ export function placeEntry(date: string, startDt: Date, durationMin: number): {
   };
 }
 
-// "9:15 AM" for a minutes-of-day offset. 24:00 (the end of the last slot)
-// reads as midnight rather than "0:00 AM".
+// "09:15" for a minutes-of-day offset. 24:00 (the end of the last slot) reads
+// as the end of this day rather than the start of the next.
 export function clockLabel(minutes: number): string {
-  const total = Math.min(minutes, 24 * 60);
-  const h24 = Math.floor(total / 60) % 24;
-  const m = total % 60;
-  const suffix = total >= 12 * 60 && total < 24 * 60 ? "PM" : "AM";
-  const display = h24 > 12 ? h24 - 12 : h24 === 0 ? 12 : h24;
-  return `${display}:${String(m).padStart(2, "0")} ${suffix}`;
+  return clockAt(minutes);
 }
 
 // Describe a 30-min slot index (0-47) as a time, for gridcell aria-labels.
 export function formatSlotTime(slotIdx: number): string {
-  const totalMin = slotIdx * 30;
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  const suffix = h >= 12 ? "PM" : "AM";
-  const display = h > 12 ? h - 12 : h === 0 ? 12 : h;
-  return m === 0 ? `${display}:00 ${suffix}` : `${display}:${m} ${suffix}`;
+  return clockAt(slotIdx * 30);
 }
 
 /** One entry's position on a day column, after overlap resolution. */

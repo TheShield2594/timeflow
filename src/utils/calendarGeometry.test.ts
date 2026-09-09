@@ -181,20 +181,20 @@ describe("layoutDay", () => {
 });
 
 describe("clockLabel and formatSlotTime", () => {
-  it("reads the end of the last slot as midnight, not '0:00 AM'", () => {
-    expect(clockLabel(24 * 60)).toBe("12:00 AM");
-    expect(clockLabel(0)).toBe("12:00 AM");
+  it("reads the end of the last slot as 24:00, not the next day's 00:00", () => {
+    expect(clockLabel(24 * 60)).toBe("24:00");
+    expect(clockLabel(0)).toBe("00:00");
   });
 
-  it("labels noon and midday correctly", () => {
-    expect(clockLabel(12 * 60)).toBe("12:00 PM");
-    expect(clockLabel(13 * 60 + 5)).toBe("1:05 PM");
-    expect(clockLabel(9 * 60 + 15)).toBe("9:15 AM");
+  it("labels every time on the same two-digit 24-hour clock", () => {
+    expect(clockLabel(12 * 60)).toBe("12:00");
+    expect(clockLabel(13 * 60 + 5)).toBe("13:05");
+    expect(clockLabel(9 * 60 + 15)).toBe("09:15");
   });
 
   it("describes a slot index for the gridcell label", () => {
-    expect(formatSlotTime(0)).toBe("12:00 AM");
-    expect(formatSlotTime(19)).toBe("9:30 AM");
-    expect(formatSlotTime(24)).toBe("12:00 PM");
+    expect(formatSlotTime(0)).toBe("00:00");
+    expect(formatSlotTime(19)).toBe("09:30");
+    expect(formatSlotTime(24)).toBe("12:00");
   });
 });

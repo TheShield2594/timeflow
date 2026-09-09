@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { NewTimeEntry, OutlookEvent, Project, Task, TimeEntry } from "../types";
+import type { OutlookEvent, TimeEntry } from "../types";
 import { useOutlookOverlay } from "../hooks/useOutlookOverlay";
 import {
-  localDateStr, minutesOfDay, toTimeInput,
+  DATE_LOCALE, clockAt, localDateStr, minutesOfDay, toTimeInput,
 } from "../utils/dates";
 import { Gap, findUntrackedGaps } from "../utils/gaps";
+import { rangeLabel } from "../utils/ranges";
 import { byId, indexById } from "../utils/entityIndex";
 import { DEFAULT_PROJECT_COLOR } from "../utils/colors";
 import {
@@ -25,21 +26,13 @@ import { formatMinutes } from "../hooks";
 import { useDragCreate, useEntryMove, useEntryResize } from "../hooks/useCalendarDrag";
 import { useGridRovingFocus } from "../hooks/useGridRovingFocus";
 import { useRangeRequest } from "../contexts/DataRangeContext";
-import { useWeeklyTarget } from "../hooks/useWeeklyTarget";
-import { EntryModal, EntryDraft, EntrySaveData } from "./EntryModal";
-import { HelpTip } from "./HelpTip";
-import { IconCheck, IconChevronLeft, IconChevronRight, IconPencil, IconX } from "./Icons";
-import { RangeSpinner } from "./RangeSpinner";
+import { useData } from "../contexts/DataContext";
+import type { WorkingHours } from "../hooks/useWorkingHours";
+import { EntrySheet, EntryDraft, EntrySaveData } from "./EntrySheet";
+import { FloatingActionBar } from "./FloatingActionBar";
 
 interface Props {
-  entries: TimeEntry[];
-  projects: Project[];
-  tasks: Task[];
-  rangeLoading?: boolean;
-  onCreateEntry: (data: NewTimeEntry) => Promise<TimeEntry>;
-  onEdit: (id: string, data: Partial<TimeEntry>) => Promise<TimeEntry>;
-  onDelete: (id: string) => void;
-  onLoadTasksForProject?: (projectId: string) => void;
+  workingHours: WorkingHours;
 }
 
 interface ModalState {
@@ -89,81 +82,6 @@ interface EntryBlockProps {
   onMoveEnd: (e: React.PointerEvent) => void;
   onMoveCancel: () => void;
 }
-
-/** "23h 30m / 40h" progress vs the weekly target, with an inline editor.
- *  Shown for whichever week the calendar is displaying. */
-const WeekTargetProgress: React.FC<{ weekMinutes: number }> = ({ weekMinutes }) => {
-  const { targetHours, setTargetHours } = useWeeklyTarget();
-  const [editing, setEditing] = useState(false);
-  const [input, setInput] = useState("");
-
-  const commit = () => {
-    const n = Number(input);
-    setTargetHours(Number.isFinite(n) ? n : 0);
-    setEditing(false);
-  };
-
-  if (editing) {
-    return (
-      <span className="week-target-editor">
-        <input
-          className="week-target-editor__input"
-          type="number"
-          min="0"
-          max="168"
-          step="0.5"
-          placeholder="h/week"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commit();
-            if (e.key === "Escape") setEditing(false);
-          }}
-          aria-label="Weekly target hours (0 to remove)"
-          autoFocus
-        />
-        <button className="week-target-editor__ok" onClick={commit} title="Save target" aria-label="Save weekly target"><IconCheck size={13} /></button>
-        <button className="week-target-editor__cancel" onClick={() => setEditing(false)} title="Cancel" aria-label="Cancel"><IconX size={13} /></button>
-      </span>
-    );
-  }
-
-  if (targetHours <= 0) {
-    return (
-      <button
-        className="week-target-set"
-        onClick={() => { setInput("40"); setEditing(true); }}
-        title="Set a weekly hours target to see progress here"
-      >
-        Set weekly target
-      </button>
-    );
-  }
-
-  const targetMinutes = targetHours * 60;
-  const met = weekMinutes >= targetMinutes;
-  return (
-    <span className="week-target" title={`${formatMinutes(weekMinutes)} of your ${targetHours}h weekly target`}>
-      <span className="week-target__label">
-        {formatMinutes(weekMinutes)} / {targetHours}h
-      </span>
-      <span className="week-target__track" role="progressbar" aria-valuemin={0} aria-valuemax={targetMinutes} aria-valuenow={Math.min(weekMinutes, targetMinutes)} aria-label="Weekly target progress">
-        <span
-          className={`week-target__fill ${met ? "week-target__fill--met" : ""}`}
-          style={{ width: `${Math.min(100, (weekMinutes / targetMinutes) * 100)}%` }}
-        />
-      </span>
-      <button
-        className="week-target__edit"
-        onClick={() => { setInput(String(targetHours)); setEditing(true); }}
-        title="Edit weekly target"
-        aria-label="Edit weekly target"
-      >
-        <IconPencil size={11} />
-      </button>
-    </span>
-  );
-};
 
 const CalendarEntryBlock = React.memo<EntryBlockProps>(({
   entry, startMin, endMin, rowTopMin, running, reshapable, moving, col, cols, color, projectName, taskName,
@@ -249,11 +167,11 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
       )}
       {height >= 58 && (
         <div className="cal-entry__time">
-          {new Date(entry.startTime).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })}
+          {clockAt(minutesOfDay(entry.startTime))}
           {" – "}
           {running
             ? "now"
-            : new Date(entry.endTime!).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })}
+            : clockAt(minutesOfDay(entry.endTime!))}
         </div>
       )}
       {reshapable && (
@@ -319,7 +237,7 @@ const OutlookGhostBlock = React.memo<GhostBlockProps>(({ event, startMin, endMin
           : `${event.subject} — click to log this meeting as a time entry`}
       >
         <span className="cal-ghost__name">
-          {logged && <IconCheck size={11} className="cal-ghost__check" />}
+          {logged && <span className="cal-ghost__check" aria-hidden="true">✓ </span>}
           {event.subject}
         </span>
         {height >= 42 && <span className="cal-ghost__time">{timeLabel}</span>}
@@ -335,7 +253,7 @@ const OutlookGhostBlock = React.memo<GhostBlockProps>(({ event, startMin, endMin
           title={`Hide every "${event.subject}" from the overlay`}
           aria-label={`Hide all "${event.subject}" meetings from the calendar overlay`}
         >
-          <IconX size={11} />
+          Hide
         </button>
       </div>
     </div>
@@ -390,7 +308,12 @@ const UntrackedGapBlock = React.memo<GapBlockProps>(({ date, startMin, endMin, r
 });
 UntrackedGapBlock.displayName = "UntrackedGapBlock";
 
-export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeLoading, onCreateEntry, onEdit, onDelete, onLoadTasksForProject }) => {
+export const CalendarPage: React.FC<Props> = ({ workingHours }) => {
+  const {
+    entries, projects, tasks,
+    createEntry: onCreateEntry, editEntry: onEdit, deleteEntry: onDelete,
+    loadTasksForProject: onLoadTasksForProject, addTask,
+  } = useData();
   const [anchor, setAnchor] = useState(() => new Date());
   const weekDays = useMemo(() => getWeekDays(anchor), [anchor]);
   const projectById = useMemo(() => indexById(projects), [projects]);
@@ -590,10 +513,12 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
     [weekDays, dayTotals]
   );
 
-  const monthLabel = useMemo(() => {
-    const months = weekDays.map((d) => d.toLocaleDateString("en", { month: "long", year: "numeric" }));
-    return [...new Set(months)].join(" / ");
-  }, [weekDays]);
+  // The week, not the month: the screen shows seven days, and naming it
+  // "September 2026" describes something four times larger than what is on it.
+  const weekLabel = useMemo(
+    () => rangeLabel(localDateStr(weekDays[0]), localDateStr(weekDays[6])),
+    [weekDays]
+  );
 
   const timeSlots = useMemo(() => {
     const slots: { hour: number; half: boolean }[] = [];
@@ -888,25 +813,27 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
       <div className="visually-hidden" role="status" aria-live="polite">{move.nudgeMessage}</div>
 
       {modal && (
-        <EntryModal
-          // Advancing a "Log all" run swaps the draft without the modal ever
-          // unmounting, and EntryModal seeds its own state from `initial`
+        <EntrySheet
+          // Advancing a "Log all" run swaps the draft without the sheet ever
+          // unmounting, and EntrySheet seeds its own state from `initial`
           // once — without this key the next meeting would inherit the
           // previous one's form.
           key={modal.sourceEventId ?? modal.editingId ?? "new"}
-          title={
-            modal.editingId ? "Edit Entry"
-              : modal.queueStep ? `Log Time · ${modal.queueStep.at} of ${modal.queueStep.total}`
-              : "Log Time"
-          }
+          mode={modal.editingId ? "edit" : "create"}
+          title={modal.queueStep ? `Log time · ${modal.queueStep.at} of ${modal.queueStep.total}` : undefined}
+          entryId={modal.editingId ?? undefined}
           initial={modal.draft}
           projects={projects}
           tasks={tasks}
+          dayEntries={entries.filter((e) => e.date === modal.draft.date)}
+          workingHours={workingHours}
+          nowMinutes={nowMinutes}
           onSave={handleModalSave}
           onSaved={handleModalSaved}
           onDelete={modal.editingId ? () => { onDelete(modal.editingId!); setModal(null); } : undefined}
           onClose={closeModal}
           onLoadTasksForProject={onLoadTasksForProject}
+          onAddTask={addTask}
         />
       )}
 
@@ -914,83 +841,46 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
       <div className="calendar__header">
         <div className="calendar__title-row">
           <div className="calendar__title-group">
-            <h2 className="calendar__title">{monthLabel}</h2>
-            <span className="calendar__week-total">{formatMinutes(weekTotal)} this week</span>
-            <WeekTargetProgress weekMinutes={weekTotal} />
-            {(() => {
-              // One chip owns show/hide; a second appears only when a shown
-              // overlay failed to load and a retry makes sense.
-              if (outlook.mode === "off") {
-                return (
-                  <button className="cal-outlook-toggle" onClick={outlook.cycleMode} title="Show your Outlook meetings on the calendar">
-                    Outlook: off
-                  </button>
-                );
-              }
-              if (outlook.status === "unavailable") {
-                return (
-                  <button
-                    className="cal-outlook-toggle cal-outlook-toggle--warn"
-                    onClick={outlook.cycleMode}
-                    title="The Office 365 Outlook connector isn't set up for this app yet — an admin needs to add it (see the README's Outlook calendar section). Click to cycle this."
-                  >
-                    Outlook: not connected
-                  </button>
-                );
-              }
-              return (
-                <>
-                  <button
-                    className="cal-outlook-toggle cal-outlook-toggle--active"
-                    onClick={outlook.cycleMode}
-                    title={outlook.mode === "on"
-                      ? "Outlook meetings shown. Click to fade them back."
-                      : "Outlook meetings faded. Click to hide them."}
-                  >
-                    Outlook: {outlook.mode}
-                  </button>
-                  {outlook.mutedCount > 0 && (
-                    <button
-                      className="cal-outlook-toggle"
-                      onClick={outlook.unmuteAll}
-                      title="Show hidden meeting subjects again"
-                    >
-                      {outlook.mutedCount} hidden — undo
-                    </button>
-                  )}
-                  {outlook.status === "error" && (
-                    <button className="cal-outlook-toggle cal-outlook-toggle--warn" onClick={outlook.refresh} title="Couldn't load your Outlook meetings — click to retry">
-                      Retry
-                    </button>
-                  )}
-                </>
-              );
-            })()}
-            {rangeLoading && <RangeSpinner label="Loading this week's entries…" />}
+            <h1 className="calendar__title">{weekLabel}</h1>
+            <span className="calendar__week-total">{formatMinutes(weekTotal)}</span>
           </div>
           <div className="calendar__nav">
-            {/* The whole drag / resize / Shift+arrow instruction set used to
-                live in a `title` on each entry block, where a keyboard user
-                could never reach it — and the keyboard half is precisely what
-                that user needs (#106). */}
-            <HelpTip
-              label="How do I move entries?"
-              text="Click a block to edit it. Drag it to reschedule, or drag its top or bottom edge to resize. From the keyboard: Tab to a block, then Shift + arrow keys to move it — up and down by 15 minutes, left and right by a day. Click an empty slot, or drag down it, to log new time."
-            />
-            <button className="cal-nav-btn" onClick={prevWeek} aria-label="Previous week">
-              <IconChevronLeft />
-            </button>
+            {/* One chip owns show/hide; a second appears only when a shown
+                overlay failed to load and a retry makes sense. */}
+            {outlook.mode === "off" ? (
+              <button className="cal-outlook-toggle" onClick={outlook.cycleMode}>
+                Outlook off
+              </button>
+            ) : outlook.status === "unavailable" ? (
+              <button
+                className="cal-outlook-toggle cal-outlook-toggle--warn"
+                onClick={outlook.cycleMode}
+                title="The Office 365 Outlook connector isn't set up for this app yet — an admin needs to add it (see the README's Outlook calendar section)."
+              >
+                Outlook not connected
+              </button>
+            ) : (
+              <>
+                <button className="cal-outlook-toggle cal-outlook-toggle--active" onClick={outlook.cycleMode}>
+                  Outlook {outlook.mode}
+                </button>
+                {outlook.mutedCount > 0 && (
+                  <button className="cal-outlook-toggle" onClick={outlook.unmuteAll}>
+                    {outlook.mutedCount} hidden — undo
+                  </button>
+                )}
+                {outlook.status === "error" && (
+                  <button className="cal-outlook-toggle cal-outlook-toggle--warn" onClick={outlook.refresh}>
+                    Retry
+                  </button>
+                )}
+              </>
+            )}
+            <button className="cal-nav-btn" onClick={prevWeek} aria-label="Previous week">‹</button>
             <button className="cal-nav-btn cal-nav-btn--today" onClick={goToday}>Today</button>
-            <button className="cal-nav-btn" onClick={nextWeek} aria-label="Next week">
-              <IconChevronRight />
-            </button>
+            <button className="cal-nav-btn" onClick={nextWeek} aria-label="Next week">›</button>
           </div>
         </div>
-        {weekTotal === 0 && (
-          <div className="calendar__empty-hint">
-            Nothing logged this week. Click any time slot to add an entry.
-          </div>
-        )}
 
         {/* Day headers */}
         <div className="calendar__day-headers">
@@ -1002,7 +892,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
             return (
               <div key={ds} className={`calendar__day-header ${isToday ? "calendar__day-header--today" : ""}`}>
                 <div className="calendar__day-name">
-                  {day.toLocaleDateString("en", { weekday: "short" })}
+                  {day.toLocaleDateString(DATE_LOCALE, { weekday: "short" })}
                 </div>
                 <div className={`calendar__day-num ${isToday ? "calendar__day-num--today" : ""}`}>
                   {day.getDate()}
@@ -1028,11 +918,11 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
 
       {/* ── Mobile day-list view ── */}
       <div className="cal-mobile-day-nav">
-        <button className="cal-nav-btn" onClick={() => { const d = new Date(mobileDay); d.setDate(d.getDate() - 1); setMobileDay(d); }} aria-label="Previous day"><IconChevronLeft /></button>
+        <button className="cal-nav-btn" onClick={() => { const d = new Date(mobileDay); d.setDate(d.getDate() - 1); setMobileDay(d); }} aria-label="Previous day">‹</button>
         <span className="cal-mobile-day-nav__label">
-          {mobileDay.toLocaleDateString("en", { weekday: "short", month: "short", day: "numeric" })}
+          {mobileDay.toLocaleDateString(DATE_LOCALE, { weekday: "short", day: "numeric", month: "short" })}
         </span>
-        <button className="cal-nav-btn" onClick={() => { const d = new Date(mobileDay); d.setDate(d.getDate() + 1); setMobileDay(d); }} aria-label="Next day"><IconChevronRight /></button>
+        <button className="cal-nav-btn" onClick={() => { const d = new Date(mobileDay); d.setDate(d.getDate() + 1); setMobileDay(d); }} aria-label="Next day">›</button>
       </div>
       {isMobile && (() => {
         const ds = localDateStr(mobileDay);
@@ -1086,13 +976,13 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
               >
                 <div className="cal-mobile-ghost__info">
                   <div className="cal-mobile-ghost__name">
-                    {loggedEventIds.has(event.id) && <IconCheck size={11} className="cal-ghost__check" />}
+                    {loggedEventIds.has(event.id) && <span className="cal-ghost__check" aria-hidden="true">✓ </span>}
                     {event.subject}
                   </div>
                   <div className="cal-mobile-entry__time">
-                    {new Date(event.startTime).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })}
+                    {clockAt(minutesOfDay(event.startTime))}
                     {" – "}
-                    {new Date(event.endTime).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })}
+                    {clockAt(minutesOfDay(event.endTime))}
                   </div>
                 </div>
                 <span className="cal-mobile-ghost__cta">{loggedEventIds.has(event.id) ? "Logged" : "Log"}</span>
@@ -1119,9 +1009,9 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
                   <div className="cal-mobile-entry__info">
                     <div className="cal-mobile-entry__name">{entry.description || project?.name || "Untitled"}</div>
                     <div className="cal-mobile-entry__time">
-                      {new Date(entry.startTime).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })}
+                      {clockAt(minutesOfDay(entry.startTime))}
                       {" – "}
-                      {running ? "now" : entry.endTime ? new Date(entry.endTime).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" }) : ""}
+                      {running ? "now" : entry.endTime ? clockAt(minutesOfDay(entry.endTime)) : ""}
                     </div>
                   </div>
                 </div>
@@ -1240,7 +1130,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
                     data-today={isToday ? "true" : undefined}
                     style={{ gridColumn: col + 1 }}
                     tabIndex={isFocused ? 0 : -1}
-                    aria-label={`${formatSlotTime(row)} on ${day.toLocaleDateString("en", { weekday: "long", month: "long", day: "numeric" })} — click, or drag to set a time range`}
+                    aria-label={`${formatSlotTime(row)} on ${day.toLocaleDateString(DATE_LOCALE, { weekday: "long", day: "numeric", month: "long" })} — click, or drag to set a time range`}
                     onPointerDown={(e) => dragCreate.onPointerDown(e, ds, row, col)}
                     onPointerMove={dragCreate.onPointerMove}
                     onPointerUp={dragCreate.onPointerUp}
@@ -1257,7 +1147,7 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
                         startMin={gap.startMin}
                         endMin={gap.endMin}
                         rowTopMin={row * 30}
-                        dayLabel={day.toLocaleDateString("en", { weekday: "long", month: "long", day: "numeric" })}
+                        dayLabel={day.toLocaleDateString(DATE_LOCALE, { weekday: "long", day: "numeric", month: "long" })}
                         onFill={openCreate}
                       />
                     ))}
@@ -1283,6 +1173,24 @@ export const CalendarPage: React.FC<Props> = ({ entries, projects, tasks, rangeL
         </div>
       </div>
       </div>{/* end calendar__grid-wrap */}
+
+      {/* The Calendar's primary action is direct manipulation, so the action
+          bar has no button: it teaches the gesture instead — including the
+          keyboard route, which is the half a `title` on a block could never
+          reach (#106) — and carries the legend for the one thing on the grid
+          that isn't yours. */}
+      <FloatingActionBar
+        hint={
+          <>
+            <span>
+              Drag anywhere on the grid to log time. Drag a block&rsquo;s edge to change it, or
+              Tab to one and use Shift + arrow keys.
+            </span>
+            <span className="action-bar__swatch" aria-hidden="true" />
+            <span>Outlook meeting</span>
+          </>
+        }
+      />
     </div>
   );
 };

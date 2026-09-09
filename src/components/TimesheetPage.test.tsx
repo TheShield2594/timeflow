@@ -1,13 +1,15 @@
 /**
  * The Timesheet is the page people actually reconcile their week on, and it
- * was entirely untested (#114). What matters here is the filtering — range,
- * search and project — because a filter that quietly drops an entry produces
- * a total that is wrong in the direction nobody checks.
+ * was entirely untested (#114). What matters here is the arithmetic — which
+ * entries land in the range, and which holes the page claims are in a day —
+ * because a filter that quietly drops an entry produces a total that is wrong
+ * in the direction nobody checks.
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, cleanup, fireEvent, within } from "@testing-library/react";
+import { screen, cleanup, fireEvent, within } from "@testing-library/react";
 import { TimesheetPage } from "./TimesheetPage";
-import { DataRangeProvider } from "../contexts/DataRangeContext";
+import { renderWithData, TEST_WORKING_HOURS } from "../test/dataHarness";
+import { addDaysStr, localDateStr } from "../utils/dates";
 import type { Project, TimeEntry } from "../types";
 
 // The SDK's app entrypoint has an extensionless internal import that Node's
@@ -23,16 +25,13 @@ vi.mock("../generated", () => ({ MicrosoftDataverseService: {} }));
 
 const projects: Project[] = [
   { id: "p1", name: "Alpha", color: "#719500", isActive: true, createdAt: "" },
-  { id: "p2", name: "Beta", color: "#3b82f6", isActive: false, createdAt: "" },
+  { id: "p2", name: "Beta", color: "#00739F", isActive: false, createdAt: "" },
 ];
 
-/** Days back from today, so entries always land inside the default 30d range
- *  regardless of when the suite runs. */
-function daysAgo(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
+const today = localDateStr();
+
+/** Days back from today. */
+const daysAgo = (n: number) => addDaysStr(today, -n);
 
 function entry(over: Partial<TimeEntry> & { id: string; date: string }): TimeEntry {
   return {
@@ -46,20 +45,22 @@ function entry(over: Partial<TimeEntry> & { id: string; date: string }): TimeEnt
   };
 }
 
-function renderPage(entries: TimeEntry[], props: Partial<React.ComponentProps<typeof TimesheetPage>> = {}) {
-  return render(
-    <DataRangeProvider>
-      <TimesheetPage
-        entries={entries}
-        projects={projects}
-        tasks={[]}
-        onDelete={vi.fn()}
-        onEdit={vi.fn()}
-        onCreate={vi.fn()}
-        {...props}
-      />
-    </DataRangeProvider>
+/**
+ * Renders on an explicit custom range rather than the default "This week".
+ *
+ * Dates relative to `today` land in different weeks depending on which day the
+ * suite happens to run, so a test that asserts on grouping has to say what
+ * window it means rather than inherit one.
+ */
+function renderPage(entries: TimeEntry[], opts: { from?: string; to?: string } = {}) {
+  const result = renderWithData(
+    <TimesheetPage workingHours={TEST_WORKING_HOURS} />,
+    { entries, projects },
   );
+  fireEvent.click(screen.getByRole("tab", { name: "Custom" }));
+  fireEvent.change(screen.getByLabelText("From"), { target: { value: opts.from ?? daysAgo(40) } });
+  fireEvent.change(screen.getByLabelText("To"), { target: { value: opts.to ?? today } });
+  return result;
 }
 
 beforeEach(() => { localStorage.clear(); });
@@ -67,15 +68,15 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe("TimesheetPage totals", () => {
   it("totals only the entries inside the selected range", () => {
-    // The 45-day-old entry is outside the default "Last 30 days" window and
-    // must not reach the total — this is the number people bill from.
+    // The 45-day-old entry is outside the 40-day window and must not reach the
+    // total — this is the number people bill from.
     renderPage([
       entry({ id: "a", date: daysAgo(1), durationMinutes: 90 }),
       entry({ id: "b", date: daysAgo(2), durationMinutes: 30 }),
       entry({ id: "c", date: daysAgo(45), durationMinutes: 600 }),
     ]);
 
-    expect(screen.getByText("2h total")).toBeTruthy();
+    expect(screen.getByText(/^2h in custom$/)).toBeTruthy();
   });
 
   it("groups entries by day, newest first, with a per-day total", () => {
@@ -85,10 +86,9 @@ describe("TimesheetPage totals", () => {
       entry({ id: "c", date: daysAgo(1), durationMinutes: 45, description: "Newer too" }),
     ]);
 
-    const dayTotals = screen.getAllByText(/^\d+h?\s?\d*m?$/)
-      .filter((el) => el.classList.contains("timesheet__day-total"))
+    const totals = Array.from(document.querySelectorAll(".timesheet__group-total"))
       .map((el) => el.textContent);
-    expect(dayTotals).toEqual(["1h 15m", "1h"]);
+    expect(totals).toEqual(["1h 15m", "1h"]);
   });
 });
 
@@ -99,7 +99,7 @@ describe("TimesheetPage filtering", () => {
       entry({ id: "b", date: daysAgo(1), description: "Invoicing", jiraTicket: "FIN-12" }),
     ]);
 
-    const box = screen.getByLabelText(/Search entries/);
+    const box = screen.getByLabelText(/Search descriptions/);
     fireEvent.change(box, { target: { value: "fin-12" } });
     expect(screen.queryByText("Standup")).toBeNull();
     expect(screen.getByText("Invoicing")).toBeTruthy();
@@ -109,48 +109,73 @@ describe("TimesheetPage filtering", () => {
     expect(screen.getByText("Standup")).toBeTruthy();
     expect(screen.getByText("Invoicing")).toBeTruthy();
   });
+});
 
-  it("says 'nothing matches' rather than 'no entries' when a filter is what emptied the page", () => {
-    renderPage([entry({ id: "a", date: daysAgo(1), description: "Standup" })]);
+describe("TimesheetPage untracked gaps", () => {
+  it("puts a gap between the two entries it separates, in time order", () => {
+    // Three tracked spans across an 08:00–18:00 day, with an hour missing
+    // between the first two. Collected into a block at the foot of the day, a
+    // gap reads as a footnote about the day; sitting where it happened, it
+    // reads as the part of the afternoon nobody accounted for.
+    const date = daysAgo(1);
+    renderPage([
+      entry({ id: "a", date, description: "Standup", startTime: `${date}T09:00:00`, endTime: `${date}T10:00:00` }),
+      entry({ id: "b", date, description: "Invoicing", startTime: `${date}T11:00:00`, endTime: `${date}T18:00:00` }),
+    ]);
 
-    fireEvent.change(screen.getByLabelText(/Search entries/), { target: { value: "zzz" } });
-    expect(screen.getByText("Nothing matches these filters.")).toBeTruthy();
+    const card = document.querySelector(".list-card")!;
+    const lines = [...card.children].map((el) =>
+      el.classList.contains("list-gap-row")
+        ? `gap ${el.textContent!.match(/\d{2}:\d{2} – \d{2}:\d{2}/)![0]}`
+        : el.querySelector(".list-row__title")!.textContent
+    );
+    expect(lines).toEqual([
+      "Invoicing",
+      "gap 10:00 – 11:00",
+      "Standup",
+      "gap 08:00 – 09:00",
+    ]);
+
+    const gapRow = card.querySelector<HTMLElement>(".list-gap-row")!;
+    expect(within(gapRow).getByRole("button", { name: "Fill it" })).toBeTruthy();
   });
 
-  it("keeps archived projects in the filter, flagged, because the page scopes history", () => {
-    renderPage([entry({ id: "a", date: daysAgo(1), projectId: "p2", description: "Legacy" })]);
+  it("computes gaps from the whole day, not from what the search left showing", () => {
+    // Two back-to-back entries fill 09:00–11:00. Searching for one of them
+    // hides the other, but the hour it covers is still tracked — a gap
+    // computed from the filtered rows would invent a hole at 10:00.
+    const date = daysAgo(1);
+    renderPage([
+      entry({ id: "a", date, description: "Standup", startTime: `${date}T09:00:00`, endTime: `${date}T10:00:00` }),
+      entry({ id: "b", date, description: "Invoicing", startTime: `${date}T10:00:00`, endTime: `${date}T11:00:00` }),
+    ]);
 
-    const filter = screen.getByLabelText("Filter by project") as HTMLSelectElement;
-    expect(within(filter).getByText("Beta (archived)")).toBeTruthy();
-
-    fireEvent.change(filter, { target: { value: "p1" } });
-    expect(screen.queryByText("Legacy")).toBeNull();
-    fireEvent.change(filter, { target: { value: "p2" } });
-    expect(screen.getByText("Legacy")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Search descriptions/), { target: { value: "Standup" } });
+    // A search is a view over the day, not a claim about it, so the page stops
+    // reporting holes entirely rather than reporting the wrong ones.
+    expect(document.querySelectorAll(".list-gap-row").length).toBe(0);
   });
 });
 
 describe("TimesheetPage empty states", () => {
-  it("steers a first-run user with no projects to Projects, not to a dead-end modal", () => {
+  it("steers a first-run user with no projects to Projects, not to a dead-end sheet", () => {
     const onGoToProjects = vi.fn();
-    render(
-      <DataRangeProvider>
-        <TimesheetPage
-          entries={[]} projects={[]} tasks={[]}
-          onDelete={vi.fn()} onEdit={vi.fn()} onCreate={vi.fn()}
-          onGoToProjects={onGoToProjects}
-        />
-      </DataRangeProvider>
+    renderWithData(
+      <TimesheetPage workingHours={TEST_WORKING_HOURS} onGoToProjects={onGoToProjects} />,
+      { entries: [], projects: [] },
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Create a project/ }));
     expect(onGoToProjects).toHaveBeenCalled();
   });
 
-  it("offers a manual entry once projects exist", () => {
-    renderPage([]);
-    expect(screen.getByRole("button", { name: /Add your first entry/ })).toBeTruthy();
-    expect(screen.getByText(/Start the timer or add one manually/)).toBeTruthy();
+  it("names the last entry rather than saying 'no data'", () => {
+    renderWithData(
+      <TimesheetPage workingHours={TEST_WORKING_HOURS} />,
+      { entries: [entry({ id: "old", date: daysAgo(200) })], projects },
+    );
+    expect(screen.getByText(/Your last entry was/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Log past time" })).toBeTruthy();
   });
 });
 
@@ -159,30 +184,25 @@ describe("TimesheetPage paging", () => {
     const entries = Array.from({ length: 35 }, (_, i) =>
       entry({ id: `e${i}`, date: daysAgo(i), description: `Day ${i}` })
     );
-    renderPage(entries);
-    // Widen past the default 30 days, or the range filter — not the pager —
-    // is what's hiding the tail.
-    fireEvent.click(screen.getByRole("button", { name: "Last 90 days" }));
+    renderPage(entries, { from: daysAgo(40) });
 
     expect(screen.queryByText("Day 32")).toBeNull();
-    const more = screen.getByRole("button", { name: /Load more \(5 more days\)/ });
-    fireEvent.click(more);
+    fireEvent.click(screen.getByRole("button", { name: /Show 5 more days/ }));
     expect(screen.getByText("Day 32")).toBeTruthy();
   });
 
-  it("resets paging when the filter changes, so 'Load more' state can't carry over", () => {
+  it("resets paging when the search changes, so 'Show more' state can't carry over", () => {
     const entries = Array.from({ length: 35 }, (_, i) =>
       entry({ id: `e${i}`, date: daysAgo(i), description: `Day ${i}` })
     );
-    renderPage(entries);
-    fireEvent.click(screen.getByRole("button", { name: "Last 90 days" }));
+    renderPage(entries, { from: daysAgo(40) });
 
-    fireEvent.click(screen.getByRole("button", { name: /Load more/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Show 5 more/ }));
     expect(screen.getByText("Day 32")).toBeTruthy();
 
     // Search for something every entry matches: the list is the same length,
     // but the page count has to start over.
-    fireEvent.change(screen.getByLabelText(/Search entries/), { target: { value: "Day" } });
+    fireEvent.change(screen.getByLabelText(/Search descriptions/), { target: { value: "Day" } });
     expect(screen.queryByText("Day 32")).toBeNull();
   });
 });

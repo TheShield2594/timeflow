@@ -31,8 +31,12 @@ export interface DataApi {
   tasks: Task[];
   /** First load only — pages show a skeleton. */
   loading: boolean;
-  /** Any load, including a range widening — pages show an inline spinner. */
+  /** Any load, including a range widening. */
   rangeLoading: boolean;
+  /** A read came back holding another user's rows: Dataverse row-level
+   *  security is misconfigured. Sticky for the session, and the shell raises
+   *  a persistent alarm on it. */
+  isolationBreach: boolean;
 
   createEntry: (data: NewTimeEntry) => Promise<TimeEntry>;
   editEntry: (id: string, data: Partial<TimeEntry>) => Promise<TimeEntry>;
@@ -56,13 +60,24 @@ export interface DataApi {
 
 const DataCtx = createContext<DataApi | null>(null);
 
+/**
+ * The provider that just supplies a value.
+ *
+ * DataProvider below builds that value out of the real hooks; this is the
+ * seam a test uses to render a page against a fixed data layer without
+ * standing up Dataverse, localStorage and four hooks to do it.
+ */
+export const DataApiProvider: React.FC<{ value: DataApi; children: React.ReactNode }> = ({ value, children }) => (
+  <DataCtx.Provider value={value}>{children}</DataCtx.Provider>
+);
+
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { from, to } = useDataRange();
 
   const { projects, addProject, editProject, archiveProject, restoreProject } = useProjects();
   const { tasks, addTask, deleteTask, restoreTask, renameTask, loadTasksForProject } = useTasks();
   const {
-    entries, loading, isFetching, deleteEntry, editEntry, createEntry, refresh,
+    entries, loading, isFetching, isolationBreach, deleteEntry, editEntry, createEntry, refresh,
   } = useTimeEntries(from, to);
 
   const undoable = useUndoableMutations({
@@ -75,17 +90,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // `loading` already covers the first paint; this is the *subsequent*
     // fetch, which pages show without unmounting their content.
     rangeLoading: isFetching && !loading,
+    isolationBreach,
     createEntry, editEntry, deleteEntry: undoable.deleteEntry, refreshEntries: refresh,
     addProject, editProject, archiveProject: undoable.archiveProject, restoreProject,
     addTask, deleteTask: undoable.deleteTask, renameTask, loadTasksForProject,
   }), [
-    entries, projects, tasks, loading, isFetching,
+    entries, projects, tasks, loading, isFetching, isolationBreach,
     createEntry, editEntry, refresh, undoable,
     addProject, editProject, restoreProject,
     addTask, renameTask, loadTasksForProject,
   ]);
 
-  return <DataCtx.Provider value={value}>{children}</DataCtx.Provider>;
+  return <DataApiProvider value={value}>{children}</DataApiProvider>;
 };
 
 export function useData(): DataApi {

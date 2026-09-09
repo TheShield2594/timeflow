@@ -37,6 +37,14 @@ describe("formatMinutes", () => {
     expect(formatMinutes(150)).toBe("2h 30m");
   });
 
+  it("zero-pads the minutes beside an hour, so a column of them lines up", () => {
+    // "2h 5m" under "2h 41m" puts two different digits in the same tabular
+    // figure and the column stops aligning. Alone, "05m" would be a leading
+    // zero nobody asked for.
+    expect(formatMinutes(125)).toBe("2h 05m");
+    expect(formatMinutes(5)).toBe("5m");
+  });
+
   it("clamps negatives instead of emitting '-2h -30m' (#114)", () => {
     expect(formatMinutes(-90)).toBe("0m");
   });

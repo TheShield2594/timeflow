@@ -1,5 +1,5 @@
 /**
- * The pages past Overview and Timesheet are code-split (#116), so navigating
+ * The pages past Timer and Timesheet are code-split (#116), so navigating
  * to one now involves a chunk fetch that can be pending, and can fail. Both
  * paths have to land somewhere the user can act on.
  *
@@ -10,6 +10,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import { PageRouter } from "./PageRouter";
+import { DEFAULT_WORKING_HOURS } from "../hooks/useWorkingHours";
+import type { TimerState } from "../types";
 import { DataRangeProvider } from "../contexts/DataRangeContext";
 import { DataProvider } from "../contexts/DataContext";
 import { ToastProvider } from "../contexts/ToastContext";
@@ -41,12 +43,34 @@ vi.mock("../services/dataverseService", () => ({
   hasForeignUserEntries: vi.fn(() => false),
 }));
 
+const IDLE_TIMER: TimerState = {
+  isRunning: false, startTime: null, projectId: null, taskId: null, description: "",
+};
+
 function renderRouter(page: React.ComponentProps<typeof PageRouter>["page"]) {
   return render(
     <ToastProvider>
       <DataRangeProvider>
         <DataProvider>
-          <PageRouter page={page} timerBusy={false} onContinue={vi.fn()} />
+          <PageRouter
+            page={page}
+            timerBusy={false}
+            onContinue={vi.fn()}
+            workingHours={DEFAULT_WORKING_HOURS}
+            timerScreen={{
+              timer: IDLE_TIMER,
+              draft: { projectId: "", description: "" },
+              onDraftChange: vi.fn(),
+              onStart: vi.fn(),
+              onStop: vi.fn(),
+              onRetryStop: vi.fn(),
+              onUpdate: vi.fn(),
+              focusProjectNonce: 0,
+              targetHours: 40,
+              onSetTarget: vi.fn(),
+              shortcutHint: "Ctrl + .",
+            }}
+          />
         </DataProvider>
       </DataRangeProvider>
     </ToastProvider>
@@ -74,9 +98,9 @@ describe("PageRouter over the data context", () => {
   it("renders an eager page from context data, with no props threaded through", async () => {
     const { container } = renderRouter("timesheet");
     // The first data load is still in flight, so the skeleton is up.
-    expect(container.querySelector(".page-skeleton")).toBeTruthy();
+    expect(container.querySelector(".skeleton-page")).toBeTruthy();
     // Then Timesheet, which ships in the entry chunk and needs no chunk fetch.
-    await waitFor(() => expect(screen.getByText("Timesheet")).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Timesheet" })).toBeTruthy());
   });
 
   // Each page is identified by something only it renders, so the assertion
@@ -93,16 +117,16 @@ describe("PageRouter over the data context", () => {
 
     // Whatever the chunk is doing, the user sees the same skeleton the first
     // data load uses rather than an empty frame.
-    expect(container.querySelector(".page-skeleton, .reports-skeleton")).toBeTruthy();
+    expect(container.querySelector(".skeleton-page")).toBeTruthy();
 
     await waitFor(() => expect(findPage()).toBeTruthy());
-    expect(container.querySelector(".page-skeleton, .reports-skeleton")).toBeNull();
+    expect(container.querySelector(".skeleton-page")).toBeNull();
   });
 
   it("hides the Team page without a team, whatever the nav did", async () => {
     // The nav item only renders for managers, but the router guards anyway.
     const { container } = renderRouter("team");
-    await waitFor(() => expect(container.querySelector(".page-skeleton")).toBeNull());
+    await waitFor(() => expect(container.querySelector(".skeleton-page")).toBeNull());
     expect(container.textContent).toBe("");
   });
 });

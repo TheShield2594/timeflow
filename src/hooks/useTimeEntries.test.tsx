@@ -169,7 +169,7 @@ describe("useTimeEntries", () => {
     expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining("delete failed"), "error");
   });
 
-  it("warns once when the server returns another user's entries (row security misconfigured)", async () => {
+  it("raises a sticky alarm when the server returns another user's entries (row security misconfigured)", async () => {
     const foreign = makeEntry({ id: "e1", userId: "user-2" });
     vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([foreign]));
     vi.mocked(svc.hasForeignUserEntries).mockReturnValue(true);
@@ -178,7 +178,12 @@ describe("useTimeEntries", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     expect(svc.hasForeignUserEntries).toHaveBeenCalledWith([foreign], "user-1");
-    expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining("isolation"), "error");
+    // Not a toast: this is the one signal in the app that means nothing on any
+    // screen can be trusted, and the old version told the one person who could
+    // not act on it and then vanished. It's a flag the shell raises a
+    // persistent banner from, and it never clears for the session.
+    expect(toastSpy).not.toHaveBeenCalled();
+    expect(result.current.isolationBreach).toBe(true);
     // The canary has to leave the browser, not just the render — this is the
     // one signal that means the whole company's time data may be visible (#111).
     expect(telemetrySpy).toHaveBeenCalledWith(
@@ -190,9 +195,12 @@ describe("useTimeEntries", () => {
       })
     );
 
-    toastSpy.mockClear();
+    // The telemetry is de-duplicated per session — it reports a configuration,
+    // not a per-read event — but the flag stays up.
+    telemetrySpy.mockClear();
     await act(async () => { await result.current.refresh(); });
-    expect(toastSpy).not.toHaveBeenCalled(); // only warns once per session
+    expect(telemetrySpy).not.toHaveBeenCalled();
+    expect(result.current.isolationBreach).toBe(true);
   });
 
   it("does not warn when hasForeignUserEntries reports no foreign entries", async () => {
@@ -205,6 +213,7 @@ describe("useTimeEntries", () => {
 
     expect(svc.hasForeignUserEntries).toHaveBeenCalledWith([own], "user-1");
     expect(toastSpy).not.toHaveBeenCalled();
+    expect(result.current.isolationBreach).toBe(false);
   });
 });
 

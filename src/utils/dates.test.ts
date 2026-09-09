@@ -114,11 +114,13 @@ describe("friendlyDate", () => {
     expect(friendlyDate("2024-06-14")).toBe("Yesterday");
   });
 
-  it("returns a long weekday/month/day string for any other date", () => {
+  it("returns a long weekday/day/month string for any other date", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2024, 5, 15, 9));
+    // Day-first, matching every other date in the app — see DATE_LOCALE.
+    expect(friendlyDate("2024-06-01")).toBe("Saturday 1 June");
     expect(friendlyDate("2024-06-01")).toBe(
-      new Date("2024-06-01T00:00:00").toLocaleDateString("en", {
+      new Date("2024-06-01T00:00:00").toLocaleDateString("en-GB", {
         weekday: "long",
         month: "long",
         day: "numeric",

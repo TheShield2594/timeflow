@@ -11,21 +11,27 @@ const ASSETS_INLINE_LIMIT = 32 * 1024;
 /**
  * Assets that MUST inline, and how much room each has left (#116).
  *
- * `outfit-latin-var.woff2` is 32,292 bytes against a 32,768-byte limit — 476
- * bytes of headroom. Add one glyph to the subset and Vite silently stops
- * inlining it, emits it as a separate file, and the font 404s in the host
- * with no build error at all: the first anyone would know is a production
- * page rendering in the fallback stack.
+ * `instrument-sans-latin-var.woff2` is ~30 KB against a 32,768-byte limit.
+ * Add enough glyphs to the subset and Vite silently stops inlining it, emits
+ * it as a separate file, and the font 404s in the host with no build error at
+ * all: the first anyone would know is a production page rendering in the
+ * fallback stack.
  *
  * So the cliff is asserted rather than commented. The check runs twice on
  * purpose: the source-size test fails fast with the exact overage, and the
  * bundle test catches the case where Vite's inlining rule itself changes
  * under us (an SVG exemption, a different size accounting) and the source
  * was never the thing that moved.
+ *
+ * `everence-logo.png` is deliberately not in this list any more: the sidebar
+ * carries the emblem alone, because the full logo's charcoal wordmark does
+ * not survive dark mode. The full file stays in the repo as the source the
+ * mark was cropped from, but nothing imports it, so it never reaches a
+ * bundle.
  */
 const MUST_INLINE = [
-  "src/assets/fonts/outfit-latin-var.woff2",
-  "src/everence-logo.png",
+  "src/assets/fonts/instrument-sans-latin-var.woff2",
+  "src/everence-mark.png",
 ];
 
 function assertCriticalAssetsInline(limit: number): Plugin {

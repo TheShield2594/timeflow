@@ -39,20 +39,40 @@ describe("toast live regions", () => {
       </>
     );
     const [saved, failed] = screen.getAllByRole("button", { name: "push" });
-    fireEvent.click(saved);
-    fireEvent.click(failed);
 
+    fireEvent.click(saved);
     expect(politeRegion().textContent).toContain("Saved 45m to Alpha.");
-    expect(politeRegion().textContent).not.toContain("Failed to save entry.");
+    expect(assertiveRegion().textContent).toBe("");
+
     // A failed save queued politely behind whatever the user was doing was the
     // whole complaint — it belongs in the assertive region.
+    fireEvent.click(failed);
     expect(assertiveRegion().textContent).toContain("Failed to save entry.");
+    expect(politeRegion().textContent).not.toContain("Failed to save entry.");
   });
 
-  it("keeps the regions mounted after the last toast is dismissed", () => {
+  // One at a time, replaced by the next. A stack of toasts is a queue of
+  // things the user is being told while they are trying to do something else.
+  it("replaces the standing toast rather than stacking a second one under it", () => {
+    renderWithToasts(
+      <>
+        <Pusher message="Saved 45m to Alpha." kind="success" />
+        <Pusher message="Entry deleted." kind="success" />
+      </>
+    );
+    const [saved, deleted] = screen.getAllByRole("button", { name: "push" });
+    fireEvent.click(saved);
+    fireEvent.click(deleted);
+
+    expect(screen.queryByText("Saved 45m to Alpha.")).toBeNull();
+    expect(screen.getByText("Entry deleted.")).toBeTruthy();
+  });
+
+  it("keeps the regions mounted after the last toast is gone", () => {
+    vi.useFakeTimers();
     renderWithToasts(<Pusher message="Entry deleted." />);
     fireEvent.click(screen.getByRole("button", { name: "push" }));
-    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    act(() => { vi.advanceTimersByTime(5000); });
     expect(politeRegion()).toBeTruthy();
     expect(politeRegion().textContent).toBe("");
   });

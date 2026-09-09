@@ -1,2726 +1,1109 @@
 /* =====================================================================
-   REVISION NOTES (design review pass — colour, type, chips, cards)
-   ─ Green was doing every job at once: labels, totals, day headings, card
-     titles, quiet buttons. It now marks five things only — active nav, the
-     primary button, the running timer, chart bars, the heatmap — and every
-     number moved onto one three-step mono ramp (see NUMERIC TYPE RAMP).
-     Micro-labels are --text-muted, numbers are --text.
-   ─ .badge/.badge--project/.badge--task are gone: project, task, Jira
-     ticket and ratio wore one identical pill each, so "PTO · Vacation"
-     read as two unrelated tags. Replaced by .chip-work (composite
-     project ▸ task with a coloured project dot), .chip-ticket (mono
-     hairline box) and .chip-ratio (quiet suffix, label in the tooltip).
-   ─ Project cards: header / tasks / footer instead of a uniform-height
-     box; Edit + Archive behind one .card-menu; task delete revealed on
-     hover/focus; totals explicitly scoped to a window they can name.
-   ─ Overview leads with .today-strip + .target-ring — see that section.
+   TIMEFLOW — the system before the screens.
 
-   REVISION NOTES (July 2026 pass)
-   ─ Dark mode "dark box" fixes:
-     • Shadows re-tuned for dark surfaces (near-black shadows on near-black
-       cards read as boxes, not depth). Elevation now leans on the existing
-       bg→surface lightness step; shadows are soft and low-alpha.
-     • .cal-entry gets a theme-aware background derived from --pc so dark
-       project swatches (navy/forest) no longer render as black blocks.
-     • .cal-entry:hover now LIGHTENS in dark mode (the old inset-black
-       darkener made entries vanish into the grid).
-     • backdrop-filter: blur() removed from both overlays — long-standing
-       Chromium compositing bugs paint gray/black rectangles, worst with
-       animating children + fractional display scaling. Dim raised instead.
-     • Matrix scroll-shadow radials swapped to a light glow in dark mode
-       (black-on-black shadows were invisible AND boxy at the seam).
-   ─ Contrast (extends issue #26):
-     • Small green text moved off raw --ev-green (3.3:1) onto --ev-green-dark.
-       Large/bold uses (KPI values, 24px/700) stay raw green — passes at 3:1.
-     • Raw pumpkin text → --ev-pumpkin-text; raw grass text → new
-       --ev-grass-text. Danger/success tints promoted to tokens so dark
-       theme can rebalance them (the old rgba literals assumed white).
-     • .badge--project / .cal-entry__name use var(--text) instead of a --pc
-       color-mix — --pc is arbitrary user-picked hex, so only a fixed,
-       theme-aware token can guarantee contrast for every possible value.
-   ─ Focus: global ring kept; native inputs/selects opt out since they carry
-     their own :focus border+glow (ring was double-stacking). Old comment's
-     specificity claim corrected. Ring color is a token (--focus-ring) so
-     dark mode can use robin for visibility. Three quick-add inputs
-     (new-task, inline-task, week-target editor) had a static green border
-     and no :focus state of their own — opting them out of the global ring
-     left them with zero focus indicator, so each now gets the same
-     focus glow as the other form inputs.
-   ─ Layout:
-     • .calendar no longer uses calc(100vh - magic numbers) — it broke when
-       the timer bar wrapped under 900px. .main__content is now a flex
-       column and the calendar flexes into the remainder. 100dvh adopted.
-     • .calendar__day-headers border order fixed (the `border:` shorthand
-       was silently overriding the 2px border-bottom declared before it).
-   ─ Misc: color-scheme set per theme (native pickers/scrollbars were
-     rendering light in dark mode), Firefox scrollbar styling added,
-     swatch focus ring uses --surface (dark override deleted), empty
-     .calendar__gutter rule removed. .cal-modal shadow tokenized (--shadow)
-     so it re-tunes in dark mode like every other card/panel shadow.
+   One typeface, one accent, an 8pt grid, and four renderings of a single
+   time entry. Everything below is assembled from the tokens and primitives
+   in the first three sections; the screen sections only arrange them.
+
+   Three rules the rest of the file assumes:
+
+   1. Colour is data. --accent means "you can act here" and nothing else.
+      A project's colour means "this project" and appears on that project's
+      dots, bars and blocks only. Nothing else in the app is coloured.
+
+   2. Depth is earned. No box-shadow on content. A container gets a surface
+      only by floating, scrolling independently, or being dismissible, and
+      it gets there through a *material* — 72% background plus a blur —
+      with one hairline and no shadow. Never a card inside a card.
+
+   3. Two text colours per theme. --label and --label-secondary are the
+      only colours a reader ever reads; --decor is for marks that carry no
+      information, and styles.contrast.test.ts fails the build if a rule
+      puts a font-size on it. --dim-display is the one deliberate
+      exception, at 3.2:1, and only at the 96px idle clock.
    ===================================================================== */
 
 /* =====================================================================
-   TYPEFACE — Outfit (self-hosted variable font, latin subset)
-   Bundled locally so no user request metadata leaks to a font CDN and
-   the app keeps its typeface in offline/locked-down Dataverse hosts.
-   Falls back to the system stack for non-latin glyphs.
+   TYPEFACE — Instrument Sans (self-hosted variable font, latin subset)
+   Bundled locally rather than pulled from a font CDN so no user request
+   metadata leaves the tenant and the app keeps its typeface in the
+   locked-down Dataverse hosts it runs inside.
    ===================================================================== */
 @font-face {
-  font-family: "Outfit";
+  font-family: "Instrument Sans";
   font-style: normal;
-  font-weight: 100 900;
+  font-weight: 400 700;
   font-display: swap;
-  src: url("./assets/fonts/outfit-latin-var.woff2") format("woff2");
+  src: url("./assets/fonts/instrument-sans-latin-var.woff2") format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 /* =====================================================================
-   EVERENCE BRAND TOKENS
+   EVERENCE BRAND PALETTE
+   Kept in full as the reference it always was, but its role is now
+   narrower: these are the colours a *project* can be painted in. None of
+   them is chrome. The picker draws from this list and excludes hues
+   already taken, because two projects sharing a hue makes every dot,
+   bar and block in the app ambiguous.
+
    Primary:   Green #719500 | Lime #B5BF00 | Robin #4DC5E2 | Blue #0080BD | Pumpkin #CC4F00
    Secondary: Forest #225433 | Grass #358450 | Navy #003346 | Royal #00739f | Lemon #F3AE00
-   Neutral:   Charcoal #4B5457 | Off-white #e9f3f3 | Cream #eaedd3 | Warm white #fafaf7
+   Neutral:   Charcoal #4B5457
    ===================================================================== */
 :root {
-  color-scheme: light; /* native widgets (date pickers, selects, scrollbars) follow the theme */
-
-  --ev-green:       #719500;
-  --ev-green-dark:  #5a7800;  /* 4.5:1 on white — AA for small text  */
-  --ev-green-soft:  rgba(113,149,0,0.10);
-  --ev-green-mid:   rgba(113,149,0,0.18);
-  --ev-lime:        #B5BF00;  /* 2.0:1 on white — decorative use only */
-  --ev-forest:      #225433;
-  --ev-grass:       #358450;  /* ~3.9:1 on white — decorative/large only */
-  --ev-robin:       #4DC5E2;  /* 2.0:1 on white — decorative use only */
-  --ev-blue:        #0080BD;
-  --ev-navy:        #003346;
-  --ev-royal:       #00739f;
-  --ev-pumpkin:     #CC4F00;
-  --ev-lemon:       #F3AE00;  /* 1.9:1 on white — decorative use only */
-  --ev-charcoal:    #4B5457;
-
-  /* WCAG AA text-safe variants (≥ 4.5:1 on #fff and #fafaf7).
-     Use these instead of the raw brand colours whenever SMALL text is
-     rendered directly on a white/cream surface (issue #26). Large text
-     (≥24px regular / ≥18.66px bold) may keep the raw brand colour. */
-  --ev-lime-text:    #5c6200;  /* 7.5:1 on white */
-  --ev-robin-text:   #005c6e;  /* 5.5:1 on white */
-  --ev-lemon-text:   #7a5500;  /* 5.3:1 on white */
-  --ev-pumpkin-text: #a33e00;  /* 5.8:1 on white */
-  --ev-grass-text:   #276b41;  /* darkened grass for small-text AA on white */
-
-  /* Light, airy surfaces — Everence uses prominent white space */
-  --bg:             #fafaf7;
-  --surface:        #ffffff;
-  --surface-fade:   rgba(255,255,255,0); /* --surface with alpha 0, for edge-fade gradients */
-  --surface-2:      #f4f5ef;
-  --surface-3:      #eaedd3;
-  --border:         #d4d9c0;
-  --border-subtle:  #eaedd3;
-
-  --text:           #1a2210;
-  --text-muted:     #4B5457;
-  /* Two tokens, not one, because "faint" was doing two incompatible jobs: the
-     hour labels down the calendar and the Project × Period headers were the
-     same grey as a placeholder, at 2.46:1 (#88). --text-faint is now the
-     AA-safe grey for anything a reader has to *read*; --text-decor keeps the
-     old value for marks that carry no information — placeholders, the "·"
-     between meta facts, purely decorative glyphs. Nothing a screen reader
-     would announce as content belongs on --text-decor. */
-  --text-faint:     #5f6d5c;
-  --text-decor:     #9aaa94;
-
-  /* --accent / --accent-hover used to live here, defined and referenced
-     nowhere: a token claiming to be *the* accent while the actual accent came
-     from --accent-solid and --ev-green-dark is worse than no token at all. */
-  --accent-soft:    var(--ev-green-soft);
-
-  /* Fill for SOLID white-on-green controls — the primary button, the Start
-     button, the active Reports tab, today's calendar date.
-
-     White on raw --ev-green is 3.52:1, short of the 4.5:1 that 13px/700 text
-     needs, and the resting state was the failing one while :hover already
-     measured past AA — backwards (#102). These are deliberately their own
-     tokens rather than --ev-green-dark: that one is re-pointed at a *light*
-     green in dark mode because it is a small-text-on-dark-surface colour, and
-     a button fill has to keep its white text legible in either theme. */
-  --accent-solid:       #5a7800;  /* 5.1:1 with #fff */
-  --accent-solid-hover: #4a6300;  /* 6.8:1 with #fff */
-
-  /* The glow half of the input focus indicator. Inputs opt out of the global
-     :focus-visible ring (they carry their own border + glow), which left the
-     10%-alpha tint of --ev-green-soft doing the work — marginal against WCAG
-     2.2's 2.4.11 (#102). Its own token so strengthening it doesn't also
-     repaint every chip and tint that uses --ev-green-soft as a surface. */
-  --focus-glow:     rgba(113,149,0,0.18);
-
-  --danger:         #CC4F00;
-  --success:        #358450;
-
-  /* Amber for "needs attention but nothing failed" — missing team days, a
-     break in progress, an Outlook overlay that couldn't load. Five rules
-     referenced this as `var(--warn, #b45309)` while the token itself was never
-     defined, so every one of them resolved to the literal in both themes:
-     5.0:1 on white, but 3.25:1 on the dark --surface, failing WCAG 1.4.3 on
-     the very text a manager scans for ("3 missing days"). Defined per theme
-     here like --ev-pumpkin-text, and the inline fallbacks are gone so the next
-     missing definition fails visibly instead of silently (#101). */
-  --warn:           #8a5a00;  /* ≥4.9:1 on every light surface */
-
-  /* Tinted danger/success surfaces as tokens (were rgba literals scattered
-     through the file). The literals assumed a white substrate and went
-     muddy/near-invisible on dark cards; tokenizing lets the dark block
-     rebalance them the same way it already does for --ev-green-soft. */
-  --danger-soft:    rgba(204,79,0,0.07);
-  --danger-mid:     rgba(204,79,0,0.14);
-  --danger-border:  rgba(204,79,0,0.25);
-  --success-soft:   rgba(53,132,80,0.07);
-  --success-mid:    rgba(53,132,80,0.14);
-  --success-border: rgba(53,132,80,0.30);
-
-  /* Keyboard focus ring colour — robin in dark mode for visibility */
-  --focus-ring:     var(--ev-blue);
-
-  /* Sidebar uses dark forest green */
-  --sidebar-bg:          #1a2d1e;
-  --sidebar-text:        #c8d9c0;
-  --sidebar-muted:       #83a081;  /* 5.1:1 on --sidebar-bg — #7a9478 was 4.40:1 (#102) */
-  --sidebar-active-bg:   rgba(113,149,0,0.22);
-  --sidebar-active-text: #b8d430;
-  --sidebar-border:      rgba(255,255,255,0.07);
-
-  --radius:    8px;
-  --radius-sm: 5px;
-  --sidebar-w: 220px;
-  --timer-h:   72px;
-  --font:      "Outfit", system-ui, -apple-system, sans-serif;
-  --mono:      ui-monospace, "SF Mono", "Cascadia Code", monospace;
-  --shadow:    0 1px 4px rgba(26,45,30,0.07), 0 4px 16px rgba(26,45,30,0.05);
-  --shadow-sm: 0 1px 3px rgba(26,45,30,0.06);
-  --ease:      cubic-bezier(0.16, 1, 0.3, 1);
+  --ev-green:    #719500;
+  --ev-lime:     #B5BF00;
+  --ev-robin:    #4DC5E2;
+  --ev-blue:     #0080BD;
+  --ev-pumpkin:  #CC4F00;
+  --ev-forest:   #225433;
+  --ev-grass:    #358450;
+  --ev-navy:     #003346;
+  --ev-royal:    #00739F;
+  --ev-lemon:    #F3AE00;
+  --ev-charcoal: #4B5457;
 }
 
 /* =====================================================================
-   RESET
+   TOKENS — light
    ===================================================================== */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  color-scheme: light; /* native pickers, selects and scrollbars follow the theme */
+
+  --canvas:          #FBFBF8;
+  --surface:         #FFFFFF;
+  --material:        rgba(255,255,255,.72);
+  --separator:       rgba(20,22,16,.09);
+
+  --label:           #1B1D17;  /* 16.4:1 on canvas */
+  --label-secondary: #676B60;  /* 5.3:1 on canvas — every secondary line in the app */
+  --decor:           #9BA093;  /* NON-TEXT ONLY: dots, bar tracks, empty-bar fills */
+  --dim-display:     #8A9083;  /* 3.2:1 — the idle clock at 96px, nothing else */
+
+  --accent:          #5A7800;  /* 4.9:1 on canvas — Everence green, darkened */
+  --accent-tint:     rgba(90,120,0,.12);
+  --accent-tint-hover: rgba(90,120,0,.07);
+  --on-accent:       #FFFFFF;  /* 5.1:1 the other way round */
+  --danger:          #A33E00;
+  --warn:            #8A5A00;
+
+  /* A project colour is an arbitrary user-picked hex, so no fixed token can
+     promise it will read on the surface it lands on. Rather than a second
+     stored colour per project, every project-coloured mark mixes through
+     these two: a no-op in light, a lift toward the label colour in dark,
+     where a stored navy or forest is otherwise a black hole. */
+  --pc-lift:      0%;
+  --pc-lift-with: #FFFFFF;
+
+  --font: "Instrument Sans", system-ui, -apple-system, sans-serif;
+
+  --sidebar-w:      232px;
+  --radius-control: 6px;
+  --radius-block:   8px;
+  --radius-card:    14px;
+  --radius-sheet:   18px;
+}
+
+/* =====================================================================
+   TOKENS — dark
+
+   The accent inverts its role here. In light it is a dark green on a pale
+   ground; in dark it is the lightest thing on screen, so text sitting *on*
+   an accent fill goes dark rather than white.
+   ===================================================================== */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --canvas:          #0F110E;
+  --surface:         #191C17;
+  --material:        rgba(30,34,28,.72);
+  --separator:       rgba(239,242,234,.11);
+
+  --label:           #EFF2EA;
+  --label-secondary: #A2A89A;  /* 7.8:1 on canvas */
+  --decor:           #767C6E;
+  --dim-display:     #6A7065;  /* 3.7:1 on canvas — same job, same 96px-only rule */
+
+  --accent:          #A9CB4B;
+  --accent-tint:     rgba(169,203,75,.16);
+  --accent-tint-hover: rgba(169,203,75,.09);
+  --on-accent:       #12150F;
+  --danger:          #F0925F;
+  --warn:            #F0B34A;
+
+  --pc-lift:      44%;
+  --pc-lift-with: #EFF2EA;
+}
+
+/* =====================================================================
+   BASE
+   ===================================================================== */
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
 body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--label);
   font-family: var(--font);
-  background: var(--bg);
-  color: var(--text);
-  font-size: 14px;
-  line-height: 1.55;
+  font-size: 17px;
+  line-height: 24px;
   -webkit-font-smoothing: antialiased;
-  min-height: 100vh;
-  min-height: 100dvh; /* mobile browser chrome; vh line above is the fallback */
-}
-button { font-family: inherit; cursor: pointer; border: none; background: none; }
-input, select { font-family: inherit; }
-
-/* Global keyboard focus ring (issue #27). Shown only for keyboard
-   navigation so mouse users never see it. Native text inputs and selects
-   opt out below because they carry their own :focus border + glow —
-   without the opt-out both would stack (:focus and :focus-visible have
-   EQUAL specificity at 0,1,0; it was the extra class on rules like
-   .timer-bar__desc:focus that made the custom border win, and nothing
-   was actually suppressing the ring). */
-:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-:where(input, select, textarea):focus-visible { outline: none; }
-
-/* Buttons that carry an inline SVG icon next to their label */
-.btn-icon { display: inline-flex; align-items: center; gap: 6px; }
-.btn-icon svg { flex-shrink: 0; }
-
-/* =====================================================================
-   NUMERIC TYPE RAMP
-   Every number the app prints sits on one of three steps — KPI, card,
-   row — in the mono face with tabular figures, so digits keep their
-   column as values tick over. Numbers are --text; the label beside them
-   carries the meaning and stays --text-muted. Green is not a text colour
-   here: it's reserved for active nav, the primary button, the running
-   timer, chart bars and the heatmap.
-
-   Declared early on purpose: a component rule further down the file may
-   still override the colour (muted start/end times, for instance) without
-   having to restate the family, size or figure style.
-   ===================================================================== */
-.num-kpi, .num-card, .num-row {
-  font-family: var(--mono);
+  /* The single most important typographic rule in the app, and the one
+     easiest to forget on the forty-third duration: set once, globally, so
+     no column of times can ever jitter as its digits change. */
   font-variant-numeric: tabular-nums;
-  color: var(--text);
-}
-.num-kpi  { font-size: 30px; font-weight: 700; letter-spacing: -0.6px; line-height: 1.15; }
-.num-card { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; line-height: 1.2; }
-.num-row  { font-size: 14.5px; font-weight: 600; }
-
-/* Tactile press feedback on every primary interactive control */
-.btn-primary:active, .btn-ghost:active, .timer-bar__btn:active:not(:disabled),
-.cal-nav-btn:active, .export-btn:active:not(:disabled), .reports__tab:active,
-.task-chip--add:active { transform: translateY(1px) scale(0.98); }
-
-/* Firefox scrollbar styling (the ::-webkit-scrollbar rules at the bottom
-   are WebKit-only). scrollbar-width isn't inherited, hence the universal. */
-* { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
-
-/* =====================================================================
-   LAYOUT
-   ===================================================================== */
-.app { display: flex; height: 100vh; height: 100dvh; overflow: hidden; }
-
-/* =====================================================================
-   SIDEBAR
-   ===================================================================== */
-.sidebar {
-  width: var(--sidebar-w);
-  background: var(--sidebar-bg);
-  display: flex;
-  flex-direction: column;
-  padding: 0 0 20px;
-  flex-shrink: 0;
-  border-right: 1px solid rgba(0,0,0,0.18);
 }
 
-.sidebar__logo {
-  padding: 18px 16px 16px;
-  border-bottom: 1px solid var(--sidebar-border);
-  margin-bottom: 12px;
-}
-
-.sidebar__logo-img {
-  width: 100%;
-  max-width: 150px;
-  display: block;
-  opacity: 0.95;
-}
-
-.sidebar__nav {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 0 10px;
-}
-
-.sidebar__link {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 11px;
-  border-radius: var(--radius-sm);
-  color: var(--sidebar-muted);
-  font-size: 13.5px;
-  font-weight: 500;
-  transition: all 0.2s var(--ease);
-  text-align: left;
-}
-.sidebar__link:hover { background: rgba(255,255,255,0.06); color: var(--sidebar-text); }
-.sidebar__link--active { background: var(--sidebar-active-bg); color: var(--sidebar-active-text); font-weight: 700; }
-.sidebar__link-icon { font-size: 15px; flex-shrink: 0; }
-
-.sidebar__running {
-  margin: auto 10px 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 11px;
-  background: rgba(113,149,0,0.15);
-  border: 1px solid rgba(113,149,0,0.28);
-  border-radius: var(--radius-sm);
-  color: var(--sidebar-active-text);
-  font-size: 12px;
-  font-weight: 600;
-}
-.sidebar__running-dot {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  background: var(--sidebar-active-text);
-  flex-shrink: 0;
-  animation: blink 1.2s ease-in-out infinite;
-}
-@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
-
-/* =====================================================================
-   MAIN
-   ===================================================================== */
-.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-/* Flex column so full-height pages (calendar) can flex into the remaining
-   space instead of computing it with calc() magic numbers. Block pages
-   (timesheet, reports, projects) stack identically in a column flex; the
-   only behavioural difference is that vertical margins no longer collapse,
-   which nothing here relied on. */
-.main__content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 28px 36px;
-  display: flex;
-  flex-direction: column;
-}
-/* Above the timer bar, so it reads as a condition the whole app is under
-   rather than a property of any one control. --warn, not --danger: nothing has
-   failed yet. */
-.offline-banner {
-  flex-shrink: 0;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--warn);
-}
-/* Empty while online (see the note in App — the live region has to already
-   exist to be announced), so it takes no space and paints nothing until it
-   has something to say. */
-.offline-banner[data-offline="true"] {
-  padding: 8px 36px;
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--border);
-}
-.loading {
-  display: flex; align-items: center; justify-content: center;
-  height: 200px; color: var(--text-muted); font-size: 14px;
-}
-
-/* =====================================================================
-   TIMER BAR
-   ===================================================================== */
-.timer-bar {
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
-}
-
-/* "The timer is on" needs to be readable from across the room, not inferred
-   from a 3px pulse bar. Layered so the tint composes over the surface colour
-   in either theme rather than letting the page background through. */
-.timer-bar--running {
-  background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--surface);
-  border-bottom-color: var(--ev-green);
-}
-
-.timer-bar__inner {
-  display: flex; align-items: center; gap: 12px;
-  padding: 12px 24px; height: var(--timer-h);
-}
-
-.timer-bar__desc {
-  flex: 1;
-  background: var(--surface-2);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 8px 14px;
-  color: var(--text);
-  font-size: 14px;
-  transition: border-color 0.15s, box-shadow 0.15s;
-  outline: none;
-}
-.timer-bar__desc:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--focus-glow); }
-.timer-bar__desc::placeholder { color: var(--text-decor); }
-
-/* Ratio + ticket, revealed by the disclosure in the main row. */
-.timer-bar__extras {
-  display: flex; align-items: center; gap: 8px;
-  padding: 10px 24px 12px;
-  border-top: 1px solid var(--border-subtle);
-  background: var(--surface-2);
-}
-.timer-bar__extras-label {
-  font-size: 11px; font-weight: 700; color: var(--text-muted);
-  text-transform: uppercase; letter-spacing: 0.7px;
-}
-.timer-bar__extras-label:not(:first-child) { margin-left: 10px; }
-.timer-bar__extras-toggle {
-  flex: none;
-  padding: 7px 12px;
-  border: 1.5px dashed var(--border);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 12.5px; font-weight: 600;
-  cursor: pointer; white-space: nowrap;
-  transition: border-color 0.15s, color 0.15s;
-}
-.timer-bar__extras-toggle:hover { border-color: var(--ev-green); color: var(--ev-green-dark); }
-/* Solid once it carries a value, so a set ratio isn't hidden behind a "+". */
-.timer-bar__extras-toggle--set {
-  border-style: solid; border-color: var(--ev-green);
-  background: var(--accent-soft); color: var(--ev-green-dark);
-  font-family: var(--mono); font-size: 12px;
-}
-
-.timer-bar__ticket {
-  width: 130px;
-  flex: none;
-  background: var(--surface);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 7px 12px;
-  color: var(--text);
-  font-family: var(--mono); font-size: 13px;
-  transition: border-color 0.15s, box-shadow 0.15s;
-  outline: none;
-}
-.timer-bar__ticket:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--focus-glow); }
-.timer-bar__ticket::placeholder { color: var(--text-decor); font-family: var(--font); }
-
-.timer-bar__ratio {
-  width: 90px;
-  flex: none;
-  background: var(--surface-2);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 8px 14px;
-  color: var(--text);
-  font-size: 14px;
-  transition: border-color 0.15s, box-shadow 0.15s;
-  outline: none;
-}
-.timer-bar__ratio:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--focus-glow); }
-.timer-bar__ratio::placeholder { color: var(--text-decor); }
-
-.timer-bar__selectors { display: flex; gap: 8px; flex: none; }
-/* The one required field on the bar gets a width that says so. */
-.timer-bar__project-field { display: flex; }
-.combobox--project { width: 210px; }
-.combobox--task { width: 150px; }
-
-.timer-bar__select {
-  background: var(--surface-2);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text);
-  padding: 7px 10px;
-  font-size: 13px;
-  outline: none;
+button {
+  font: inherit;
+  font-variant-numeric: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
   cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
-  max-width: 165px;
 }
-.timer-bar__select:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--focus-glow); }
 
-/* ---------- Combobox (type-ahead single select) ---------- */
-.combobox { position: relative; display: flex; align-items: center; }
-.combobox__input {
-  width: 100%;
-  background: var(--surface-2);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text);
-  padding: 7px 24px 7px 10px;
-  font-size: 13px; font-weight: 600;
-  outline: none; cursor: pointer;
-  text-overflow: ellipsis;
-  transition: border-color 0.15s, box-shadow 0.15s;
+input, select, textarea { font: inherit; font-variant-numeric: inherit; color: inherit; }
+
+h1, h2, h3, p, ul, ol { margin: 0; }
+ul, ol { padding: 0; list-style: none; }
+
+/* 44 × 44 minimum, desktop included. A pointer is not a reason to make a
+   target smaller than a finger; it is only a reason to make it precise. */
+button, [role="button"], a { min-height: 44px; }
+button.is-inline, .is-inline { min-height: 0; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
 }
-.combobox__input--dotted { padding-left: 24px; }
-.combobox__input:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--focus-glow); cursor: text; }
-.combobox__input::placeholder { color: var(--text-decor); font-weight: 500; }
-.combobox__dot {
-  position: absolute; left: 10px;
-  width: 8px; height: 8px; border-radius: 50%;
-  pointer-events: none; flex-shrink: 0;
+
+::selection { background: var(--accent-tint); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--decor); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-track { background: transparent; }
+* { scrollbar-width: thin; scrollbar-color: var(--decor) transparent; }
+
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0;
 }
-.combobox__dot--inline { position: static; margin-right: 7px; }
-.combobox__caret {
-  position: absolute; right: 9px;
-  font-size: 10px; color: var(--text-muted);
+
+/* No transition in the app is longer than 200ms. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* =====================================================================
+   TYPE SCALE
+
+   Ten steps, and every one of them is used. They live as classes rather
+   than as a size repeated in forty component rules, because the scale is
+   the thing being kept honest — a screen that needs an eleventh size is a
+   screen that has drifted.
+   ===================================================================== */
+.t-timer       { font-size: 96px; line-height: 92px; font-weight: 400; letter-spacing: -0.038em; }
+.t-display     { font-size: 56px; line-height: 58px; font-weight: 600; letter-spacing: -0.03em; }
+.t-large-title { font-size: 34px; line-height: 40px; font-weight: 600; letter-spacing: -0.025em; }
+.t-title1      { font-size: 28px; line-height: 34px; font-weight: 600; letter-spacing: -0.02em; }
+.t-title2      { font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -0.015em; }
+.t-headline    { font-size: 17px; line-height: 22px; font-weight: 600; }
+.t-body        { font-size: 17px; line-height: 24px; font-weight: 400; }
+.t-subhead     { font-size: 15px; line-height: 20px; font-weight: 400; }
+.t-footnote    { font-size: 13px; line-height: 18px; font-weight: 400; }
+/* The only uppercase in the app. */
+.t-group-label { font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; }
+
+.t-secondary { color: var(--label-secondary); }
+.t-accent    { color: var(--accent); }
+.t-danger    { color: var(--danger); }
+.t-warn      { color: var(--warn); }
+/* Prose, and only prose. */
+.t-prose { max-width: 46ch; text-wrap: pretty; }
+
+/* =====================================================================
+   PRIMITIVES · PILL
+
+   One control shape. 999 radius, 44 minimum height, four fills: the
+   accent (one per screen, and only for the primary action), the accent
+   tint (secondary), quiet (text only), and danger (text only — a
+   destructive action never gets a fill it could be hit by accident).
+   ===================================================================== */
+.pill {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 44px; padding: 0 24px; border-radius: 999px;
+  font-size: 15px; font-weight: 600; letter-spacing: -0.01em;
+  white-space: nowrap;
+  transition: background 160ms ease-out, color 160ms ease-out;
+}
+.pill:disabled { opacity: 0.45; cursor: default; }
+
+.pill--primary { background: var(--accent); color: var(--on-accent); }
+.pill--primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, var(--label)); }
+
+.pill--tint { background: var(--accent-tint); color: var(--accent); }
+.pill--tint:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-tint) 100%, var(--accent) 8%); }
+
+.pill--quiet { color: var(--label-secondary); }
+.pill--quiet:hover:not(:disabled) { background: var(--accent-tint-hover); color: var(--label); }
+
+.pill--danger { color: var(--danger); }
+.pill--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 8%, transparent); }
+
+/* The hero action, once per screen. */
+.pill--hero { height: 52px; padding: 0 40px; font-size: 18px; }
+/* Inline in a row: still 44 to the pointer, 34 to the eye. */
+.pill--row { height: 34px; padding: 0 18px; font-size: 15px; min-height: 34px; }
+.pill--inline { height: 32px; padding: 0 14px; font-size: 14px; min-height: 32px; }
+.pill--tiny { height: 30px; padding: 0 14px; font-size: 14px; min-height: 30px; }
+
+/* =====================================================================
+   PRIMITIVES · CHIP + DOT
+   ===================================================================== */
+.chip {
+  display: inline-flex; align-items: center; height: 20px; padding: 0 8px;
+  border-radius: 999px; background: var(--accent-tint); color: var(--accent);
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.chip--warn { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); }
+
+/* The project dot. `--pc` is set inline from the project's own colour;
+   nothing else in the app reads it. */
+.dot {
+  flex: none; width: 9px; height: 9px; border-radius: 50%;
+  background: color-mix(in srgb, var(--pc-lift-with) var(--pc-lift), var(--pc));
+}
+.dot--lg { width: 11px; height: 11px; }
+.dot--sm { width: 7px; height: 7px; }
+.dot--decor { background: var(--decor); }
+
+/* =====================================================================
+   PRIMITIVES · LIST CARD + LIST ROW
+
+   The time entry's list rendering (form A), and the shape every other
+   list in the app borrows. Grid `auto minmax(0,1fr) auto`: dot, the thing
+   the user typed, the number. Separators inset to the text origin, so the
+   hairline starts where the title starts rather than under the dot.
+   ===================================================================== */
+.list-card {
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  padding: 2px 18px;
+}
+.list-card--tight { padding: 2px 14px; }
+
+.list-row {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center; gap: 14px;
+  padding: 10px 0; width: 100%; text-align: left;
+  border-radius: var(--radius-block);
+}
+.list-row + .list-row,
+.list-row + .list-gap-row,
+.list-gap-row + .list-row,
+.list-gap-row + .list-gap-row {
+  /* 23px = 9px dot + 14px gap. The rule the whole file follows: a
+     separator starts at the text origin, never at the card edge. */
+  border-top: 1px solid var(--separator);
+  margin-left: 23px; padding-left: 0;
+}
+.list-row + .list-row > :first-child,
+.list-gap-row + .list-row > :first-child,
+.list-row + .list-gap-row > :first-child,
+.list-gap-row + .list-gap-row > :first-child { margin-left: -23px; }
+
+button.list-row { min-height: 0; }
+button.list-row:hover { background: var(--accent-tint-hover); }
+
+.list-row__main { min-width: 0; }
+.list-row__title {
+  display: block; font-size: 17px; line-height: 22px; font-weight: 600; color: var(--label);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.list-row__sub {
+  display: block; font-size: 15px; line-height: 20px; color: var(--label-secondary);
+  margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.list-row__right { text-align: right; }
+.list-row__value { display: block; font-size: 17px; line-height: 22px; font-weight: 600; color: var(--label); }
+.list-row__value--accent { color: var(--accent); }
+.list-row__time { display: block; font-size: 13px; line-height: 18px; color: var(--label-secondary); }
+
+/* An untracked gap is a row in the day's group like any other, because it
+   is a thing the timesheet is telling you about. It just isn't an entry. */
+.list-gap-row {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center; gap: 14px; padding: 10px 0;
+}
+.gap-mark {
+  flex: none; width: 9px; height: 9px; border-radius: 2px;
+  background: repeating-linear-gradient(135deg, var(--warn) 0 2px, transparent 2px 4px);
+  outline: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+}
+
+/* =====================================================================
+   PRIMITIVES · DAY BAR
+
+   The time entry's bar rendering (form B). One flex track; every entry is
+   a `flex: <minutes>` segment in its project colour and every untracked
+   gap is a segment in the same track, so the holes are drawn at the same
+   scale as the work. The running segment fades out at its leading edge,
+   which is how "still growing" reads without animating anything.
+   ===================================================================== */
+.day-bar__track {
+  display: flex; gap: 2px; height: 18px; border-radius: 9px; overflow: hidden;
+  background: color-mix(in srgb, var(--separator) 60%, transparent);
+}
+.day-bar__track--sm { height: 16px; border-radius: 8px; }
+
+.day-bar__seg { display: block; background: color-mix(in srgb, var(--pc-lift-with) var(--pc-lift), var(--pc)); }
+.day-bar__seg--accent { background: var(--accent); }
+.day-bar__seg--running {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--pc-lift-with) var(--pc-lift), var(--pc)) 0%,
+    color-mix(in srgb, var(--pc-lift-with) var(--pc-lift), var(--pc)) 62%,
+    color-mix(in srgb, var(--pc) 42%, transparent) 100%
+  );
+}
+.day-bar__seg--idle { background: transparent; }
+
+button.day-bar__seg--gap, .day-bar__seg--gap {
+  min-height: 0; padding: 0;
+  background: color-mix(in srgb, var(--decor) 34%, transparent);
+}
+button.day-bar__seg--gap:hover { background: color-mix(in srgb, var(--warn) 30%, transparent); }
+.day-bar__seg--gap-warn { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--warn) 42%, transparent) 0 5px, color-mix(in srgb, var(--warn) 16%, transparent) 5px 10px); }
+
+/* Nothing logged at all: one hatched track, not seven grey holes. */
+.day-bar__empty {
+  flex: 1;
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--decor) 26%, transparent) 0 6px, transparent 6px 12px);
+}
+
+.day-bar__axis {
+  display: flex; justify-content: space-between;
+  margin-top: 8px; font-size: 13px; line-height: 18px; color: var(--label-secondary);
+}
+
+/* Drag-to-fill. The bar is the input surface, so it says so on hover. */
+.day-bar--drag { cursor: crosshair; }
+.day-bar__selection {
+  position: absolute; top: 0; bottom: 0;
+  background: var(--accent-tint);
+  outline: 1px solid var(--accent);
+  pointer-events: none; border-radius: 3px;
+}
+.day-bar__drag-wrap { position: relative; }
+
+/* =====================================================================
+   PRIMITIVES · SEGMENTED CONTROL
+   ===================================================================== */
+.segmented {
+  display: inline-flex; gap: 2px; padding: 2px; height: 30px;
+  border-radius: 999px; background: color-mix(in srgb, var(--label) 6%, transparent);
+}
+.segmented__item {
+  display: inline-flex; align-items: center; padding: 0 12px; min-height: 26px; height: 26px;
+  border-radius: 999px; font-size: 13px; font-weight: 600; color: var(--label-secondary);
+  white-space: nowrap; transition: background 160ms ease-out, color 160ms ease-out;
+}
+.segmented__item:hover { color: var(--label); }
+.segmented__item--on {
+  background: var(--surface); color: var(--label);
+  box-shadow: 0 1px 2px rgba(20,22,16,.10);
+}
+:root[data-theme="dark"] .segmented__item--on { box-shadow: 0 1px 2px rgba(0,0,0,.34); }
+
+/* =====================================================================
+   PRIMITIVES · SEARCH FIELD + PLAIN INPUTS
+   ===================================================================== */
+.search, .input {
+  height: 34px; min-height: 34px; padding: 0 12px;
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  border: 0; box-shadow: inset 0 0 0 1px var(--separator);
+  font-size: 15px; color: var(--label);
+  outline-offset: 0;
+}
+.search { width: 240px; }
+.search::placeholder, .input::placeholder { color: var(--decor); }
+.search:focus-visible, .input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.input--time { width: 88px; text-align: center; }
+.input--wide { width: 100%; }
+
+/* =====================================================================
+   PRIMITIVES · FLOATING ACTION BAR
+
+   The one place a container floats, so the one place a material is used
+   outside a sheet. It teaches the screen's gesture on the left and
+   carries the screen's single primary action on the right.
+   ===================================================================== */
+.action-bar {
+  position: sticky; bottom: 0; z-index: 6;
+  display: flex; align-items: center; justify-content: space-between; gap: 24px;
+  margin: 24px -8px 0; padding: 10px 12px 10px 20px;
+  border-radius: 999px;
+  background: var(--material);
+  backdrop-filter: blur(24px) saturate(1.6);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  box-shadow: inset 0 0 0 1px var(--separator);
+}
+.action-bar__hint {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 14px; color: var(--label-secondary); min-width: 0;
+}
+.action-bar__swatch {
+  display: inline-block; width: 22px; height: 12px; border-radius: 3px;
+  background: repeating-linear-gradient(135deg, var(--decor) 0 3px, transparent 3px 6px);
+  outline: 1px dashed var(--decor);
+}
+
+/* =====================================================================
+   PRIMITIVES · SHEET
+
+   Sheets are the only dismissible surface, so they are the only content
+   that earns a material. 200ms in, Esc and backdrop-click out, focus
+   trapped by useFocusTrap.
+   ===================================================================== */
+.sheet-backdrop {
+  position: fixed; inset: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  background: rgba(0,0,0,.52);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.sheet {
+  width: 580px; max-width: 100%; max-height: calc(100dvh - 48px); overflow-y: auto;
+  border-radius: var(--radius-sheet); padding: 28px 28px 22px;
+  background: var(--material);
+  backdrop-filter: blur(24px) saturate(1.6);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  box-shadow: inset 0 0 0 1px var(--separator);
+  animation: sheet-in 200ms ease-out;
+}
+.sheet--narrow { width: 460px; }
+@keyframes sheet-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.sheet__eyebrow { color: var(--label-secondary); margin-bottom: 10px; }
+.sheet__meta { color: var(--label-secondary); margin-top: 4px; }
+.sheet__note { margin-top: 10px; font-size: 13px; line-height: 18px; color: var(--label-secondary); }
+.sheet__section { margin-top: 24px; }
+.sheet__foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  margin-top: 24px;
+}
+.sheet__foot-right { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+
+/* The nudge: what the entry left behind, and the one move that fixes it. */
+.sheet__nudge {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  margin-top: 14px; font-size: 15px; line-height: 20px; color: var(--label-secondary);
+}
+
+/* =====================================================================
+   PRIMITIVES · FIELD LIST
+
+   A settings-style list, not a form grid: label left at a fixed 96px,
+   value right-aligned, separators inset to the value origin. Editing an
+   entry should feel like changing a setting, because that is what it is.
+   ===================================================================== */
+.field-list {
+  border-radius: 12px; padding: 0 14px;
+  background: color-mix(in srgb, var(--label) 5%, transparent);
+}
+.field-row {
+  display: grid; grid-template-columns: 96px minmax(0, 1fr);
+  align-items: center; gap: 12px; min-height: 44px; padding: 6px 0;
+}
+.field-row + .field-row { border-top: 1px solid var(--separator); }
+.field-row__label { font-size: 15px; line-height: 20px; color: var(--label-secondary); }
+.field-row__value { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
+.field-row__input {
+  flex: 1; min-width: 0; height: 34px; padding: 0 8px; text-align: right;
+  background: transparent; border: 0; border-radius: var(--radius-control);
+  font-size: 17px; color: var(--label);
+}
+.field-row__input::placeholder { color: var(--decor); }
+.field-row__input:hover { background: color-mix(in srgb, var(--label) 4%, transparent); }
+.field-row__select {
+  height: 34px; min-height: 34px; padding: 0 4px; max-width: 100%;
+  background: transparent; border: 0; border-radius: var(--radius-control);
+  font-size: 17px; color: var(--label); text-align: right; text-align-last: right;
+}
+.field-row__select:hover { background: color-mix(in srgb, var(--label) 4%, transparent); }
+.field-row__action { font-size: 15px; font-weight: 600; color: var(--accent); min-height: 34px; }
+/* Carries "to" between the two time fields as well as the "·" — a word the
+   reader has to read to know which field is which, so it takes the secondary
+   text colour rather than the decor grey. */
+.field-row__sep { color: var(--label-secondary); }
+
+.form-error { margin-top: 10px; font-size: 15px; line-height: 20px; color: var(--danger); }
+
+/* =====================================================================
+   SHELL — sidebar and main
+
+   Navigation is text. There is no icon set, deliberately: nothing to
+   draw, nothing to keep consistent, and five words read calmer than five
+   glyphs a user has to learn.
+   ===================================================================== */
+.app { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr); height: 100vh; height: 100dvh; overflow: hidden; }
+
+.sidebar {
+  display: flex; flex-direction: column;
+  padding: 24px 14px 20px;
+  background: color-mix(in srgb, var(--label) 3%, var(--canvas));
+  border-right: 1px solid var(--separator);
+  overflow-y: auto;
+}
+.sidebar__brand { display: flex; align-items: center; gap: 9px; padding: 0 10px 26px; }
+/* The full logo's charcoal wordmark does not survive dark mode, so only
+   the emblem is used and the wordmark is set in the app's own typeface. */
+.sidebar__mark { width: 22px; height: 22px; display: block; flex: none; }
+.sidebar__wordmark { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--label); }
+
+.sidebar__nav { display: flex; flex-direction: column; gap: 2px; }
+.sidebar__link {
+  display: flex; align-items: center; height: 44px; min-height: 44px; padding: 0 12px;
+  border-radius: var(--radius-block); font-size: 15px; color: var(--label);
+  transition: background 160ms ease-out, color 160ms ease-out;
+}
+.sidebar__link:hover { background: var(--accent-tint-hover); }
+.sidebar__link--active { background: var(--accent-tint); color: var(--accent); font-weight: 600; }
+.sidebar__link--active:hover { background: var(--accent-tint); }
+
+.sidebar__foot { margin-top: auto; padding: 0 12px; }
+.sidebar__foot-sep { height: 1px; background: var(--separator); margin-bottom: 14px; }
+.sidebar__user-name { font-size: 14px; line-height: 20px; color: var(--label-secondary); }
+.sidebar__setting {
+  display: block; width: 100%; text-align: left; min-height: 32px;
+  font-size: 13px; line-height: 18px; color: var(--label-secondary);
+  border-radius: var(--radius-control); padding: 2px 0;
+}
+.sidebar__setting:hover { color: var(--label); }
+
+.main { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.main__scroll { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; padding: 40px 48px 48px; }
+
+.loading {
+  display: flex; align-items: center; justify-content: center; height: 100dvh;
+  color: var(--label-secondary); font-size: 17px; background: var(--canvas);
+}
+
+.page__head { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; }
+.page__title { color: var(--label); }
+.page__toolbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 24px; }
+.page__toolbar-right { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+.page__rule { height: 1px; background: var(--separator); }
+
+/* =====================================================================
+   BANNERS
+
+   Two of them, and the difference between them is the whole point. The
+   offline strip is information: it is a strip, it is amber, it goes away
+   on its own. The isolation warning is the only full-width alarm in the
+   app and it is persistent — the old version was a toast, which told the
+   one person who could not act on it and then vanished.
+   ===================================================================== */
+.banner-offline {
+  display: flex; align-items: center; gap: 10px;
+  height: 44px; margin: 0 48px; padding: 0 14px; border-radius: 10px;
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  font-size: 15px; color: var(--warn);
+}
+.banner-offline[data-offline="false"] { display: none; }
+.banner-offline__dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+
+.banner-alarm {
+  margin: 0 0 32px; padding: 22px 24px; border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 22%, transparent);
+}
+.banner-alarm__title { color: var(--danger); }
+.banner-alarm__body { margin-top: 8px; color: var(--label-secondary); max-width: 76ch; text-wrap: pretty; }
+.banner-alarm__actions { display: flex; align-items: center; gap: 16px; margin-top: 16px; }
+.banner-alarm__solid { background: var(--danger); color: var(--canvas); }
+.banner-alarm__solid:hover { background: color-mix(in srgb, var(--danger) 86%, var(--label)); }
+
+/* =====================================================================
+   TIMER SCREEN
+
+   The app's landing page: one clock, one action, and below the fold the
+   day and the week it belongs to.
+   ===================================================================== */
+.timer-hero { margin-top: 40px; }
+.timer-hero__eyebrow { display: flex; align-items: center; gap: 9px; color: var(--accent); }
+.timer-hero__eyebrow--idle { color: var(--label-secondary); }
+.timer-hero__eyebrow--error { color: var(--danger); }
+.timer-hero__pulse {
+  flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
+  animation: timer-pulse 2.4s ease-in-out infinite;
+}
+@keyframes timer-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: .45; transform: scale(.86); }
+}
+
+.timer-hero__row { display: flex; align-items: flex-end; justify-content: space-between; gap: 40px; margin-top: 12px; flex-wrap: wrap; }
+.timer-hero__left { min-width: 0; }
+.timer-hero__clock { color: var(--label); }
+.timer-hero__clock--idle { color: var(--dim-display); }
+.timer-hero__desc { display: block; margin-top: 18px; color: var(--label); }
+input.timer-hero__desc {
+  width: 100%; max-width: 34ch; padding: 0; background: transparent; border: 0;
+}
+input.timer-hero__desc::placeholder { color: var(--label-secondary); }
+.timer-hero__meta { display: flex; align-items: center; gap: 9px; margin-top: 5px; font-size: 17px; color: var(--label-secondary); }
+.timer-hero__explain { margin-top: 16px; color: var(--label-secondary); max-width: 56ch; text-wrap: pretty; }
+.timer-hero__actions { display: flex; align-items: center; gap: 16px; flex: none; padding-bottom: 6px; }
+.timer-hero__shortcut { font-size: 13px; color: var(--label-secondary); }
+
+/* Idle: the project is picked here, inline, at the size of the thing it
+   sits next to. Start is never disabled — with nothing picked it focuses
+   this chip and flashes the hint instead. */
+.timer-hero__idle-row { display: flex; align-items: center; gap: 24px; margin-top: 22px; flex-wrap: wrap; }
+.timer-hero__project {
+  display: flex; align-items: center; gap: 10px;
+  height: 44px; padding: 0 16px 0 14px; border-radius: var(--radius-block);
+  background: var(--surface); box-shadow: inset 0 0 0 1px var(--separator);
+  font-size: 17px; color: var(--label); position: relative;
+}
+.timer-hero__project--empty { color: var(--label-secondary); }
+.timer-hero__project-select {
+  position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer;
+}
+.timer-hero__chev { font-size: 13px; color: var(--label-secondary); margin-left: 4px; }
+.timer-hero__desc-input {
+  flex: 1; min-width: 200px; max-width: 420px; height: 44px; padding: 0;
+  background: transparent; border: 0; font-size: 17px; color: var(--label);
+}
+.timer-hero__desc-input::placeholder { color: var(--label-secondary); }
+.timer-hero__hint { margin-top: 12px; font-size: 15px; color: var(--warn); }
+
+.timer-page__rule { margin-top: 44px; }
+.timer-page__cols {
+  display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 56px;
+  margin-top: 36px; min-height: 0;
+}
+@media (max-width: 1040px) { .timer-page__cols { grid-template-columns: minmax(0, 1fr); gap: 40px; } }
+
+.timer-page__day-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.timer-page__section-title { margin: 34px 0 10px; }
+
+/* The right rail: the week, as one ring and one sentence. */
+.week-rail__ring-row { display: flex; align-items: center; gap: 22px; margin-top: 18px; }
+.week-rail__ring { flex: none; }
+.week-rail__track { stroke: var(--separator); }
+.week-rail__fill { stroke: var(--accent); }
+.week-rail__pace { margin-top: 16px; color: var(--label-secondary); max-width: 34ch; text-wrap: pretty; }
+.week-rail__bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; align-items: end; height: 82px; margin-top: 30px; }
+.week-rail__bar { background: var(--accent); border-radius: 4px 4px 2px 2px; min-height: 3px; }
+.week-rail__bar--today { opacity: 0.4; }
+.week-rail__bar--empty { background: color-mix(in srgb, var(--decor) 34%, transparent); border-radius: 2px; }
+.week-rail__labels { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin-top: 8px; font-size: 12px; color: var(--label-secondary); text-align: center; }
+.week-rail__label--today { color: var(--label); font-weight: 600; }
+.week-rail__set-target { font-size: 15px; font-weight: 600; color: var(--accent); min-height: 34px; }
+.week-rail__target-edit { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+
+/* =====================================================================
+   EMPTY STATES
+
+   Never "No data." Each one names what is missing, why the screen is
+   blank, and the single next move — and the action lives inside it, not
+   in a toolbar the user has to go find. No illustrations anywhere: the
+   skeleton of the real component is a better picture of what belongs
+   here than a drawing of a person holding a clock.
+   ===================================================================== */
+.empty { padding: 4px 0 8px; }
+.empty__title { margin: 30px 0 8px; color: var(--label); }
+.empty__body { margin: 0 0 20px; color: var(--label-secondary); max-width: 44ch; text-wrap: pretty; }
+.empty__action { display: inline-flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 600; color: var(--accent); }
+
+/* =====================================================================
+   SKELETONS
+
+   Shaped like the screen being loaded, so arrival is a fill rather than a
+   swap. No spinners anywhere in the app.
+   ===================================================================== */
+.skeleton {
+  background: color-mix(in srgb, var(--label) 7%, transparent);
+  border-radius: var(--radius-block);
+  animation: skeleton-breathe 1.6s ease-in-out infinite;
+}
+@keyframes skeleton-breathe {
+  0%, 100% { opacity: .55; }
+  50%      { opacity: 1; }
+}
+.skeleton--title { height: 34px; width: 180px; }
+.skeleton--line  { height: 15px; width: 220px; }
+.skeleton--clock { height: 92px; width: 320px; border-radius: 12px; }
+.skeleton--bar   { height: 18px; border-radius: 9px; }
+.skeleton--row   { height: 56px; border-radius: var(--radius-card); }
+.skeleton--chart { height: 180px; }
+.skeleton--ring  { height: 118px; width: 118px; border-radius: 50%; }
+.skeleton-stack { display: flex; flex-direction: column; gap: 8px; }
+.skeleton-page { display: flex; flex-direction: column; gap: 24px; }
+.skeleton-page__cols { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 56px; }
+@media (max-width: 1040px) { .skeleton-page__cols { grid-template-columns: minmax(0, 1fr); } }
+
+/* =====================================================================
+   TOASTS
+
+   Bottom-centre, above the floating bar, dark in both themes. One at a
+   time. Anything the user must act on is not a toast — see the isolation
+   alarm and the failed-save hero.
+   ===================================================================== */
+.toast-container {
+  /* Above the floating action bar, not over it: the bar carries the screen's
+     primary action, and a toast that covers it takes away the thing the user
+     was about to press. */
+  position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%);
+  z-index: 60; display: flex; flex-direction: column; gap: 8px; align-items: center;
   pointer-events: none;
 }
-.combobox__list {
-  position: absolute; top: calc(100% + 4px); left: 0; right: 0;
-  z-index: 60;
-  max-height: 260px; overflow-y: auto;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow);
-  padding: 4px;
-  list-style: none;
+.toast {
+  display: flex; align-items: center; gap: 12px;
+  height: 52px; padding: 0 20px; border-radius: var(--radius-card);
+  background: rgba(30,34,28,.90);
+  backdrop-filter: blur(24px) saturate(1.6);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  color: #EFF2EA; font-size: 16px;
+  pointer-events: auto;
+  opacity: 0; transform: translateY(6px);
+  transition: opacity 200ms ease-out, transform 200ms ease-out;
 }
-.combobox__option {
-  display: flex; align-items: center;
-  padding: 7px 9px;
-  border-radius: 4px;
-  font-size: 13px; color: var(--text);
-  cursor: pointer;
-}
-.combobox__option--active { background: var(--accent-soft); }
-.combobox__option[aria-selected="true"] { font-weight: 700; }
-.combobox__option--action {
-  color: var(--ev-green-dark); font-weight: 600;
-  border-top: 1px solid var(--border-subtle);
-  margin-top: 4px; padding-top: 9px; border-radius: 0 0 4px 4px;
-}
-.combobox__empty { padding: 9px; font-size: 12.5px; color: var(--text-faint); text-align: center; }
-
-.timer-bar__new-task { display: flex; align-items: center; gap: 4px; }
-.timer-bar__new-task-input {
-  background: var(--surface); border: 1.5px solid var(--ev-green);
-  border-radius: var(--radius-sm);
-  padding: 6px 10px;
-  color: var(--text); font-size: 13px; outline: none;
-  width: 160px;
-  transition: box-shadow 0.15s;
-}
-.timer-bar__new-task-input:focus { box-shadow: 0 0 0 3px var(--focus-glow); }
-.timer-bar__new-task-ok { color: var(--ev-grass-text); font-size: 16px; padding: 4px 6px; font-weight: 700; background: transparent; border: none; cursor: pointer; }
-.timer-bar__new-task-ok:disabled { color: var(--text-muted); cursor: not-allowed; }
-.timer-bar__new-task-cancel { color: var(--text-muted); font-size: 20px; padding: 2px 6px; background: transparent; border: none; cursor: pointer; }
-
-.timer-bar__active-project {
-  display: flex; align-items: center; gap: 7px;
-  padding: 7px 13px;
-  background: var(--surface-2); border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-size: 13px; font-weight: 600; white-space: nowrap;
-  color: var(--text-muted);
-}
-
-.timer-bar__dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-
-.timer-bar__controls { display: flex; align-items: center; gap: 14px; }
-
-/* Sits inside the Stop button while running. tabular-nums keeps the width
-   steady so the button doesn't twitch on every tick. */
-.timer-bar__elapsed {
-  font-family: var(--mono);
-  font-size: 18px; font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.5px;
-  margin-left: 4px;
-}
-
-.timer-bar__btn {
-  padding: 9px 22px;
-  border-radius: var(--radius-sm);
-  font-size: 13px; font-weight: 700; letter-spacing: 0.2px;
-  transition: all 0.2s var(--ease); white-space: nowrap;
-}
-/* Never faded: Start stays a solid primary button with nothing selected and
-   sends you to the project picker instead of going dead. */
-.timer-bar__btn--start { background: var(--accent-solid); color: #fff; }
-.timer-bar__btn--start:hover { background: var(--accent-solid-hover); }
-.timer-bar__btn--stop {
-  background: var(--danger-soft);
-  color: var(--ev-pumpkin-text);
-  border: 1.5px solid var(--danger-border);
-}
-.timer-bar__btn--stop:hover { background: var(--danger-mid); }
-
-.timer-bar__shortcut-hint {
-  font-family: var(--mono);
-  font-size: 10.5px; font-weight: 600;
-  padding: 1px 5px; border-radius: 4px;
-  background: rgba(255,255,255,0.18);
-  opacity: 0.85;
-}
-.timer-bar__btn--stop .timer-bar__shortcut-hint { background: var(--danger-soft); }
-
-/* Flashed under the bar when Start is pressed with no project chosen. */
-.timer-bar__hint {
-  padding: 6px 24px 8px;
-  font-size: 12.5px; font-weight: 600;
-  color: var(--ev-pumpkin-text);
-  background: var(--danger-soft);
-  border-top: 1px solid var(--danger-border);
-  animation: timer-hint-in 0.2s var(--ease);
-}
-@keyframes timer-hint-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
-
-.timer-bar__pulse-bar { height: 3px; background: var(--border-subtle); overflow: hidden; }
-.timer-bar__pulse-inner {
-  height: 100%;
-  background: linear-gradient(90deg, transparent, var(--ev-green), var(--ev-lime), transparent);
-  width: 40%;
-  animation: pulse-slide 2s ease-in-out infinite;
-}
-@keyframes pulse-slide { 0% { transform: translateX(-200%); } 100% { transform: translateX(360%); } }
+.toast--shown { opacity: 1; transform: translateY(0); }
+.toast-region { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.toast__message { flex: 1; }
+.toast__dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.toast__dot--warn { background: var(--warn); }
+.toast__action { font-size: 16px; font-weight: 600; color: var(--accent); min-height: 32px; }
 
 /* =====================================================================
    TIMESHEET
    ===================================================================== */
-.timesheet__title { font-size: 20px; font-weight: 700; margin-bottom: 24px; letter-spacing: -0.3px; }
-.timesheet__empty {
-  display: flex; flex-direction: column; align-items: center;
-  justify-content: center; gap: 12px; padding: 80px 0; color: var(--text-muted);
+.timesheet__group + .timesheet__group { margin-top: 28px; }
+.timesheet__group-head {
+  position: sticky; top: 0; z-index: 4;
+  display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+  padding: 10px 2px 8px; margin-bottom: 2px;
+  background: var(--canvas);
 }
-.timesheet__empty-icon { color: var(--text-decor); opacity: 0.55; }
-.timesheet__day { margin-bottom: 28px; }
-.timesheet__day-header {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 0 0 8px; margin-bottom: 8px;
-  border-bottom: 2px solid var(--border-subtle);
-}
-.timesheet__day-label {
-  font-size: 11px; font-weight: 700;
-  color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;
-}
-.timesheet__day-total { font-weight: 700; }
-.timesheet__entries { display: flex; flex-direction: column; gap: 6px; }
-/* Wrapper around the "Load more (N more days)" button. Also had no rule until
-   #101, which left the button flush left against the last day group with no
-   separation from it. */
-.timesheet__load-more { display: flex; justify-content: center; margin-top: 4px; }
-
-/* One grid, five tracks: the 4px accent stripe, then what it was / when /
-   how long / actions. The duration gets a column of its own so a day's
-   entries can be scanned vertically, which they couldn't when it sat under
-   the buttons. */
-.entry-row {
-  display: grid;
-  /* 54px is a floor, not a cap: it holds the numeric column steady while
-     still letting the wider "Running…" indicator through uncropped. */
-  grid-template-columns: 4px minmax(0, 1fr) max-content minmax(54px, max-content) auto;
-  align-items: center;
-  gap: 0 14px;
-  padding-right: 12px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-  transition: box-shadow 0.15s;
-  box-shadow: var(--shadow-sm);
-}
-.entry-row:hover { box-shadow: var(--shadow); }
-.entry-row__accent { align-self: stretch; }
-.entry-row__main { display: flex; flex-direction: column; gap: 1px; min-width: 0; padding: 7px 0 7px 14px; }
-.entry-row__desc { font-size: 13.5px; font-weight: 600; line-height: 1.4; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.entry-row__no-desc { color: var(--text-faint); font-style: italic; font-weight: 400; }
-
-.entry-row__meta {
-  display: flex; align-items: center; gap: 5px;
-  font-size: 11.5px; line-height: 1.35; color: var(--text-muted);
-  min-width: 0; white-space: nowrap; overflow: hidden;
-}
-/* Separators as pseudo-elements, so the markup stays a plain list of facts.
-   The space is a margin, not a trailing space in `content` — that collapses. */
-.entry-row__meta > * + *::before { content: "·"; margin-right: 5px; color: var(--text-decor); }
-.entry-row__project { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; }
-.entry-row__dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-/* The task sits between the project (which leads, in --text) and the quieter
-   ticket/ratio detail, so it takes the meta line's --text-muted and only the
-   ellipsis behaviour it needs — a long task name shouldn't push the ticket
-   and ratio off the row. It had no rule at all until #101. */
-.entry-row__task { color: var(--text-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.entry-row__ticket { font-family: var(--mono); font-size: 11px; }
-.entry-row__ratio { color: var(--text-faint); }
-
-.entry-row__times {
-  font-size: 12px; color: var(--text-muted);
-  font-family: var(--mono); font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.entry-row__duration {
-  font-size: 13px; font-weight: 700;
-  /* Numbers are --text, not green (see the numeric ramp): the duration is
-     the most-repeated figure on the page and was tinting whole screens. */
-  color: var(--text);
-  font-family: var(--mono); font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-/* Actions stay out of the way until the row is pointed at or focused. Three
-   permanently-visible buttons per row turned a rare action into the loudest
-   repeated element on the page. Opacity rather than display, so they keep
-   their place in the tab order and :focus-within can reveal them. */
-.entry-row__actions { display: flex; align-items: center; gap: 2px; opacity: 0; transition: opacity 0.12s; }
-.entry-row:hover .entry-row__actions,
-.entry-row:focus-within .entry-row__actions { opacity: 1; }
-/* Touch devices have no hover to reveal them with. */
-@media (hover: none) { .entry-row__actions { opacity: 1; } }
-
-.entry-row__action {
-  display: flex; align-items: center; justify-content: center;
-  width: 26px; height: 26px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-.entry-row__action:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
-.entry-row__action:disabled { opacity: 0.35; cursor: not-allowed; }
-.entry-row__continue:hover:not(:disabled) { color: var(--ev-green-dark); border-color: var(--ev-green); }
-.entry-row__delete:hover { color: var(--ev-pumpkin-text); border-color: var(--danger-border); }
+.timesheet__group-day { color: var(--label-secondary); }
+.timesheet__group-total { font-size: 14px; font-weight: 600; color: var(--label); }
+.timesheet__gap-text { font-size: 15px; line-height: 20px; color: var(--label-secondary); }
 
 /* =====================================================================
-   TICKET / RATIO CHIPS (project cards)
-   The same two facts the timesheet row prints as .entry-row__ticket and
-   .entry-row__ratio, in the one other place they appear. Matched idiom on
-   purpose — a Jira ticket should not look like one thing on a row and
-   another on a card. (The project ▸ task pairing has no card equivalent:
-   the card *is* the project and its tasks are the chips below.)
+   CALENDAR
+
+   Restyle only: the drag machinery in useCalendarDrag and the pixel
+   arithmetic in calendarGeometry are untouched, so a block still lands
+   exactly where the geometry says it does.
    ===================================================================== */
-.chip-ticket {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-muted);
-  white-space: nowrap;
+.calendar { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.calendar__header { flex: none; }
+.calendar__title-row { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+.calendar__title-group { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; min-width: 0; }
+.calendar__title { font-size: 34px; line-height: 40px; font-weight: 600; letter-spacing: -0.025em; color: var(--label); }
+.calendar__week-total { font-size: 15px; color: var(--label-secondary); }
+.calendar__nav { display: flex; align-items: center; gap: 4px; }
+.cal-nav-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 34px; min-height: 34px; min-width: 34px; padding: 0 12px;
+  border-radius: 999px; font-size: 15px; font-weight: 600; color: var(--label-secondary);
 }
-.chip-ratio {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-faint);
-  white-space: nowrap;
-  cursor: help;
+.cal-nav-btn:hover { background: var(--accent-tint-hover); color: var(--label); }
+.cal-nav-btn--today { color: var(--label); }
+.cal-outlook-toggle {
+  height: 30px; min-height: 30px; padding: 0 12px; border-radius: 999px;
+  font-size: 13px; font-weight: 600; color: var(--label-secondary);
+  background: color-mix(in srgb, var(--label) 6%, transparent);
+}
+.cal-outlook-toggle:hover { color: var(--label); }
+.cal-outlook-toggle--active { background: var(--accent-tint); color: var(--accent); }
+.cal-outlook-toggle--warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+
+.calendar__day-headers { display: grid; grid-template-columns: 52px repeat(7, minmax(0, 1fr)); margin-top: 24px; }
+.calendar__gutter { min-width: 0; }
+.calendar__day-header {
+  display: flex; flex-direction: column; gap: 3px; padding: 0 4px 10px;
+  border-bottom: 1px solid var(--separator);
+}
+.calendar__day-header--today { border-bottom: 2px solid var(--accent); }
+.calendar__day-name { font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--label-secondary); }
+.calendar__day-header--today .calendar__day-name { color: var(--accent); }
+.calendar__day-num { display: none; }
+.calendar__day-total { font-size: 15px; line-height: 20px; font-weight: 600; color: var(--label); }
+.calendar__day-header--weekend { opacity: 0.55; }
+.cal-day-log-all { font-size: 13px; font-weight: 600; color: var(--accent); min-height: 30px; text-align: left; }
+
+.calendar__grid-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.calendar__body { flex: 1; overflow-y: auto; overflow-x: hidden; }
+.calendar__grid {
+  display: grid; grid-template-columns: 52px repeat(7, minmax(0, 1fr));
+  grid-template-rows: repeat(48, 36px); position: relative;
+}
+.calendar__time-col { display: flex; flex-direction: column; grid-row: 1 / span 48; grid-column: 1; }
+.calendar__time-slot { height: 36px; display: flex; align-items: flex-start; justify-content: flex-end; padding-right: 10px; flex-shrink: 0; }
+.calendar__time-label { font-size: 13px; line-height: 18px; color: var(--label-secondary); white-space: nowrap; transform: translateY(-9px); }
+
+/* Hour lines are a gradient on the column rather than 48 bordered divs:
+   at fractional display scaling, stacked hairlines rasterize with seams
+   that read as a solid box. */
+.calendar__day-col {
+  position: relative; grid-row: 1 / span 48; pointer-events: none;
+  padding: 0 4px;
+  border-left: 1px solid var(--separator);
+  background: repeating-linear-gradient(to bottom, var(--separator) 0 1px, transparent 1px 72px);
+}
+.calendar__day-col--today { background-color: var(--accent-tint-hover); }
+.calendar__day-col--weekend { opacity: 0.55; }
+.calendar__slot-line { height: 36px; flex-shrink: 0; }
+.calendar__now-line { position: absolute; left: 0; right: 0; height: 2px; background: var(--accent); z-index: 5; pointer-events: none; }
+.calendar__now-line::before { content: ''; position: absolute; left: -3px; top: -3px; width: 8px; height: 8px; background: var(--accent); border-radius: 50%; }
+
+/* A slot row spans the seven day columns of the parent grid and re-divides
+   that span into seven equal columns — identical widths to the parent's day
+   tracks, so the cells land exactly where the columns are. */
+.calendar__slot-row { display: grid; grid-column: 2 / -1; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+/* position: relative so entry blocks — rendered inside the gridcell they start
+   in, for a valid ARIA grid — anchor to the cell. They overflow it downward by
+   design; the cell is a single 36-minute slot but must not clip. */
+/* No z-index here on purpose. A z-index on the cell makes each one its own
+   stacking context, and the blocks inside it then stack only against their
+   own siblings — so a hatched gap or an Outlook ghost in a later cell paints
+   straight over a tracked entry from an earlier one. Left unpositioned in the
+   z axis, the blocks' own 1/2/3 layering applies across the whole grid. */
+.calendar__slot-cell {
+  position: relative; overflow: visible; cursor: crosshair;
+  background: transparent; pointer-events: auto; min-height: 0;
+}
+.calendar__slot-cell:hover { background: var(--accent-tint-hover); }
+
+/* The time entry's calendar rendering (form C). Blocks are pixel-height
+   derived from duration, so the title can never wrap — it ellipses. */
+.cal-entry {
+  position: absolute; left: 4px; right: 4px; z-index: 2;
+  border-radius: var(--radius-block);
+  border-left: 2.5px solid color-mix(in srgb, var(--pc-lift-with) var(--pc-lift), var(--pc));
+  padding: 7px 9px 8px;
+  overflow: hidden; pointer-events: auto; min-height: 0;
+  background: color-mix(in srgb, var(--pc) 11%, var(--surface));
+}
+:root[data-theme="dark"] .cal-entry { background: color-mix(in srgb, var(--pc) 26%, var(--surface)); }
+.cal-entry--clickable { cursor: pointer; }
+.cal-entry--draggable { cursor: grab; }
+.cal-entry--moving { cursor: grabbing; opacity: 0.4; }
+.cal-entry__name {
+  font-size: 13px; line-height: 17px; font-weight: 600;
+  color: color-mix(in srgb, var(--pc-lift-with) var(--pc-lift), var(--pc));
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+:root:not([data-theme="dark"]) .cal-entry__name { color: color-mix(in srgb, var(--pc) 76%, var(--label)); }
+.cal-entry__task, .cal-entry__time {
+  font-size: 12px; line-height: 16px; color: var(--label-secondary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cal-entry--running { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent); }
+.cal-entry__handle { position: absolute; left: 0; right: 0; height: 7px; cursor: ns-resize; min-height: 0; }
+.cal-entry__handle--top { top: 0; }
+.cal-entry__handle--bottom { bottom: 0; }
+
+/* Outlook meetings are read-only, so they are drawn as something that is
+   not yours: hatched, with a dashed edge. */
+.cal-ghost {
+  position: absolute; left: 4px; right: 4px; z-index: 1;
+  border-radius: var(--radius-block); border-left: 2.5px dashed var(--decor);
+  padding: 6px 9px; overflow: hidden; pointer-events: auto; min-height: 0;
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--decor) 18%, transparent) 0 5px, transparent 5px 10px);
+}
+.cal-ghost--logged { opacity: 0.5; }
+.cal-ghost__name { font-size: 13px; line-height: 17px; font-weight: 600; color: var(--label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-ghost__time { font-size: 12px; line-height: 16px; color: var(--label-secondary); }
+.cal-ghost__actions { display: flex; gap: 8px; margin-top: 2px; }
+.cal-ghost__cta, .cal-ghost__log { font-size: 12px; font-weight: 600; color: var(--accent); min-height: 0; }
+.cal-ghost__mute { font-size: 12px; color: var(--label-secondary); min-height: 0; }
+.cal-ghost__check { font-size: 12px; color: var(--accent); }
+
+/* Below the Outlook ghosts: a meeting is a thing that happened, an
+   untracked gap is the absence of one, and where they overlap the thing
+   should be the one you can read. */
+.cal-gap { position: absolute; left: 4px; right: 4px; z-index: 0; border-radius: var(--radius-block); min-height: 0; pointer-events: auto;
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--warn) 20%, transparent) 0 5px, transparent 5px 10px); }
+.cal-gap:hover { background: color-mix(in srgb, var(--warn) 18%, transparent); }
+.cal-gap__fill { font-size: 12px; font-weight: 600; color: var(--warn); padding: 4px 8px; }
+
+.cal-drag-preview, .cal-move-preview {
+  position: absolute; left: 4px; right: 4px; z-index: 3; pointer-events: none;
+  border-radius: var(--radius-block); background: var(--accent-tint);
+  outline: 1px solid var(--accent);
+}
+.cal-move-preview__time { font-size: 12px; font-weight: 600; color: var(--accent); padding: 4px 8px; }
+
+.calendar__empty-hint { font-size: 15px; color: var(--label-secondary); padding: 12px 0 0; }
+
+/* Mobile day list — the same rows, one day at a time. */
+.cal-mobile-day-nav { display: none; align-items: center; justify-content: space-between; gap: 12px; margin-top: 20px; }
+.cal-mobile-day-nav__label { font-size: 17px; font-weight: 600; }
+.cal-mobile-list { display: none; flex-direction: column; margin-top: 16px; }
+.cal-mobile-entry, .cal-mobile-gap, .cal-mobile-ghost {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px;
+  padding: 12px 0; text-align: left; width: 100%; min-height: 0;
+}
+.cal-mobile-entry + .cal-mobile-entry, .cal-mobile-gap + .cal-mobile-entry,
+.cal-mobile-entry + .cal-mobile-gap, .cal-mobile-ghost + .cal-mobile-ghost,
+.cal-mobile-entry + .cal-mobile-ghost { border-top: 1px solid var(--separator); }
+.cal-mobile-entry__bar { width: 9px; height: 9px; border-radius: 50%; background: color-mix(in srgb, var(--pc-lift-with) var(--pc-lift), var(--pc)); }
+.cal-mobile-entry__info, .cal-mobile-gap__info, .cal-mobile-ghost__info { min-width: 0; }
+.cal-mobile-entry__name, .cal-mobile-gap__name, .cal-mobile-ghost__name { font-size: 17px; line-height: 22px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-mobile-entry__time { font-size: 15px; line-height: 20px; color: var(--label-secondary); }
+.cal-mobile-ghost__cta { font-size: 15px; font-weight: 600; color: var(--accent); }
+.cal-mobile-empty { padding: 24px 0; color: var(--label-secondary); }
+
+@media (max-width: 860px) {
+  .calendar__grid-wrap, .calendar__day-headers { display: none; }
+  .cal-mobile-day-nav { display: flex; }
+  .cal-mobile-list { display: flex; }
 }
 
 /* =====================================================================
    REPORTS
    ===================================================================== */
-.reports__header {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 20px; flex-wrap: wrap; gap: 12px;
-}
-.reports__title { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
-.reports__controls { display: flex; align-items: center; gap: 10px; }
+.reports__headline { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-top: 18px; }
+.reports__total { color: var(--label); }
+.reports__delta { font-size: 17px; color: var(--label-secondary); }
 
-.reports__range-tabs {
-  display: flex; gap: 2px;
-  background: var(--surface); border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm); padding: 3px;
-}
-.reports__tab { padding: 5px 12px; border-radius: 4px; font-size: 12.5px; font-weight: 600; color: var(--text-muted); transition: all 0.2s var(--ease); }
-.reports__tab:hover { color: var(--text); }
-.reports__tab--active { background: var(--accent-solid); color: #fff; }
+/* The average line is positioned inside the *same* box the bar
+   percentages scale against. Put it in a wrapper that also contains the
+   label row and every `bottom:` in here resolves against a taller box
+   than the bars do, which is how an "average" line ends up drawn through
+   the wrong bar. */
+.reports__bars-box { position: relative; height: 180px; margin-top: 32px; }
+.reports__bars { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; height: 100%; align-items: end; }
+.reports__bar { background: var(--accent); border-radius: 6px 6px 2px 2px; min-height: 3px; }
+.reports__bar--empty { background: color-mix(in srgb, var(--decor) 30%, transparent); border-radius: 2px; }
+.reports__avg-line { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--decor); pointer-events: none; }
+.reports__avg-label { position: absolute; right: 0; font-size: 13px; line-height: 18px; color: var(--label-secondary); pointer-events: none; }
+.reports__bar-labels { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; margin-top: 10px; }
+.reports__bar-label { text-align: center; }
+.reports__bar-day { font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--label-secondary); }
+.reports__bar-value { font-size: 15px; line-height: 20px; font-weight: 600; color: var(--label); }
+.reports__split { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 56px; margin-top: 32px; }
+@media (max-width: 900px) { .reports__split { grid-template-columns: minmax(0, 1fr); gap: 32px; } }
 
-/* Inline indicator for a background fetch (e.g. widening the loaded date
-   range) — content already on screen stays put, this just signals "more
-   is coming" next to the control that triggered it. */
-/* No CSS border ring here: the icon draws its own circle, and a second
-   border-circle around it can't stay concentric at fractional device-pixel
-   ratios (a 1.5px border rounds asymmetrically). One SVG ring only. */
-.help-tip__btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 18px; height: 18px; flex-shrink: 0;
-  border-radius: 50%;
-  color: var(--text-faint);
-  transition: color 0.15s;
-}
-.help-tip__btn:hover, .help-tip__btn[aria-expanded="true"] {
-  color: var(--text);
-}
-.help-tip__popover {
-  position: fixed;
-  z-index: 300;
-  max-width: calc(100vw - 24px);
-  background: var(--surface);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow);
-  padding: 10px 12px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-muted);
-  animation: rise-in 0.15s var(--ease);
-}
-/* Small diamond caret tying the bubble to its "?" trigger. */
-.help-tip__caret {
-  position: absolute; top: -5.5px;
-  width: 9px; height: 9px; margin-left: -4.5px;
-  transform: rotate(45deg);
-  background: var(--surface);
-  border-left: 1.5px solid var(--border);
-  border-top: 1.5px solid var(--border);
-}
-
-.visually-hidden {
-  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-  overflow: hidden; clip: rect(0, 0, 0, 0); clip-path: inset(50%); white-space: nowrap; border: 0;
-}
-.range-spinner { display: inline-flex; align-items: center; margin-left: 6px; }
-.range-spinner__dot {
-  width: 14px; height: 14px; border-radius: 50%;
-  border: 2px solid var(--border); border-top-color: var(--ev-green);
-  animation: spin 0.7s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-.reports__custom-range {
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 16px;
-  background: var(--surface); border: 1.5px solid var(--border);
-  border-radius: var(--radius); margin-bottom: 16px;
-  box-shadow: var(--shadow-sm);
-}
-.custom-range__label { font-size: 11.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px; }
-.custom-range__input {
-  background: var(--surface-2); border: 1.5px solid var(--border); border-radius: var(--radius-sm);
-  padding: 6px 10px; color: var(--text); font-size: 13px; font-family: var(--mono);
-  outline: none; cursor: pointer; transition: border-color 0.15s;
-}
-.custom-range__input:focus { border-color: var(--ev-green); }
-.custom-range__info { margin-left: auto; font-size: 12px; color: var(--text-muted); font-family: var(--mono); }
-
-.reports__kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
-.overview .reports__kpis { grid-template-columns: repeat(3, 1fr); }
-.kpi-card {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 16px 20px;
-  box-shadow: var(--shadow-sm);
-}
-.kpi-card__label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.7px; margin-bottom: 6px; }
-/* Size, weight and colour all come from .num-kpi — see the numeric ramp. */
-.kpi-card__value { display: flex; align-items: center; }
-/* The flex row collapses the leading space in " / 40h" — margin restores it. */
-.kpi-card__target { font-size: 15px; font-weight: 600; color: var(--text-muted); font-family: var(--font); margin-left: 6px; }
-.kpi-card__note { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
-.kpi-card__flame { color: var(--ev-pumpkin); margin-right: 4px; flex-shrink: 0; }
-
-.reports__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.report-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow-sm); }
-.report-card--wide { grid-column: 1 / -1; }
-.report-card__title { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.9px; margin-bottom: 16px; }
-.report-card__empty { color: var(--text-faint); font-size: 13px; padding: 20px 0; text-align: center; }
-
-.overview__title { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
-
-/* =====================================================================
-   ACTIVITY HEATMAP (Overview page)
-   A GitHub/contribution-style grid — one cell per day, shaded by minutes
-   logged, most recent week on the right. Decorative supplement to the
-   KPI strip above it (see the .sr-only summary in the component).
-   ===================================================================== */
-.activity-heatmap-wrap { overflow-x: auto; }
-.activity-heatmap { display: flex; gap: 6px; width: max-content; }
-.activity-heatmap__rowlabels { display: flex; flex-direction: column; gap: 3px; padding-top: 18px; }
-.activity-heatmap__rowlabel { height: 11px; font-size: 9px; line-height: 11px; color: var(--text-faint); }
-.activity-heatmap__rowlabel--spacer { height: 14px; }
-.activity-heatmap__main { display: flex; flex-direction: column; gap: 4px; }
-.activity-heatmap__months {
-  display: grid;
-  grid-template-columns: repeat(var(--ah-cols), 14px);
-  height: 14px;
-}
-/* Left border ticks each label to the first column of its month, so labels
-   read as anchored to the grid instead of floating above it. */
-.activity-heatmap__month {
-  font-size: 10px; color: var(--text-faint); font-weight: 600;
-  border-left: 1px solid var(--border); padding-left: 4px; line-height: 13px;
-}
-.activity-heatmap__grid {
-  display: grid;
-  grid-template-columns: repeat(var(--ah-cols), 11px);
-  grid-template-rows: repeat(7, 11px);
-  gap: 3px;
-}
-.activity-heatmap__cell { width: 11px; height: 11px; border-radius: 2.5px; }
-.activity-heatmap__cell--0 { background: var(--border); opacity: 0.5; }
-.activity-heatmap__cell--1 { background: var(--ev-green-soft); }
-.activity-heatmap__cell--2 { background: var(--ev-green-mid); }
-.activity-heatmap__cell--3 { background: color-mix(in srgb, var(--ev-green) 55%, var(--surface)); }
-.activity-heatmap__cell--4 { background: var(--ev-green); }
-.activity-heatmap__legend {
-  display: flex; align-items: center; gap: 4px; margin-top: 10px;
-  font-size: 11px; color: var(--text-faint);
-}
-.activity-heatmap__legend .activity-heatmap__cell { width: 10px; height: 10px; }
-
-.sr-only {
-  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
-}
-
-.svg-bar-chart { position: relative; width: 100%; }
-.svg-bar-chart__empty-pill {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 5px 14px;
-  font-size: 12px;
-  color: var(--text-muted);
-  white-space: nowrap;
-  pointer-events: none;
-}
-.svg-bar-chart__tooltip {
-  position: absolute;
-  transform: translate(-50%, -100%);
-  margin-top: -6px;
-  background: var(--ev-charcoal);
-  color: #fff;
-  font-size: 11px;
-  font-family: var(--mono);
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
-  white-space: nowrap;
-  pointer-events: none;
-  z-index: 10;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
-}
-
-.reports__empty {
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
-  padding: 64px 20px; text-align: center;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); box-shadow: var(--shadow-sm);
-}
-.reports__empty-icon { color: var(--ev-green); opacity: 0.35; }
-.reports__empty-title { font-size: 15px; font-weight: 600; color: var(--text); }
-.reports__empty-hint { font-size: 13px; color: var(--text-muted); }
-/* The way out of the empty range, so it reads as an offer rather than a
-   restatement of the bad news above it. */
-.reports__empty-action {
-  font-size: 13px; font-weight: 600; color: var(--ev-green-dark);
-  background: var(--accent-soft); border: 1px solid var(--ev-green);
-  border-radius: var(--radius-sm); padding: 8px 14px; cursor: pointer;
-  transition: background 0.15s var(--ease);
-}
-.reports__empty-action:hover { background: var(--ev-green-mid); }
-
-.project-breakdown { display: flex; flex-direction: column; gap: 14px; }
-.project-breakdown__meta { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
-.project-breakdown__dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-.project-breakdown__name { flex: 1; font-size: 13px; font-weight: 600; }
-.project-breakdown__time { font-size: 12px; font-family: var(--mono); color: var(--text-muted); }
-.project-breakdown__pct { font-size: 11px; color: var(--text-faint); min-width: 34px; text-align: right; }
-.project-breakdown__track { height: 5px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
-.project-breakdown__fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
-
-.task-breakdown { display: flex; flex-direction: column; }
-.task-breakdown__row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border-subtle); }
-.task-breakdown__row:last-child { border-bottom: none; }
-.task-breakdown__dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.task-breakdown__info { flex: 1; min-width: 0; }
-.task-breakdown__name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.task-breakdown__project { font-size: 11px; color: var(--text-muted); }
-.task-breakdown__time { font-weight: 700; }
-
-.export-btn {
-  padding: 7px 15px; border-radius: var(--radius-sm);
-  font-size: 12.5px; font-weight: 700;
-  color: var(--ev-grass-text);
-  border: 1.5px solid var(--success-border);
-  background: var(--success-soft);
-  transition: all 0.2s var(--ease); white-space: nowrap;
-}
-.export-btn:hover:not(:disabled) { background: var(--success-mid); border-color: var(--success); }
-.export-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.export-btn--loading { opacity: 0.7; }
+.prop-list { display: flex; flex-direction: column; gap: 18px; margin-top: 16px; }
+.prop-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: baseline; }
+.prop-row__name { font-size: 17px; line-height: 22px; font-weight: 600; color: var(--label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prop-row__value { font-size: 15px; line-height: 20px; color: var(--label-secondary); }
+.prop-row__track { grid-column: 1 / -1; height: 10px; border-radius: 5px; background: color-mix(in srgb, var(--separator) 60%, transparent); overflow: hidden; }
+.prop-row__fill { display: block; height: 100%; border-radius: 5px; background: color-mix(in srgb, var(--pc-lift-with) var(--pc-lift), var(--pc)); }
 
 /* =====================================================================
    PROJECTS
    ===================================================================== */
-.projects-page__header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
-.projects-page__title { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
-
-.btn-primary { background: var(--accent-solid); color: #fff; padding: 9px 18px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 700; transition: background 0.15s; }
-.btn-primary:hover { background: var(--accent-solid-hover); }
-
-.btn-ghost { background: transparent; color: var(--text-muted); padding: 9px 18px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; border: 1.5px solid var(--border); transition: all 0.2s var(--ease); }
-.btn-ghost:hover { color: var(--text); border-color: var(--text-faint); }
-
-.new-project-form { background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius); padding: 22px; margin-bottom: 22px; display: flex; flex-direction: column; gap: 12px; box-shadow: var(--shadow); }
-.new-project-form__title { font-size: 14px; font-weight: 700; margin-bottom: 2px; }
-.new-project-form__actions { display: flex; gap: 8px; align-items: center; }
-.new-project-form__confirm { margin-right: auto; font-size: 12.5px; font-weight: 600; color: var(--text); }
-
-.form-input { background: var(--surface-2); border: 1.5px solid var(--border); border-radius: var(--radius-sm); padding: 9px 13px; color: var(--text); font-size: 13.5px; outline: none; width: 100%; transition: border-color 0.15s, box-shadow 0.15s; }
-.form-input:focus { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--focus-glow); }
-.form-input-group { display: flex; align-items: center; gap: 8px; }
-.form-input-group .form-input { flex: 1; width: auto; }
-.form-input::placeholder { color: var(--text-decor); }
-
-.color-picker { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.color-picker__label { font-size: 12px; color: var(--text-muted); font-weight: 600; }
-.color-picker__swatch { width: 22px; height: 22px; border-radius: 50%; transition: transform 0.15s, box-shadow 0.15s; border: 2px solid transparent; }
-.color-picker__swatch:hover { transform: scale(1.15); }
-/* Ring gap uses --surface, not #fff, so it contrasts against the card in
-   both themes (the previous dark-theme override is no longer needed). */
-.color-picker__swatch--active { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px currentColor; transform: scale(1.1); }
-.color-picker__hex-row { display: flex; align-items: center; gap: 6px; margin-top: 4px; width: 100%; }
-.color-picker__hex-preview { width: 22px; height: 22px; border-radius: 4px; border: 1.5px solid var(--border); flex-shrink: 0; transition: background 0.15s; }
-.color-picker__hex-input { font-family: var(--mono); font-size: 12px; width: 90px; padding: 4px 8px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); outline: none; transition: border-color 0.15s; }
-.color-picker__hex-input:focus { border-color: var(--ev-green); }
-.color-picker__hex-input--invalid { border-color: var(--ev-pumpkin); }
-
-.projects-page__empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 60px 24px; color: var(--text-faint); text-align: center; }
-.projects-page__empty-icon { opacity: 0.25; }
-
-/* align-content: start stops the grid from stretching short cards to a
-   uniform row height the content never fills. Cards size to what's in them. */
-.project-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  align-content: start;
-  align-items: start;
-  gap: 14px;
+.projects__row {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) 132px auto;
+  align-items: center; gap: 16px; padding: 16px 0; width: 100%; text-align: left; min-height: 0;
 }
-.project-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; display: flex; transition: box-shadow 0.15s; box-shadow: var(--shadow-sm); }
-.project-card:hover { box-shadow: var(--shadow); }
-.project-card__stripe { width: 5px; flex-shrink: 0; }
-.project-card__body { flex: 1; min-width: 0; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
-/* Header: dot + name + total + actions, on one baseline. */
-.project-card__top { display: flex; align-items: flex-start; gap: 9px; }
-.project-card__dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
-.project-card__heading { flex: 1; min-width: 0; }
-.project-card__name { font-size: 14px; font-weight: 700; }
-.project-card__desc { font-size: 12px; color: var(--text-muted); }
-.project-card__attrs { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
-.project-card__total-group { text-align: right; flex-shrink: 0; }
-.project-card__total { color: var(--text); }
-/* The loaded entry range is a moving window, so the number is explicitly
-   scoped rather than reading as an all-time total it never was. */
-.project-card__total-label { font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.5px; }
-.project-card__tasks { display: flex; flex-wrap: wrap; gap: 6px; }
-.project-card__footer {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding-top: 10px; border-top: 1px solid var(--border-subtle);
-  margin-top: auto;
-}
-.project-card__last { font-size: 11.5px; color: var(--text-faint); }
-.sparkline { flex-shrink: 0; color: var(--border); }
-.project-card__restore {
-  display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;
-  font-size: 11.5px; color: var(--text-muted);
-  background: transparent; border: 1px solid var(--border);
-  border-radius: var(--radius-sm); padding: 2px 8px;
-  transition: color 0.15s, border-color 0.15s;
-}
-.project-card__restore:hover { color: var(--text); border-color: var(--text-faint); }
+.projects__row + .projects__row, .projects__tasks + .projects__row { border-top: 1px solid var(--separator); margin-left: 27px; }
+.projects__row + .projects__row > :first-child, .projects__tasks + .projects__row > :first-child { margin-left: -27px; }
+.projects__row:hover { background: var(--accent-tint-hover); }
+.projects__name { display: flex; align-items: center; gap: 8px; font-size: 17px; line-height: 22px; font-weight: 600; color: var(--label); }
+.projects__chev { font-size: 13px; color: var(--label-secondary); }
+.projects__sub { font-size: 15px; line-height: 20px; color: var(--label-secondary); margin-top: 1px; }
+.projects__bar { height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--separator) 60%, transparent); overflow: hidden; }
+.projects__bar-fill { display: block; height: 100%; border-radius: 4px; background: color-mix(in srgb, var(--pc-lift-with) var(--pc-lift), var(--pc)); }
+.projects__hours { font-size: 17px; line-height: 22px; font-weight: 600; color: var(--label); text-align: right; min-width: 76px; }
 
-/* Card overflow menu — one ⋯ affordance instead of two competing
-   micro-buttons in the corner. */
-.card-menu { position: relative; flex-shrink: 0; }
-.card-menu__btn {
-  display: flex; align-items: center; justify-content: center;
-  width: 24px; height: 22px; border-radius: var(--radius-sm);
-  color: var(--text-faint); font-size: 16px; line-height: 1;
-  transition: color 0.15s, background 0.15s;
+/* Tasks belong to the project they are under, so they are drawn under it
+   rather than in a panel of their own. One project open at a time. */
+.projects__tasks { margin-left: 27px; padding-bottom: 6px; }
+.projects__task {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px;
+  padding: 9px 0; font-size: 15px; line-height: 20px; width: 100%; text-align: left; min-height: 0;
 }
-.card-menu__btn:hover, .card-menu__btn[aria-expanded="true"] { color: var(--text); background: var(--surface-2); }
-.card-menu__list {
-  position: absolute; top: calc(100% + 4px); right: 0; z-index: 20;
-  min-width: 132px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow);
-  padding: 4px;
-  display: flex; flex-direction: column; gap: 1px;
-  animation: rise-in 0.12s var(--ease);
-}
-.card-menu__item {
-  display: flex; align-items: center; gap: 7px;
-  width: 100%; padding: 6px 9px;
-  border-radius: 4px;
-  font-size: 12.5px; font-weight: 600; color: var(--text-muted);
-  text-align: left;
-  transition: color 0.15s, background 0.15s;
-}
-.card-menu__item:hover:not(:disabled) { color: var(--text); background: var(--surface-2); }
-.card-menu__item--danger:hover:not(:disabled) { color: var(--ev-pumpkin-text); background: var(--danger-soft); }
-.card-menu__item:disabled { opacity: 0.4; cursor: not-allowed; }
-/* A two-line item aligns its icon to the label, not to the middle of the
-   stack, so the icons down the menu still line up with each other. */
-.card-menu__item--stacked { align-items: flex-start; }
-.card-menu__item--stacked > svg { margin-top: 2px; }
-.card-menu__item-text { display: flex; flex-direction: column; gap: 1px; }
-.card-menu__item-hint { font-size: 11px; font-weight: 500; color: var(--text-faint); }
+.projects__task + .projects__task { border-top: 1px solid color-mix(in srgb, var(--separator) 55%, transparent); }
+.projects__task-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.projects__task-hours { color: var(--label-secondary); }
+.projects__task-remove { font-size: 14px; color: var(--label-secondary); min-height: 30px; opacity: 0; }
+.projects__task:hover .projects__task-remove, .projects__task-remove:focus-visible { opacity: 1; }
+.projects__task-add { display: flex; align-items: center; gap: 10px; padding: 9px 0; font-size: 15px; font-weight: 600; color: var(--accent); border-top: 1px solid color-mix(in srgb, var(--separator) 55%, transparent); min-height: 38px; }
+.projects__task-more { padding: 9px 0; font-size: 15px; color: var(--label-secondary); }
 
-.task-chip { display: inline-flex; align-items: center; gap: 3px; padding: 3px 5px 3px 9px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 20px; font-size: 11.5px; color: var(--text-muted); font-weight: 500; }
-.task-chip--add { color: var(--text-muted); border-style: dashed; background: transparent; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
-.task-chip--add:hover { color: var(--text); border-color: var(--text-faint); }
-/* Delete is revealed on hover/focus, not parked on every chip: a permanent ×
-   on ~30 chips put an irreversible action one slip from the rename target.
-   width/opacity (not display:none) so it stays focusable by keyboard and the
-   chip doesn't jump width as it appears. */
-.task-chip__delete {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 0; padding: 0; overflow: hidden;
-  color: var(--text-faint); border-radius: 50%; cursor: pointer;
-  opacity: 0;
-  transition: color 0.15s, background 0.15s, opacity 0.15s, width 0.15s, padding 0.15s;
-}
-.task-chip:hover .task-chip__delete,
-.task-chip:focus-within .task-chip__delete,
-.task-chip__delete:focus-visible {
-  width: 19px; padding: 4px; opacity: 1;
-}
-.task-chip__delete:hover { color: #fff; background: var(--danger); }
+.projects__more { display: block; width: 100%; text-align: center; margin-top: 16px; font-size: 15px; font-weight: 600; color: var(--accent); }
+.projects__foot-note { margin-top: 22px; font-size: 15px; line-height: 20px; color: var(--label-secondary); }
 
-.inline-task-form { display: flex; align-items: center; gap: 4px; }
-.inline-task-form__input { background: var(--surface-2); border: 1.5px solid var(--ev-green); border-radius: var(--radius-sm); padding: 3px 8px; color: var(--text); font-size: 12px; outline: none; width: 130px; transition: box-shadow 0.15s; }
-.inline-task-form__input:focus { box-shadow: 0 0 0 3px var(--focus-glow); }
-.inline-task-form__ok { color: var(--ev-grass-text); font-size: 14px; padding: 2px 4px; font-weight: 700; }
-.inline-task-form__cancel { color: var(--text-muted); font-size: 18px; padding: 2px 4px; }
+.swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.swatch { width: 26px; height: 26px; min-height: 26px; border-radius: 50%; background: var(--pc); }
+.swatch--on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent); }
+.swatch:disabled { opacity: 0.28; cursor: default; }
 
 /* =====================================================================
-   CALENDAR
+   TEAM
+
+   Bars here are the accent, not a project colour: they encode hours per
+   person, and a person is not a project.
    ===================================================================== */
-/* No more calc(100vh - --timer-h - 56px): the magic numbers broke under
-   900px where the timer bar wraps to height:auto (> 72px) and the calendar
-   overflowed the viewport. .main__content is a flex column now, so the
-   calendar just claims the remaining space. min-height: 0 lets the inner
-   .calendar__body scroll instead of blowing the column out. */
-.calendar { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
-.calendar__header { flex-shrink: 0; padding-bottom: 0; }
-.calendar__title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-.calendar__title { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
-.calendar__nav { display: flex; align-items: center; gap: 6px; }
-
-.cal-nav-btn { padding: 6px 13px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; color: var(--text-muted); border: 1.5px solid var(--border); background: var(--surface); transition: all 0.2s var(--ease); line-height: 1; }
-.cal-nav-btn:hover { color: var(--text); border-color: var(--text-faint); }
-.cal-nav-btn--today { color: var(--text); border-color: var(--border); background: var(--surface-2); }
-.cal-nav-btn--today:hover { background: var(--surface-3); }
-
-.calendar__empty-hint { font-size: 13px; color: var(--text-faint); text-align: center; padding: 8px 0 4px; }
-
-/* Border order matters: the `border:` shorthand resets all four sides, so
-   it must come FIRST and the 2px bottom after it (previously the shorthand
-   was declared second and silently downgraded the bottom rule to 1px). */
-.calendar__day-headers {
-  display: grid; grid-template-columns: 52px repeat(7, 1fr);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-bottom: 2px solid var(--border);
-  border-radius: var(--radius) var(--radius) 0 0;
+.team__headline { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-top: 18px; }
+.team__grid-head, .team__row {
+  display: grid; grid-template-columns: 180px repeat(5, minmax(0, 1fr)) 92px; gap: 12px; align-items: center;
 }
-.calendar__day-header { display: flex; flex-direction: column; align-items: center; padding: 10px 4px; gap: 4px; }
-.calendar__day-name { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-muted); }
-.calendar__day-num { font-size: 18px; font-weight: 500; color: var(--text-muted); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
-.calendar__day-num--today { background: var(--accent-solid); color: #fff; font-weight: 700; }
-.calendar__day-header--today .calendar__day-name { color: var(--ev-green-dark); }
-
-.calendar__grid-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.calendar__body { flex: 1; overflow-y: auto; overflow-x: hidden; }
-.calendar__grid { display: grid; grid-template-columns: 52px repeat(7, 1fr); grid-template-rows: repeat(48, 36px); position: relative; background: var(--surface); border: 1px solid var(--border); border-top: none; border-radius: 0 0 var(--radius) var(--radius); }
-
-.calendar__time-col { display: flex; flex-direction: column; grid-row: 1 / span 48; grid-column: 1; }
-.calendar__time-slot { height: 36px; display: flex; align-items: flex-start; justify-content: flex-end; padding-right: 8px; flex-shrink: 0; }
-.calendar__time-label { font-size: 10px; font-weight: 600; color: var(--text-faint); white-space: nowrap; transform: translateY(-6px); font-family: var(--mono); }
-
-/* Explicit (not transparent) background: at fractional device-pixel column
-   widths (1fr columns, non-integer display scaling like 125%), leaving this
-   transparent lets 48 stacked hairline-bordered slot-lines rasterize with
-   visible seams that read as a solid dark box. An opaque fill avoids it. */
-.calendar__day-col { border-left: 1px solid var(--border-subtle); position: relative; grid-row: 1 / span 48; pointer-events: none; background: var(--surface); }
-.calendar__day-col--today { background: color-mix(in srgb, var(--ev-green) 2%, var(--surface)); }
-.calendar__slot-line { height: 36px; border-bottom: 1px solid var(--border-subtle); flex-shrink: 0; }
-.calendar__slot-line--half { border-bottom-style: dashed; opacity: 0.55; }
-
-.calendar__now-line { position: absolute; left: 0; right: 0; height: 2px; background: var(--ev-pumpkin); z-index: 5; pointer-events: none; }
-.calendar__now-line::before { content: ''; position: absolute; left: -4px; top: -3px; width: 8px; height: 8px; background: var(--ev-pumpkin); border-radius: 50%; }
-
-/* Opaque tint, not the project colour at 13% alpha. A translucent block let
-   everything stacked behind it read straight through: an Outlook ghost under
-   a tracked entry printed its subject over the entry's own title, and the
-   untracked-gap hatch did the same. color-mix against --surface keeps the
-   exact same colour on an empty grid while actually covering what's beneath,
-   and re-mixes per theme (the dark override below is now just a stronger
-   ratio, no !important needed to beat an inline style). */
-.cal-entry { position: absolute; left: 2px; right: 2px; border-radius: 5px; padding: 3px 7px; overflow: hidden; cursor: default; transition: box-shadow 0.15s; z-index: 2; box-shadow: var(--shadow-sm); pointer-events: auto; background: color-mix(in srgb, var(--pc) 13%, var(--surface)); }
-/* Darken via an inset shadow rather than `filter`: filter promotes the element
-   to its own compositing layer and can rasterize using its rectangular bounds
-   instead of respecting border-radius/overflow clipping, which showed up as
-   square dark artifacts at the rounded top/bottom edges (worse at fractional
-   display scaling). An inset box-shadow darkens the background the same way
-   without ever leaving the rounded clip. (Dark theme lightens instead —
-   see the override at the bottom.) */
-.cal-entry:hover { box-shadow: inset 0 0 0 999px rgba(0,0,0,0.08), var(--shadow); }
-.cal-entry--clickable { cursor: pointer; }
-/* Same rationale as .badge--project: --pc is an arbitrary user-picked hex,
-   so the name uses the standard --text token rather than a --pc mix —
-   matches .cal-entry__task/__time below, which never tinted off --pc. */
-.cal-entry__name { font-size: 11.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; color: var(--text); }
-.cal-entry__task { font-size: 10.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cal-entry__time { font-size: 10px; color: var(--text-muted); font-family: var(--mono); margin-top: 2px; }
-
-/* Drag-resize handles — thin strips along the top/bottom edge, only shown
-   (via opacity) on hover/focus so the block doesn't look "grabbable"
-   everywhere at rest. touch-action: none stops the drag from also
-   scrolling .calendar__body on touch devices. */
-.cal-entry__handle {
-  position: absolute; left: 0; right: 0; height: 7px;
-  cursor: ns-resize; opacity: 0; touch-action: none;
-  color: var(--pc);
-}
-/* Short centered grip pill (not a full-width line, which read as a stray
-   border). Colored via currentColor — the block sets it to the project accent. */
-.cal-entry__handle::after {
-  content: ''; position: absolute; left: 50%; top: 2px;
-  width: 26px; height: 3px; margin-left: -13px;
-  border-radius: 2px; background: currentColor;
-}
-.cal-entry__handle--bottom::after { top: auto; bottom: 2px; }
-.cal-entry__handle--top { top: 0; }
-.cal-entry__handle--bottom { bottom: 0; }
-.cal-entry:hover .cal-entry__handle,
-.cal-entry:focus-within .cal-entry__handle { opacity: 0.55; }
-.cal-entry__handle:hover { opacity: 0.9 !important; }
-
-/* Drag-to-move (#79). `grab` only on entries whose geometry can actually be
-   dragged — a running session, or one that runs past midnight, keeps the
-   plain pointer so the cursor doesn't promise a gesture that no-ops.
-   touch-action is deliberately left alone: a move drag never starts from a
-   touch pointer (see handleMoveStart), so vertical touch-scrolling that
-   begins on a block still scrolls the grid. */
-.cal-entry--draggable { cursor: grab; }
-/* The block stays put while its ghost tracks the pointer (it owns the
-   pointer capture — see CalendarPage), so it fades to read as "being
-   moved from here" rather than "still scheduled here". */
-.cal-entry--moving { cursor: grabbing; opacity: 0.4; }
-
-/* Ghost showing where a dragged entry would land. Lives in the (aria-hidden,
-   pointer-events: none) day column, so it can never intercept the drag. */
-.cal-move-preview {
-  position: absolute; left: 2px; right: 2px;
-  border-radius: 5px;
-  border: 1.5px solid var(--ev-green);
-  background: var(--ev-green-soft);
-  pointer-events: none; z-index: 4;
-  display: flex; align-items: flex-start;
-  padding: 3px 7px; overflow: hidden;
-}
-.cal-move-preview__time {
-  font-size: 10px; font-weight: 700; font-family: var(--mono);
-  color: var(--ev-green-dark); white-space: nowrap;
-}
-
-/* Live preview shown while dragging out a new entry's time span. */
-.cal-drag-preview {
-  position: absolute; left: 2px; right: 2px;
-  border-radius: 5px; border: 1.5px dashed var(--ev-green);
-  background: var(--ev-green-soft);
-  pointer-events: none; z-index: 3;
-}
+.team__grid-head { padding-bottom: 10px; border-bottom: 1px solid var(--separator); }
+.team__col-label { font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--label-secondary); text-align: center; }
+.team__col-label--today { color: var(--accent); }
+.team__col-label--week { text-align: right; }
+.team__row { height: 40px; }
+.team__row + .team__row { border-top: 1px solid color-mix(in srgb, var(--separator) 60%, transparent); }
+.team__name { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; color: var(--label); min-width: 0; }
+.team__name-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.team__bar-box { display: flex; align-items: end; height: 22px; }
+.team__bar { width: 100%; background: var(--accent); border-radius: 3px 3px 1px 1px; min-height: 2px; }
+.team__bar--today { opacity: 0.45; }
+.team__bar--empty { background: var(--decor); opacity: 0.5; }
+.team__bar--missing { background: repeating-linear-gradient(135deg, var(--warn) 0 4px, color-mix(in srgb, var(--warn) 30%, transparent) 4px 8px); }
+.team__week { font-size: 16px; font-weight: 600; color: var(--label); text-align: right; }
+.team__more { display: block; width: 100%; text-align: center; margin-top: 16px; font-size: 15px; font-weight: 600; color: var(--accent); }
+.team__note { margin-top: 22px; font-size: 15px; line-height: 20px; color: var(--label-secondary); max-width: 76ch; text-wrap: pretty; }
 
 /* =====================================================================
-   ENTRY EDIT FORM (inline in Timesheet)
+   IDLE PROMPT / AUTO-STOP — sheet-shaped choices
+
+   Three outcomes, three rows, and the day bar above them shows what each
+   one does before it is made.
    ===================================================================== */
-.entry-row__edit:hover { color: var(--ev-green-dark); border-color: var(--ev-green); }
+.choice-list { display: flex; flex-direction: column; gap: 12px; margin-top: 24px; }
+.choice {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  height: 52px; padding: 0 20px; border-radius: 12px; width: 100%;
+  font-size: 17px; font-weight: 600; text-align: left;
+}
+.choice--primary { background: var(--accent); color: var(--on-accent); }
+.choice--primary:hover { background: color-mix(in srgb, var(--accent) 88%, var(--label)); }
+.choice--tint { background: color-mix(in srgb, var(--label) 5.5%, transparent); color: var(--label); }
+.choice--tint:hover { background: color-mix(in srgb, var(--label) 9%, transparent); }
+.choice--danger { color: var(--danger); }
+.choice--danger:hover { background: color-mix(in srgb, var(--danger) 8%, transparent); }
+.choice__aside { font-size: 15px; font-weight: 400; opacity: 0.85; }
 
-.entry-row__running {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--ev-pumpkin-text);
-  font-size: 11.5px;
-  font-weight: 700;
-}
-.entry-row__running::before {
-  content: '';
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: var(--ev-pumpkin);
-  animation: blink 1.4s ease-in-out infinite;
-}
-
-.entry-edit-form {
-  background: var(--surface);
-  border: 1.5px solid var(--ev-green);
-  border-radius: var(--radius);
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  box-shadow: 0 0 0 3px var(--focus-glow);
-}
-
-.entry-edit-form__row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.entry-edit-form__select {
-  background: var(--surface-2);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text);
-  padding: 7px 10px;
-  font-size: 13px;
-  outline: none;
-  cursor: pointer;
-  flex: 1;
-  min-width: 120px;
-  transition: border-color 0.15s;
-}
-.entry-edit-form__select:focus { border-color: var(--ev-green); }
-
-.entry-edit-form__time-input {
-  background: var(--surface-2);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 7px 10px;
-  color: var(--text);
-  font-size: 13px;
-  font-family: var(--mono);
-  outline: none;
-  transition: border-color 0.15s;
-}
-.entry-edit-form__time-input:focus { border-color: var(--ev-green); }
-
-.entry-edit-form__sep {
-  color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.entry-edit-form__actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.entry-edit-form__delete {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--ev-pumpkin-text);
-  font-weight: 600;
-  padding: 5px 10px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--danger-border);
-  background: var(--danger-soft);
-  transition: background 0.15s;
-}
-.entry-edit-form__delete:hover { background: var(--danger-mid); }
+.span-legend { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 13px; line-height: 18px; color: var(--label-secondary); }
 
 /* =====================================================================
-   CALENDAR — CLICKABLE COLUMN & OUTLOOK EVENTS
+   ERROR BOUNDARY
    ===================================================================== */
-/* touch-action stays default (auto) here, not `none` — the slot grid covers
-   the whole scrollable area, and locking it down would break vertical
-   touch-scroll on tablet-width viewports that still show the desktop grid
-   (only < 768px falls back to the tap-only mobile list). A touch drag that
-   turns into a scroll just fires pointercancel, which safely drops the
-   in-progress drag-create instead of opening the modal. */
-/* Each ARIA row is a real grid box (not display:contents) so the
-   grid → row → gridcell hierarchy is reliably exposed to assistive tech. It
-   spans the 7 day columns of the parent grid and re-divides that span into 7
-   equal columns — identical widths to the parent's `1fr` day tracks (no gap),
-   so the cells land exactly where the old direct placement put them. */
-.calendar__slot-row { display: grid; grid-column: 2 / -1; grid-template-columns: repeat(7, 1fr); }
-/* position: relative so entry blocks — now rendered inside the gridcell they
-   start in (for a valid ARIA grid) — anchor to the cell. They overflow it
-   downward by design; the cell is a single 36px slot but must not clip. */
-.calendar__slot-cell { cursor: crosshair; background: transparent; position: relative; overflow: visible; }
-.calendar__slot-cell:hover { background: rgba(113,149,0,0.025); }
-.calendar__slot-cell[data-today="true"]:hover { background: rgba(113,149,0,0.04); }
-
-/* =====================================================================
-   CALENDAR — LOG TIME MODAL
-   ===================================================================== */
-/* No backdrop-filter: blur() here (or on .modal-backdrop). Chromium has
-   long-standing compositing bugs where the blurred region rasterizes as a
-   gray/black rectangle — aggravated by an animating child (modal-in does
-   transform+scale) and fractional display scaling. The dim is slightly
-   deeper to compensate for the lost separation. */
-.cal-modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.42);
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.cal-modal {
-  background: var(--surface);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  width: 420px;
-  max-width: calc(100vw - 40px);
-  overflow: hidden;
-  animation: modal-in 0.18s ease;
-}
-@keyframes modal-in {
-  from { opacity: 0; transform: translateY(-10px) scale(0.98); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-.cal-modal__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px 14px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface-2);
-}
-.cal-modal__title {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text);
-}
-.cal-modal__close {
-  color: var(--text-faint);
-  font-size: 22px;
-  line-height: 1;
-  transition: color 0.15s;
-  padding: 0 2px;
-}
-.cal-modal__close:hover { color: var(--ev-pumpkin-text); }
-
-.cal-modal__body {
-  padding: 18px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.cal-modal__time-row {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  align-items: flex-end;
-}
-.cal-modal__time-group {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 1;
-  min-width: 100px;
-}
-.cal-modal__label {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-}
-.cal-modal__label-row { display: inline-flex; align-items: center; gap: 5px; }
-
-.cal-modal__footer {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  padding: 14px 20px 16px;
-  border-top: 1px solid var(--border);
-  background: var(--surface-2);
-}
-.cal-modal__footer-actions { display: flex; gap: 8px; align-items: center; }
-/* A floor under the gap between Save/Cancel and Delete. `margin-left: auto`
-   alone puts Delete at the far end only while there is slack to give it; once
-   the modal is narrow the two collapse to the 8px row gap. */
-.cal-modal__footer-actions--spaced { margin-right: 28px; }
-.cal-modal__confirm {
-  margin-right: auto;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text);
-}
-.cal-modal__delete {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--ev-pumpkin-text);
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--danger-border);
-  background: var(--danger-soft);
-  transition: background 0.15s;
-}
-.cal-modal__delete { margin-left: auto; }
-.cal-modal__delete:hover { background: var(--danger-mid); }
-
-/* =====================================================================
-   TOASTS
-   ===================================================================== */
-.toast-container {
-  position: fixed;
-  bottom: 20px;
-  right: 20px;
-  z-index: 1100;
-  display: flex;
-  flex-direction: column;
-  max-width: 380px;
-  pointer-events: none;
-}
-/* The polite and assertive live regions inside the container. Both stay
-   mounted while empty (see ToastContext) — an empty one is zero-height and
-   invisible, so the stack looks the same as when the container held the
-   toasts directly. Spacing lives here rather than as a `gap` on the container
-   so the empty region doesn't open a gap of its own. */
-.toast-region {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  pointer-events: none;
-}
-.toast-region:not(:empty) + .toast-region:not(:empty) { margin-top: 10px; }
-.toast {
-  pointer-events: auto;
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px 14px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--ev-blue);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  font-size: 13px;
-  color: var(--text);
-  opacity: 0;
-  transform: translateY(8px);
-  transition: opacity 0.18s ease, transform 0.18s ease;
-}
-.toast--shown { opacity: 1; transform: translateY(0); }
-.toast--error   { border-left-color: var(--danger); }
-.toast--success { border-left-color: var(--success); }
-.toast--info    { border-left-color: var(--ev-blue); }
-.toast__message { flex: 1; line-height: 1.45; }
-.toast__close {
-  flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
-  line-height: 22px;
-  font-size: 18px;
-  color: var(--text-muted);
-  border-radius: 4px;
-  text-align: center;
-}
-.toast__close:hover { background: var(--surface-2); color: var(--text); }
-
-/* =====================================================================
-   MODAL — generic backdrop + idle prompt
-   ===================================================================== */
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(26, 45, 30, 0.58);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1200;
-  padding: 20px;
-}
-.idle-modal {
-  background: var(--surface);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 24px;
-  max-width: 460px;
-  width: 100%;
-  border: 1px solid var(--border);
-}
-.idle-modal__title {
-  font-size: 17px;
-  font-weight: 600;
-  color: var(--text);
-  margin-bottom: 10px;
-}
-.idle-modal__body {
-  font-size: 14px;
-  color: var(--text-muted);
-  margin-bottom: 18px;
-  line-height: 1.55;
-}
-.idle-modal__body strong { color: var(--text); font-weight: 600; }
-.idle-modal__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-.idle-modal__discard {
-  margin-left: auto;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--ev-pumpkin-text);
-  padding: 6px 10px;
-  border-radius: var(--radius-sm);
-  transition: background 0.15s;
-}
-.idle-modal__discard:hover { background: var(--danger-soft); }
-
-/* =====================================================================
-   SCROLLBAR (WebKit; Firefox handled in the reset)
-   ===================================================================== */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--text-decor); }
-
-/* =====================================================================
-   PAGE TRANSITIONS & MOTION
-   ===================================================================== */
-@keyframes rise-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.overview, .timesheet, .reports, .projects-page, .calendar {
-  animation: rise-in 0.35s var(--ease);
-}
-.timesheet__day {
-  animation: rise-in 0.4s var(--ease) backwards;
-}
-.timesheet__day:nth-child(2) { animation-delay: 40ms; }
-.timesheet__day:nth-child(3) { animation-delay: 80ms; }
-.timesheet__day:nth-child(4) { animation-delay: 120ms; }
-.timesheet__day:nth-child(5) { animation-delay: 160ms; }
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important; /* stop infinite pulse/shimmer loops */
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-}
-
-/* =====================================================================
-   SKELETON LOADER (initial load only)
-   ===================================================================== */
-.page-skeleton { max-width: 920px; }
-.page-skeleton__group { margin-bottom: 26px; }
-.skeleton {
-  position: relative;
-  overflow: hidden;
-  background: var(--surface-2);
-  border-radius: var(--radius-sm);
-}
-.skeleton::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.65), transparent);
-  animation: shimmer 1.4s ease-in-out infinite;
-}
-@keyframes shimmer { 100% { transform: translateX(100%); } }
-.skeleton--title { height: 26px; width: 180px; margin-bottom: 26px; }
-.skeleton--label { height: 13px; width: 130px; margin-bottom: 10px; }
-.skeleton--row   { height: 58px; margin-bottom: 7px; border-radius: var(--radius); }
-
-/* =====================================================================
-   TIMESHEET TOOLBAR (search + project filter)
-   ===================================================================== */
-.timesheet__toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 20px;
-  flex-wrap: wrap;
-}
-.search-box {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-  min-width: 220px;
-  max-width: 380px;
-  background: var(--surface);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0 10px;
-  transition: border-color 0.2s var(--ease), box-shadow 0.2s var(--ease);
-}
-.search-box:focus-within { border-color: var(--ev-green); box-shadow: 0 0 0 3px var(--focus-glow); }
-.search-box__icon { color: var(--text-faint); flex-shrink: 0; }
-.search-box__input {
-  flex: 1;
-  border: none;
-  outline: none;
-  background: transparent;
-  padding: 8px 0;
-  font-size: 13px;
-  color: var(--text);
-}
-.search-box__input::placeholder { color: var(--text-decor); }
-.search-box__clear {
-  display: flex;
-  align-items: center;
-  color: var(--text-faint);
-  padding: 4px;
-  border-radius: 4px;
-}
-.search-box__clear:hover { color: var(--text); background: var(--surface-2); }
-.timesheet__project-filter {
-  background: var(--surface);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text);
-  padding: 8px 10px;
-  font-size: 13px;
-  outline: none;
-  cursor: pointer;
-  max-width: 200px;
-  transition: border-color 0.2s var(--ease);
-}
-.timesheet__project-filter:focus { border-color: var(--ev-green); }
-.timesheet__toolbar-total {
-  margin-left: auto;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.timesheet__empty .btn-primary { margin-top: 4px; }
-
-/* =====================================================================
-   ENTRY MODAL FIELDS & VALIDATION
-   ===================================================================== */
-.field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
-.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.form-error {
-  font-size: 12px;
-  color: var(--ev-pumpkin-text);
-  font-weight: 600;
-  background: var(--danger-soft);
-  border: 1px solid var(--danger-border);
-  border-radius: var(--radius-sm);
-  padding: 7px 10px;
-}
-.form-hint {
-  font-size: 12px;
-  color: var(--text-muted);
-  font-family: var(--mono);
-}
-
-/* =====================================================================
-   TOAST ACTION (e.g. Undo)
-   ===================================================================== */
-.toast__action {
-  flex: 0 0 auto;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--ev-green-dark);
-  padding: 4px 10px;
-  border-radius: var(--radius-sm);
-  border: 1px solid rgba(113,149,0,0.35);
-  background: var(--ev-green-soft);
-  transition: background 0.2s var(--ease);
-  white-space: nowrap;
-}
-.toast__action:hover { background: var(--ev-green-mid); }
-.toast__close { display: flex; align-items: center; justify-content: center; }
-
-/* =====================================================================
-   CALENDAR ADDITIONS — totals, nav icons, running entries
-   ===================================================================== */
-.calendar__title-group { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-.calendar__week-total {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text);
-  font-family: var(--mono);
-  font-variant-numeric: tabular-nums;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 3px 10px;
-}
-.calendar__day-total {
-  font-size: 10px;
-  font-weight: 700;
-  font-family: var(--mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--text-faint);
-  min-height: 14px;
-}
-.calendar__day-header--today .calendar__day-total { color: var(--text); }
-.cal-nav-btn { display: inline-flex; align-items: center; justify-content: center; }
-.cal-entry--running {
-  border-style: dashed;
-  border-width: 1.5px;
-  border-color: var(--ev-pumpkin);
-  border-left-width: 3px;
-  animation: running-pulse 2s ease-in-out infinite;
-}
-@keyframes running-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(204,79,0,0.18); }
-  50%      { box-shadow: 0 0 0 4px rgba(204,79,0,0.06); }
-}
-
-/* Modal close button hosts an SVG now */
-.cal-modal__close { display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 4px; }
-.cal-modal__close:hover { background: var(--surface-2); }
-
-
-/* =====================================================================
-   RESPONSIVE — collapse sidebar to an icon rail, relax grids
-   ===================================================================== */
-@media (max-width: 900px) {
-  :root { --sidebar-w: 64px; }
-  .sidebar__logo { padding: 14px 10px; }
-  .sidebar__link { justify-content: center; padding: 10px 0; }
-  .sidebar__link-label { display: none; }
-  .sidebar__running { justify-content: center; padding: 9px 0; }
-  .sidebar__running-label { display: none; }
-  .sidebar__theme-toggle { justify-content: center; padding: 10px 0; }
-  .main__content { padding: 18px 16px; }
-  .reports__kpis { grid-template-columns: repeat(2, 1fr); }
-  .reports__grid { grid-template-columns: 1fr; }
-  .timer-bar__inner { flex-wrap: wrap; height: auto; padding: 10px 14px; }
-  .timer-bar__desc { flex-basis: 100%; }
-  .timesheet__toolbar-total { margin-left: 0; }
-  .field-row { grid-template-columns: 1fr; }
-}
-
-@media (max-width: 560px) {
-  .reports__kpis { grid-template-columns: 1fr 1fr; gap: 8px; }
-  .kpi-card { padding: 12px 14px; }
-  .kpi-card__value { font-size: 19px; }
-  .calendar__day-name { font-size: 9px; letter-spacing: 0.3px; }
-  .calendar__day-num { font-size: 14px; width: 26px; height: 26px; }
-}
-
-/* =====================================================================
-   OVERNIGHT SPLIT PROMPT (EntryModal)
-   ===================================================================== */
-.overnight-prompt {
-  background: var(--danger-soft);
-  border: 1px solid var(--danger-border);
-  border-radius: var(--radius-sm);
-  padding: 10px 12px;
-  margin-bottom: 2px;
-}
-.overnight-prompt__msg {
-  font-size: 12.5px;
-  color: var(--text);
-  margin-bottom: 8px;
-  font-weight: 500;
-}
-.overnight-prompt__actions {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.btn-sm {
-  font-size: 12px;
-  padding: 5px 12px;
-  border-radius: var(--radius-sm);
-  font-weight: 600;
-}
-.btn-sm.btn-primary {
-  background: var(--accent-solid);
-  color: #fff;
-  border: 1.5px solid var(--accent-solid-hover);
-}
-.btn-sm.btn-primary:hover { background: var(--accent-solid-hover); }
-.btn-sm.btn-ghost {
-  background: var(--surface-2);
-  color: var(--text-muted);
-  border: 1.5px solid var(--border);
-}
-.btn-sm.btn-ghost:hover { color: var(--text); background: var(--surface); }
-
-/* =====================================================================
-   CALENDAR MOBILE LIST VIEW (< 768px)
-   ===================================================================== */
-@media (max-width: 768px) {
-  .calendar__grid-wrap { display: none; }
-  .cal-mobile-list { display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
-  .cal-mobile-empty { color: var(--text-faint); font-size: 13px; padding: 24px 0; text-align: center; }
-  .cal-mobile-day-nav {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 14px;
-  }
-  .cal-mobile-day-nav__label { font-size: 14px; font-weight: 700; color: var(--text); }
-}
-@media (min-width: 769px) {
-  .cal-mobile-list { display: none; }
-  .cal-mobile-day-nav { display: none; }
-}
-.cal-mobile-entry {
-  display: flex; align-items: flex-start; gap: 10px;
-  background: var(--surface); border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm); padding: 10px 12px;
-  cursor: pointer; transition: border-color 0.15s;
-}
-.cal-mobile-entry:hover { border-color: var(--ev-green); }
-.cal-mobile-entry__bar { width: 3px; border-radius: 2px; min-height: 36px; flex-shrink: 0; margin-top: 2px; }
-.cal-mobile-entry__info { flex: 1; min-width: 0; }
-.cal-mobile-entry__name { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
-.cal-mobile-entry__time { font-size: 11px; color: var(--text-muted); font-family: var(--mono); }
-
-/* Reports skeleton KPI/chart placeholders */
-.skeleton--kpi { height: 82px; border-radius: var(--radius); }
-.skeleton--chart { height: 180px; border-radius: var(--radius); }
-.reports-skeleton { max-width: 920px; }
-.reports-skeleton__kpis {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
-  margin-bottom: 20px;
-}
-@media (max-width: 900px) {
-  .reports-skeleton__kpis { grid-template-columns: repeat(2, 1fr); }
-}
-
-/* Keyboard focus for calendar interactive regions */
-.calendar__slot-cell:focus-visible {
-  outline: 2px solid var(--ev-green);
-  outline-offset: -2px;
-  z-index: 1;
-}
-.cal-entry--clickable:focus-visible {
-  outline: 2px solid var(--ev-green);
-  outline-offset: 1px;
-}
-
-/* =====================================================================
-   ERROR BOUNDARY (issue #31)
-   ===================================================================== */
-.error-boundary {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  min-height: 100dvh;
-  background: var(--bg);
-  padding: 24px;
-}
-.error-boundary__card {
-  background: var(--surface);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 40px 48px;
-  text-align: center;
-  max-width: 420px;
-}
-.error-boundary__title {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--text);
-  margin-bottom: 10px;
-}
-.error-boundary__detail {
-  font-size: 13px;
-  color: var(--text-muted);
-  margin-bottom: 16px;
-}
-/* The per-page boundary sits inside .main__content, so it must not claim the
-   viewport the way the app-level one does — the sidebar and timer bar are still
-   there and still working. */
-.error-boundary--page { min-height: 0; padding: 28px 0; align-items: flex-start; background: transparent; }
-.error-boundary--page .error-boundary__card { padding: 28px 32px; }
-
-.error-boundary__raw { font-size: 12px; color: var(--text-muted); margin-bottom: 20px; }
-.error-boundary__raw summary { cursor: pointer; color: var(--text-faint); }
-.error-boundary__raw-text {
-  margin-top: 8px;
-  font-family: var(--mono);
-  font-size: 11.5px;
-  color: var(--text-muted);
-  text-align: left;
-  word-break: break-word;
-}
-.error-boundary__actions { display: flex; gap: 8px; justify-content: center; }
-
-/* =====================================================================
-   THEME TOGGLE (sidebar footer)
-   ===================================================================== */
-.sidebar__theme-toggle {
-  margin: auto 10px 12px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 11px;
-  border-radius: var(--radius-sm);
-  color: var(--sidebar-muted);
-  font-size: 13px;
-  font-weight: 500;
-  transition: all 0.2s var(--ease);
-  text-align: left;
-}
-.sidebar__theme-toggle:hover { background: rgba(255,255,255,0.06); color: var(--sidebar-text); }
-/* When the running indicator is present it already claims the auto margin. */
-.sidebar__running + .sidebar__theme-toggle { margin-top: 10px; }
-
-/* =====================================================================
-   WEEKLY TARGET — calendar header progress + timesheet chip
-   ===================================================================== */
-.week-target { display: inline-flex; align-items: center; gap: 8px; }
-.week-target__label { font-size: 12px; font-weight: 600; color: var(--text-muted); font-family: var(--mono); white-space: nowrap; }
-.week-target__track {
-  width: 110px; height: 6px;
-  border-radius: 3px;
-  background: var(--surface-3);
-  overflow: hidden;
-  flex-shrink: 0;
-}
-.week-target__fill { display: block; height: 100%; background: var(--ev-green); border-radius: 3px; transition: width 0.3s var(--ease); }
-.week-target__fill--met { background: var(--success); }
-.week-target__edit { display: inline-flex; align-items: center; padding: 3px; color: var(--text-faint); border-radius: 4px; }
-.week-target__edit:hover { color: var(--text); }
-
-.week-target-set {
-  font-size: 11.5px;
-  color: var(--text-muted);
-  border: 1px dashed var(--border);
-  border-radius: 20px;
-  padding: 3px 10px;
-  transition: color 0.15s, border-color 0.15s;
-}
-.week-target-set:hover { color: var(--text); border-color: var(--text-faint); }
-
-.week-target-editor { display: inline-flex; align-items: center; gap: 4px; }
-.week-target-editor__input {
-  width: 72px;
-  background: var(--surface);
-  border: 1.5px solid var(--ev-green);
-  border-radius: var(--radius-sm);
-  padding: 3px 8px;
-  color: var(--text);
-  font-size: 12px;
-  outline: none;
-  transition: box-shadow 0.15s;
-}
-.week-target-editor__input:focus { box-shadow: 0 0 0 3px var(--focus-glow); }
-.week-target-editor__ok { display: inline-flex; padding: 3px; color: var(--ev-grass-text); }
-.week-target-editor__cancel { display: inline-flex; padding: 3px; color: var(--text-muted); }
-
-.week-target-chip { display: inline-flex; align-items: center; gap: 7px; margin-left: 10px; }
-.week-target-chip__label { font-size: 12px; font-weight: 600; color: var(--text-muted); font-family: var(--mono); white-space: nowrap; }
-.week-target-chip__track { width: 70px; height: 5px; border-radius: 3px; background: var(--surface-3); overflow: hidden; flex-shrink: 0; }
-.week-target-chip__fill { display: block; height: 100%; background: var(--ev-green); border-radius: 3px; }
-.week-target-chip__fill--met { background: var(--success); }
-
-/* =====================================================================
-   PROJECT ARCHIVE
-   ===================================================================== */
-.project-card__archive {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11.5px;
-  color: var(--text-muted);
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 2px 8px;
-  cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
-}
-.project-card__archive:hover:not(:disabled) { color: var(--ev-pumpkin-text); border-color: var(--ev-pumpkin); }
-.project-card__archive:disabled { opacity: 0.4; cursor: not-allowed; }
-
-.archived-projects { margin-top: 26px; }
-.archived-projects__toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text-muted);
-  padding: 6px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  transition: color 0.15s, border-color 0.15s;
-}
-.archived-projects__toggle:hover { color: var(--text); border-color: var(--text-faint); }
-.archived-projects__chevron { font-size: 10px; }
-.project-cards--archived { margin-top: 14px; }
-.project-card--archived { opacity: 0.75; }
-.project-card--archived .project-card__name { color: var(--text-muted); }
-.project-card--archived .project-card__edit { display: inline-flex; align-items: center; gap: 5px; }
-
-/* Task chip name doubles as the rename affordance */
-.task-chip__name {
-  color: inherit;
-  font: inherit;
-  padding: 0;
-  cursor: pointer;
-  border-radius: 3px;
-}
-.task-chip__name:hover { color: var(--text); text-decoration: underline dotted; }
-
-/* =====================================================================
-   REPORTS — export rounding + project × period matrix
-   ===================================================================== */
-.reports__export-bar, .team__export-bar {
-  display: flex; align-items: center; gap: 10px; justify-content: flex-end;
-  padding: 10px 0; margin-bottom: 16px;
-  border-top: 1px solid var(--border-subtle);
-}
-.reports__export-label, .team__export-label {
-  font-size: 11px; font-weight: 700; color: var(--text-faint);
-  text-transform: uppercase; letter-spacing: 0.7px; margin-right: auto;
-}
-.reports__export-controls, .team__export-controls { display: flex; align-items: center; gap: 8px; }
-.rounding-select {
-  background: var(--surface);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  font-size: 12px;
-  padding: 7px 8px;
-  outline: none;
-  max-width: 170px;
-}
-.rounding-select:focus { border-color: var(--ev-green); }
-
-/* Edge-fade + shadow cue for offscreen columns — the two `local`-attached
-   gradients scroll with the table and cover the `scroll`-attached shadows
-   beneath, so a shadow only shows on the side that still has hidden
-   columns. Pure CSS, no JS scroll listener needed. (Dark theme swaps the
-   black radials for a light glow — black-on-near-black was invisible.) */
-.matrix-wrap {
-  overflow-x: auto;
-  background:
-    linear-gradient(to right, var(--surface) 30%, var(--surface-fade)) left,
-    linear-gradient(to left, var(--surface) 30%, var(--surface-fade)) right,
-    radial-gradient(farthest-side at 0 50%, rgba(0,0,0,0.18), rgba(0,0,0,0)) left,
-    radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,0.18), rgba(0,0,0,0)) right;
-  background-repeat: no-repeat;
-  background-color: var(--surface);
-  background-size: 32px 100%, 32px 100%, 12px 100%, 12px 100%;
-  background-attachment: local, local, scroll, scroll;
-}
-.matrix { border-collapse: collapse; width: 100%; font-size: 12px; }
-.matrix th, .matrix td {
-  font-variant-numeric: tabular-nums;
-  padding: 6px 9px;
-  text-align: right;
-  white-space: nowrap;
-  border-bottom: 1px solid var(--border-subtle);
-  font-family: var(--mono);
-  color: var(--text-muted);
-}
-.matrix thead th { font-family: var(--font); font-weight: 600; color: var(--text-faint); font-size: 11px; }
-.matrix .matrix__proj-col {
-  text-align: left;
-  font-family: var(--font);
-  font-weight: 600;
-  color: var(--text);
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.matrix .matrix__proj-col .project-breakdown__dot { margin-right: 6px; }
-/* No opacity here. A zero cell is still a reading of the grid — "nothing was
-   logged in this week" — and halving the alpha took it to roughly 1.5:1 (#88).
-   The lighter-than-text grey is enough to keep it recessive. */
-.matrix .matrix__zero { color: var(--text-faint); }
-.matrix .matrix__total-col { font-weight: 700; color: var(--text); }
-.matrix tfoot td, .matrix tfoot th { border-top: 1.5px solid var(--border); border-bottom: none; font-weight: 700; }
-.matrix__hint { margin-top: 8px; font-size: 11px; color: var(--text-faint); }
-
-/* =====================================================================
-   DARK THEME
-   Applied via data-theme on <html> (see useTheme). Buttons keep the brand
-   green + white text; only surfaces, text, borders and the AA text-safe
-   variants change. The sidebar is already dark and stays as-is.
-   ===================================================================== */
-:root[data-theme="dark"] {
-  color-scheme: dark; /* native date pickers, selects, scrollbars go dark */
-
-  --bg:             #121712;
-  --surface:        #1a211b;
-  --surface-fade:   rgba(26,33,27,0); /* --surface with alpha 0, for edge-fade gradients */
-  --surface-2:      #212a22;
-  --surface-3:      #2b362c;
-  --border:         #3b483c;
-  --border-subtle:  #2b362c;
-
-  --text:           #e7ede3;
-  --text-muted:     #a8b6a4;
-  --text-faint:     #93a390;
-  --text-decor:     #6f7f6c;
-
-  /* Brand tints re-balanced for dark surfaces */
-  --ev-green-soft:  rgba(143,179,42,0.14);
-  --ev-green-mid:   rgba(143,179,42,0.26);
-  /* Same lightened hue, carried at the stronger alpha the light theme uses so
-     the input focus glow stays a visible indicator here too. */
-  --focus-glow:     rgba(143,179,42,0.28);
-
-  /* AA text-safe variants (≥ 4.5:1 on --surface) */
-  --ev-green-dark:   #a9cb4b;
-  --ev-lime-text:    #d3dd66;
-  --ev-robin-text:   #7fd8ec;
-  --ev-lemon-text:   #f7c95c;
-  --ev-pumpkin-text: #f49264;
-  --ev-grass-text:   #79c99a;
-
-  --danger:  #e87a45;
-  --success: #5cae7f;
-  --warn:    #f0b34a;  /* ≥6.7:1 on every dark surface */
-
-  /* Danger/success tints re-based on the lightened dark-theme hues —
-     the light-theme literals were tuned for a white substrate. */
-  --danger-soft:    rgba(232,122,69,0.12);
-  --danger-mid:     rgba(232,122,69,0.20);
-  --danger-border:  rgba(232,122,69,0.35);
-  --success-soft:   rgba(92,174,127,0.12);
-  --success-mid:    rgba(92,174,127,0.20);
-  --success-border: rgba(92,174,127,0.35);
-
-  /* Blue reads muddy on dark green-black; robin pops */
-  --focus-ring:     var(--ev-robin);
-
-  /* THE "DARK BOX" FIX: near-black drop shadows on near-black cards don't
-     read as depth — they read as dark rectangles hugging every card and
-     calendar entry (worst under .cal-entry, whose shadow paints straight
-     onto the slot grid). Elevation in dark mode comes from the existing
-     bg (#121712) → surface (#1a211b) lightness step plus borders; shadows
-     are kept only as a faint soft cue. */
-  --shadow:    0 1px 3px rgba(0,0,0,0.20), 0 4px 12px rgba(0,0,0,0.14);
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.16);
-}
-/* No dark-theme pin for the solid buttons any more: --accent-solid and
-   --accent-solid-hover are theme-independent by design (see their definition),
-   so white-on-green keeps both its contrast and its hover step in either
-   theme. The old override existed because those fills were built from
-   --ev-green-dark, which dark mode re-points at a light green for small text. */
-/* The light shimmer is blinding on dark cards */
-:root[data-theme="dark"] .skeleton::after {
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.09), transparent);
-}
-/* Deepen modal overlays so dialogs still separate from the page */
-:root[data-theme="dark"] .cal-modal-overlay { background: rgba(0,0,0,0.6); }
-:root[data-theme="dark"] .modal-backdrop { background: rgba(0,0,0,0.62); }
-/* Project accent colors (--pc) are arbitrary per-project hex, including dark
-   swatches like navy/forest chosen because they read fine on light theme's
-   white cards. On dark theme's near-black cards those same swatches render
-   the calendar entry as a black box — text fix alone wasn't enough because
-   the BLOCK's tint is also derived from --pc. A stronger mix against the dark
-   surface separates them. (The tint now lives in CSS for both themes, so this
-   no longer needs !important to outrank an inline style.) */
-:root[data-theme="dark"] .cal-entry {
-  background: color-mix(in srgb, var(--pc) 22%, var(--surface));
-}
-/* …and lighten the drag handle grip (decorative, uses currentColor) toward
-   white so it stays visible against any swatch. .cal-entry__name and
-   .badge--project no longer need an override here — they use --text,
-   which already adapts per theme. */
-:root[data-theme="dark"] .cal-entry__handle {
-  color: color-mix(in srgb, var(--pc) 65%, white 35%);
-}
-/* Hover LIGHTENS in dark mode — the light theme's inset-black darkener
-   sank entries further into the grid (same technique, flipped color; the
-   filter-avoidance rationale from the light rule still applies). */
-:root[data-theme="dark"] .cal-entry:hover {
-  box-shadow: inset 0 0 0 999px rgba(255,255,255,0.07), var(--shadow);
-}
-/* Slot hover tint was invisible at light-theme alphas */
-:root[data-theme="dark"] .calendar__slot-cell:hover { background: rgba(143,179,42,0.05); }
-:root[data-theme="dark"] .calendar__slot-cell[data-today="true"]:hover { background: rgba(143,179,42,0.08); }
-/* Matrix scroll-shadow: black radials are invisible on near-black — use a
-   faint light glow instead (whole shorthand restated; it can't be patched). */
-:root[data-theme="dark"] .matrix-wrap {
-  background:
-    linear-gradient(to right, var(--surface) 30%, var(--surface-fade)) left,
-    linear-gradient(to left, var(--surface) 30%, var(--surface-fade)) right,
-    radial-gradient(farthest-side at 0 50%, rgba(255,255,255,0.10), rgba(255,255,255,0)) left,
-    radial-gradient(farthest-side at 100% 50%, rgba(255,255,255,0.10), rgba(255,255,255,0)) right;
-  background-repeat: no-repeat;
-  background-color: var(--surface);
-  background-size: 32px 100%, 32px 100%, 12px 100%, 12px 100%;
-  background-attachment: local, local, scroll, scroll;
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
-   Outlook meeting overlay (calendar)
-   Ghost blocks sit BEHIND tracked entries (z-index 1 vs .cal-entry's 2),
-   full-width and deliberately muted — they're context to categorize, not
-   records. Clicking one opens the Log Time modal prefilled.
-   ═══════════════════════════════════════════════════════════════════════ */
-/* Flat tint and a dashed LEFT EDGE only — no hatch, no full border. With
-   twenty-plus ghosts a week the hatch texture became the page itself, and an
-   untracked week read as fully booked. Tracked entries keep their saturated
-   fill and solid accent, so they stay the only high-contrast objects here. */
-.cal-ghost {
-  position: absolute; left: 2px; right: 2px;
-  border-radius: 0 4px 4px 0; padding: 3px 7px; overflow: hidden;
-  z-index: 1; cursor: pointer; pointer-events: auto;
-  background: color-mix(in srgb, var(--text) 5%, transparent);
-  border: none;
-  border-left: 2px dashed var(--border);
-  transition: background 0.15s, border-color 0.15s;
-}
-.cal-ghost:hover, .cal-ghost:focus-within {
-  background: color-mix(in srgb, var(--text) 9%, transparent);
-  border-left-color: var(--ev-green);
-}
-.cal-ghost--logged { opacity: 0.5; }
-/* Fills the block so the whole meeting is the hit target. */
-.cal-ghost__log {
-  position: absolute; inset: 0;
-  display: flex; flex-direction: column; align-items: flex-start;
-  padding: 3px 7px;
-  background: none; border: none; cursor: pointer;
-  text-align: left; overflow: hidden;
-  font: inherit;
-}
-.cal-ghost__name {
-  font-size: 11px; font-weight: 600; color: var(--text-faint);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3;
-  display: flex; align-items: center; gap: 3px;
-}
-
-/* "+ Log" and the mute control, revealed on hover/focus — the block used to
-   rely on a bare click that nothing announced. */
-.cal-ghost__actions {
-  position: absolute; top: 2px; right: 3px; z-index: 1;
-  display: flex; align-items: center; gap: 3px;
-  opacity: 0; transition: opacity 0.12s;
-}
-.cal-ghost:hover .cal-ghost__actions,
-.cal-ghost:focus-within .cal-ghost__actions { opacity: 1; }
-@media (hover: none) { .cal-ghost__actions { opacity: 1; } }
-.cal-ghost__cta {
-  font-size: 10px; font-weight: 700; color: var(--ev-green-dark);
-  background: var(--surface); border: 1px solid var(--ev-green);
-  border-radius: 20px; padding: 0 6px; line-height: 15px;
-}
-.cal-ghost__mute {
-  display: flex; align-items: center; justify-content: center;
-  width: 16px; height: 16px; padding: 0;
-  border: 1px solid var(--border); border-radius: 4px;
-  background: var(--surface); color: var(--text-muted); cursor: pointer;
-}
-.cal-ghost__mute:hover { color: var(--ev-pumpkin-text); border-color: var(--danger-border); }
-
-/* "Faded" mode: still there, still clickable, a fraction of the weight.
-   Hovering one brings it back so it can be read and logged. */
-.calendar--outlook-faded .cal-ghost { opacity: 0.4; }
-.calendar--outlook-faded .cal-ghost:hover,
-.calendar--outlook-faded .cal-ghost:focus-visible,
-.calendar--outlook-faded .cal-ghost:focus-within { opacity: 1; }
-
-/* Per-day "Log N" in the column header. */
-.cal-day-log-all {
-  margin-top: 2px;
-  font-size: 10px; font-weight: 700;
-  color: var(--ev-green-dark);
-  background: var(--accent-soft);
-  border: 1px solid var(--ev-green);
-  border-radius: 20px; padding: 1px 8px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.cal-day-log-all:hover { background: var(--ev-green-mid); }
-.cal-ghost__check { color: var(--ev-green-dark); flex-shrink: 0; }
-.cal-ghost__time { font-size: 10px; color: var(--text-faint); font-family: var(--mono); margin-top: 2px; }
-
-/* Header chip toggling the overlay (matches .week-target-set's chip look) */
-.cal-outlook-toggle {
-  font-size: 11.5px;
-  color: var(--text-muted);
-  border: 1px dashed var(--border);
-  border-radius: 20px;
-  padding: 3px 10px;
-  transition: color 0.15s, border-color 0.15s;
-}
-.cal-outlook-toggle:hover { color: var(--ev-green-dark); border-color: var(--ev-green); }
-.cal-outlook-toggle--active { border-style: solid; color: var(--ev-green-dark); border-color: var(--ev-green); }
-.cal-outlook-toggle--warn { color: var(--warn); border-color: currentcolor; }
-
-/* Mobile day-list rows for meetings */
-.cal-mobile-ghost {
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px 10px; margin-bottom: 6px;
-  border: 1.5px dashed var(--border); border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-.cal-mobile-ghost--logged { opacity: 0.55; }
-.cal-mobile-ghost__info { flex: 1; min-width: 0; }
-.cal-mobile-ghost__name {
-  font-size: 13px; font-weight: 600; color: var(--text-muted);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  display: flex; align-items: center; gap: 4px;
-}
-.cal-mobile-ghost__cta { font-size: 11.5px; font-weight: 700; color: var(--ev-green-dark); flex-shrink: 0; }
-
-:root[data-theme="dark"] .cal-ghost__check,
-:root[data-theme="dark"] .cal-mobile-ghost__cta,
-:root[data-theme="dark"] .cal-outlook-toggle--active { color: var(--ev-green); }
-:root[data-theme="dark"] .cal-outlook-toggle:hover { color: var(--ev-green); }
-
-/* ═══════════════════════════════════════════════════════════════════════
-   Team page (manager view, issue #61)
-   ═══════════════════════════════════════════════════════════════════════ */
-.team { max-width: 1100px; }
-.team__header {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; flex-wrap: wrap; margin-bottom: 4px;
-}
-.team__title-group { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.team__title { font-size: 20px; font-weight: 800; }
-.team__week-total { font-size: 12.5px; color: var(--text-muted); font-family: var(--mono); }
-.team__missing-badge {
-  font-size: 11.5px; font-weight: 700;
-  color: var(--warn);
-  border: 1px solid currentcolor; border-radius: 20px; padding: 2px 10px;
-}
-.team__nav { display: flex; gap: 6px; }
-.team__scope-note { font-size: 12px; color: var(--text-faint); margin: 0 0 14px; }
-.team__error {
-  padding: 14px; border: 1.5px solid var(--border); border-radius: var(--radius-sm);
-  color: var(--text-muted); font-size: 13px;
-  display: flex; align-items: center; gap: 10px;
-}
-
-.team__hint {
-  padding: 12px 14px; margin-bottom: 12px;
-  border: 1px solid var(--border); border-left: 3px solid var(--warn);
-  border-radius: var(--radius-sm);
-  color: var(--text-muted); font-size: 12.5px; line-height: 1.5;
-}
-.team__hint code { font-family: var(--mono); font-size: 11.5px; }
-
-.team__table-wrap { overflow-x: auto; }
-.team__table {
-  width: 100%; border-collapse: collapse; font-size: 13px;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-.team__table th, .team__table td {
-  padding: 9px 12px; text-align: right; border-bottom: 1px solid var(--border-subtle);
-  white-space: nowrap;
-}
-.team__table thead th { font-size: 11.5px; color: var(--text-muted); font-weight: 700; }
-.team__day-num { margin-left: 4px; color: var(--text-faint); font-weight: 400; }
-.team__member-col { text-align: left !important; }
-.team__member-name { font-weight: 700; color: var(--text); display: inline-flex; align-items: center; gap: 6px; }
-.team__you-badge {
-  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
-  color: var(--ev-green-dark); border: 1px solid var(--ev-green); border-radius: 20px;
-  padding: 0 6px;
-}
-.team__member-missing { display: block; font-size: 11px; color: var(--warn); font-weight: 600; margin-top: 2px; }
-.team__cell { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--text-muted); }
-.team__cell--missing { color: var(--warn); }
-.team__cell--total { font-weight: 700; color: var(--text); }
-.team__day--today { background: var(--ev-green-soft); }
-.team__empty { text-align: center !important; color: var(--text-muted); padding: 28px 0 !important; }
-
-.team__rollup { margin-top: 22px; }
-.team__rollup-title { font-size: 14px; font-weight: 800; margin-bottom: 10px; }
-.team__rollup-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
-.team__rollup-item { display: flex; align-items: center; gap: 10px; font-size: 12.5px; }
-.team__rollup-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-.team__rollup-name { min-width: 140px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.team__rollup-bar-track { flex: 1; height: 7px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
-.team__rollup-bar { display: block; height: 100%; border-radius: 4px; }
-.team__rollup-minutes { font-family: var(--mono); color: var(--text-muted); min-width: 64px; text-align: right; }
-
-:root[data-theme="dark"] .team__you-badge { color: var(--ev-green); }
-
-/* ═══════════════════════════════════════════════════════════════════════
-   Focus (Pomodoro) mode — timer-bar chip + boundary prompts
-   ═══════════════════════════════════════════════════════════════════════ */
-.focus-control { display: inline-flex; align-items: center; gap: 4px; }
-.focus-chip {
-  font-size: 11.5px; font-weight: 600;
-  color: var(--text-muted);
-  border: 1px dashed var(--border);
-  border-radius: 20px;
-  padding: 3px 10px;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-  transition: color 0.15s, border-color 0.15s;
-}
-.focus-chip:hover { color: var(--ev-green-dark); border-color: var(--ev-green); }
-.focus-chip--on { border-style: solid; color: var(--ev-green-dark); border-color: var(--ev-green); }
-.focus-chip--break { color: var(--warn); border-color: currentcolor; }
-.focus-chip__edit {
-  color: var(--text-faint); padding: 2px; line-height: 1;
-  background: transparent; border: none; cursor: pointer;
-}
-.focus-chip__edit:hover { color: var(--ev-green-dark); }
-
-.focus-editor { display: inline-flex; align-items: center; gap: 3px; }
-.focus-editor__input {
-  width: 44px; padding: 3px 6px; font-size: 12px;
-  background: var(--surface); color: var(--text);
-  border: 1.5px solid var(--border); border-radius: var(--radius-sm);
-  outline: none;
-}
-.focus-editor__input:focus { border-color: var(--ev-green); }
-.focus-editor__sep { color: var(--text-decor); font-size: 12px; }
-.focus-editor__ok, .focus-editor__cancel {
-  padding: 2px 4px; line-height: 1; background: transparent; border: none;
-  cursor: pointer; color: var(--text-muted);
-}
-.focus-editor__ok:hover { color: var(--ev-green-dark); }
-
-.focus-modal { max-width: 420px; }
-.focus-modal__msg { font-size: 13.5px; color: var(--text-muted); line-height: 1.55; margin: 0; }
-
-:root[data-theme="dark"] .focus-chip--on,
-:root[data-theme="dark"] .focus-chip:hover,
-:root[data-theme="dark"] .focus-chip__edit:hover,
-:root[data-theme="dark"] .focus-editor__ok:hover { color: var(--ev-green); }
-
-/* ═══════════════════════════════════════════════════════════════════════
-   OVERVIEW — TODAY STRIP + WEEKLY TARGET RING
-   Overview is the landing screen and used to only answer "what happened":
-   a repeat of Reports' 7-day chart plus a heatmap, nothing actionable on
-   it. The strip leads instead — today's logged blocks laid out on a clock
-   with every untracked gap offered as a one-click log — and the weekly
-   target ring sits beside it rather than only on the Calendar header.
-   ═══════════════════════════════════════════════════════════════════════ */
-.overview__today {
-  display: flex; align-items: center; gap: 24px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-sm);
-  padding: 16px 20px;
-  margin-bottom: 16px;
-}
-
-.today-strip { flex: 1; min-width: 0; }
-.today-strip__summary { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; margin-bottom: 10px; }
-.today-strip__summary-label {
-  font-size: 11px; font-weight: 700; color: var(--text-muted);
-  text-transform: uppercase; letter-spacing: 0.7px;
-}
-.today-strip__summary-sep { color: var(--text-decor); }
-
-.today-strip__track {
-  position: relative;
-  height: 28px;
-  background: var(--surface-2);
-  border-radius: 5px;
-  overflow: hidden;
-}
-.today-strip__block { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
-/* Hatched, dashed and clickable — the one thing on this page that asks to
-   be acted on, so it's allowed to look unfinished. */
-.today-strip__gap {
-  position: absolute; top: 0; bottom: 0;
-  display: flex; align-items: center; justify-content: center;
-  padding: 0;
-  border: 1px dashed var(--border);
-  border-radius: 3px;
-  color: var(--text-muted);
-  background: repeating-linear-gradient(
-    -45deg,
-    var(--surface-3), var(--surface-3) 5px,
-    transparent 5px, transparent 10px
-  );
-  overflow: hidden;
-  transition: color 0.15s, border-color 0.15s;
-}
-.today-strip__gap:hover, .today-strip__gap:focus-visible { color: var(--text); border-color: var(--ev-green); }
-.today-strip__gap-label {
-  font-size: 10px; font-weight: 700; white-space: nowrap;
-  font-family: var(--mono); font-variant-numeric: tabular-nums;
-  padding: 0 3px;
-}
-.today-strip__axis {
-  display: flex; justify-content: space-between;
-  margin-top: 6px;
-  font-size: 10px; color: var(--text-faint);
-  font-family: var(--mono); font-variant-numeric: tabular-nums;
-}
-.today-strip__empty { margin-top: 8px; font-size: 12px; color: var(--text-faint); }
-
-.target-ring { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
-.target-ring--editing { flex-direction: column; align-items: flex-start; gap: 5px; }
-.target-ring__dial { position: relative; display: grid; place-items: center; flex-shrink: 0; }
-.target-ring__dial svg { display: block; }
-.target-ring__track { stroke: var(--surface-3); }
-.target-ring__fill { stroke: var(--ev-green); transition: stroke-dasharray 0.5s var(--ease); }
-.target-ring__fill--met { stroke: var(--success); }
-.target-ring__pct {
-  position: absolute;
-  font-family: var(--mono); font-variant-numeric: tabular-nums;
-  font-size: 15px; font-weight: 700; color: var(--text);
-}
-.target-ring__meta { display: flex; flex-direction: column; gap: 3px; }
-.target-ring__label {
-  font-size: 11px; font-weight: 700; color: var(--text-muted);
-  text-transform: uppercase; letter-spacing: 0.7px;
-}
-.target-ring__value {
-  font-family: var(--mono); font-variant-numeric: tabular-nums;
-  font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap;
-}
-.target-ring__edit {
-  display: inline-flex; align-items: center; align-self: flex-start;
-  padding: 3px; color: var(--text-faint); border-radius: 4px;
-  transition: color 0.15s;
-}
-.target-ring__edit:hover { color: var(--text); }
-
-/* ═══════════════════════════════════════════════════════════════════════
-   OVERVIEW — QUICK STARTS
-   The recent list is a record; these three are the buttons. Same data,
-   one click instead of three pickers.
-   ═══════════════════════════════════════════════════════════════════════ */
-.quick-starts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.quick-start {
-  display: flex; align-items: center; gap: 10px; min-width: 0;
-  padding: 10px 12px; text-align: left;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
-}
-.quick-start:hover:not(:disabled) { background: var(--surface-3); border-color: var(--text-faint); }
-.quick-start:disabled { opacity: 0.45; cursor: not-allowed; }
-.quick-start__dot { width: 9px; height: 9px; border-radius: 50%; background: var(--pc, var(--text-decor)); flex-shrink: 0; }
-.quick-start__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.quick-start__desc {
-  font-size: 13px; font-weight: 600; color: var(--text);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.quick-start__meta {
-  font-size: 11px; color: var(--text-muted);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.quick-start__icon { color: var(--text-faint); flex-shrink: 0; transition: color 0.15s; }
-.quick-start:hover:not(:disabled) .quick-start__icon { color: var(--ev-green); }
-.quick-starts__recent { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-subtle); }
-
-@media (max-width: 900px) {
-  .overview__today { flex-wrap: wrap; gap: 16px; }
-  .today-strip { flex-basis: 100%; }
-  .quick-starts { grid-template-columns: 1fr; }
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
-   UNTRACKED GAPS (P2-15)
-   A stretch of the working day nothing was logged against, offered as a
-   click-to-fill slot on both the Calendar grid and the Overview strip
-   (.today-strip__gap above shares the hatch and the dashed edge). Drawn
-   behind everything — z-index 0, under the Outlook ghosts at 1 and the
-   tracked entries at 2 — because a gap is the absence of those, not a
-   record competing with them. Deliberately faint at rest: on a thin week
-   these are numerous, and they must never out-shout real entries.
-   ═══════════════════════════════════════════════════════════════════════ */
-/* The slot is inert so drag-to-create still works across it — only the
-   label below is a button. */
-.cal-gap {
-  position: absolute; left: 2px; right: 2px;
-  z-index: 0;
-  display: flex; align-items: flex-start;
-  padding: 1px 3px;
-  border: 1px dashed var(--border);
-  border-radius: 5px;
-  overflow: hidden;
-  pointer-events: none;
-  opacity: 0.7;
-  background: repeating-linear-gradient(
-    -45deg,
-    var(--surface-2), var(--surface-2) 5px,
-    transparent 5px, transparent 10px
-  );
-  transition: opacity 0.15s, border-color 0.15s;
-}
-.cal-gap__fill {
-  pointer-events: auto;
-  max-width: 100%;
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-size: 10px; font-weight: 600;
-  color: var(--text-muted);
-  background: transparent;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  transition: color 0.15s, background 0.15s;
-}
-.cal-gap__fill:hover, .cal-gap__fill:focus-visible {
-  color: var(--text);
-  background: var(--surface);
-}
-/* Light up the whole slot when its label is the hover target, so the click
-   reads as "fill this span", not "fill this text". */
-.cal-gap:has(.cal-gap__fill:hover),
-.cal-gap:has(.cal-gap__fill:focus-visible) {
-  opacity: 1;
-  border-color: var(--ev-green);
-}
-
-.cal-mobile-gap {
-  display: flex; align-items: center; gap: 10px; width: 100%;
-  padding: 8px 10px; margin-bottom: 6px; text-align: left;
-  border: 1.5px dashed var(--border); border-radius: var(--radius-sm);
-  background: transparent;
-  transition: border-color 0.15s;
-}
-.cal-mobile-gap:hover { border-color: var(--ev-green); }
-.cal-mobile-gap__info { flex: 1; min-width: 0; }
-.cal-mobile-gap__name { display: block; font-size: 13px; font-weight: 600; color: var(--text-muted); }
+.error-boundary { padding: 40px 0; max-width: 52ch; }
+.error-boundary__title { color: var(--label); }
+.error-boundary__body { margin-top: 8px; color: var(--label-secondary); text-wrap: pretty; }
+.error-boundary__actions { display: flex; gap: 12px; margin-top: 20px; }
+.error-boundary__detail { margin-top: 16px; font-size: 13px; line-height: 18px; color: var(--label-secondary); white-space: pre-wrap; }
