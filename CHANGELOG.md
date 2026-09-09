@@ -254,6 +254,15 @@ Findings from the [2026-08-12 application review](docs/reviews/2026-08-12-multi-
 
 ### Internal
 
+- ESLint 10, with `eslint-plugin-react-hooks` moved to 7.1.1 in the same
+  change. Bumping ESLint alone failed `npm ci` outright: the v5 plugin's peer
+  range stopped at ESLint 9, so the two had to move together. The lint config
+  now names the two hook rules instead of spreading the plugin's
+  `recommended` — through v5 that preset *was* those two rules, but from v6 it
+  also carries the React Compiler ruleset, which would have turned a
+  dependency bump into 18 errors in untouched code. Whether to adopt those
+  rules is [#156](https://github.com/TheShield2594/timeflow/issues/156). The
+  Node floor rose to `^20.19.0 || ^22.13.0 || >=24` to match ESLint 10's own.
 - The pages read their data from a context instead of nineteen pass-through
   props on `PageRouter`, and `CalendarPage` is down from 1,843 lines to 1,288:
   the drag gestures, the grid cursor and the Outlook overlay are hooks with
