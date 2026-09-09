@@ -144,6 +144,13 @@ Findings from the [2026-08-12 application review](docs/reviews/2026-08-12-multi-
   sheet's inline "New task…" alike. The field still clears *before* the write,
   which is what stops Enter-then-blur filing the same name twice
   ([#153](https://github.com/TheShield2594/timeflow/issues/153)).
+- The working-hours window is held to 00:00–23:59 — the range its own settings
+  fields can express. A day stored as ending at 24:00 rendered as an empty
+  field, read back as zero, and reset the whole window to the 18:00 default on
+  save, without saying so. That window is what decides whether a day is
+  reported complete, so it resetting quietly is the failure the setting exists
+  to prevent (raised in review of
+  [#154](https://github.com/TheShield2594/timeflow/pull/154)).
 - A failed direct-reports probe reports itself. The Team page vanishing for
   every manager in an environment has exactly one other symptom — an absent nav
   item — and the missing privilege behind it was only ever logged to the

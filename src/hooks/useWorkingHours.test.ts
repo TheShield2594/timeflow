@@ -51,8 +51,18 @@ describe("normalizeWorkingHours", () => {
   it("clamps the day to the clock face and the floor to something sane", () => {
     const hours = normalizeWorkingHours({ startMin: -60, endMin: 5000, gapMustExceedMinutes: 9999 });
     expect(hours.startMin).toBe(0);
-    expect(hours.endMin).toBe(24 * 60);
+    expect(hours.endMin).toBe(24 * 60 - 1);
     expect(hours.gapMustExceedMinutes).toBe(240);
+  });
+
+  it("keeps the window inside what the settings sheet can express", () => {
+    // These are read and written through <input type="time">, whose range is
+    // 00:00–23:59. A stored 24:00 has no representation there: it renders as
+    // 00:00, reads back as 0, fails `endMin > startMin`, and silently resets
+    // the whole window to the 18:00 default — so a day that ends at midnight
+    // is held at 23:59, which the search window loses nothing meaningful to.
+    expect(normalizeWorkingHours({ startMin: 6 * 60, endMin: 24 * 60 }).endMin).toBe(24 * 60 - 1);
+    expect(normalizeWorkingHours({ startMin: 24 * 60, endMin: 24 * 60 }).startMin).toBeLessThan(24 * 60 - 1);
   });
 
   it("allows a zero floor — every hole, however short", () => {
