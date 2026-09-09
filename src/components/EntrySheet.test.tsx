@@ -228,6 +228,41 @@ describe("EntrySheet re-dating (#151)", () => {
   });
 });
 
+describe("EntrySheet task creation (#153)", () => {
+  it("hands the typed name back when the write fails", async () => {
+    const onAddTask = vi.fn().mockRejectedValue(new Error("Dataverse said no"));
+    renderSheet({ onAddTask });
+
+    fireEvent.click(screen.getByRole("button", { name: /New task/ }));
+    const field = screen.getByLabelText("New task name") as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "Discovery call" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+
+    // Cleared before the await, which is what stops Enter-then-blur filing
+    // the same name twice while the first request is still in flight.
+    expect(screen.queryByLabelText("New task name")).toBeNull();
+
+    await waitFor(() => {
+      const reopened = screen.getByLabelText("New task name") as HTMLInputElement;
+      expect(reopened.value).toBe("Discovery call");
+    });
+    expect(onAddTask).toHaveBeenCalledTimes(1);
+  });
+
+  it("selects the new task and closes the field when the write succeeds", async () => {
+    const created: Task = { id: "t9", projectId: "p1", name: "Discovery call", isActive: true };
+    const onAddTask = vi.fn().mockResolvedValue(created);
+    renderSheet({ onAddTask, tasks: [...tasks, created] });
+
+    fireEvent.click(screen.getByRole("button", { name: /New task/ }));
+    fireEvent.change(screen.getByLabelText("New task name"), { target: { value: "Discovery call" } });
+    fireEvent.keyDown(screen.getByLabelText("New task name"), { key: "Enter" });
+
+    await waitFor(() => expect((screen.getByLabelText("Task") as HTMLSelectElement).value).toBe("t9"));
+    expect(screen.queryByLabelText("New task name")).toBeNull();
+  });
+});
+
 describe("EntrySheet gap nudge", () => {
   it("names the hole this entry left behind and offers to fill it", () => {
     const onFillGap = vi.fn();

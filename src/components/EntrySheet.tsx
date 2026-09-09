@@ -254,8 +254,12 @@ export const EntrySheet: React.FC<Props> = ({
       const task = await onAddTask({ projectId: draft.projectId, name, isActive: true });
       set({ taskId: task.id });
     } catch {
-      // Toasted upstream. A lost keystroke is recoverable; a duplicate task is
-      // a name somebody else will bill against.
+      // Toasted upstream — and the field reopens holding what was typed. The
+      // clear above is what closes the double-submit path; a write that
+      // *failed* left nothing to duplicate, so nothing is traded by handing
+      // the name back (#153).
+      setAddingTask(true);
+      setNewTaskName(name);
     }
   };
 

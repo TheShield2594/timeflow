@@ -140,7 +140,8 @@ Findings from the [2026-08-12 application review](docs/reviews/2026-08-12-multi-
   bar rather than an empty one
   ([#151](https://github.com/TheShield2594/timeflow/issues/151)).
 - A task creation that fails hands the typed name back to the field instead of
-  clearing it and leaving a toast. The field still clears *before* the write,
+  clearing it and leaving a toast — on the Projects page and in the entry
+  sheet's inline "New task…" alike. The field still clears *before* the write,
   which is what stops Enter-then-blur filing the same name twice
   ([#153](https://github.com/TheShield2594/timeflow/issues/153)).
 - A failed direct-reports probe reports itself. The Team page vanishing for
