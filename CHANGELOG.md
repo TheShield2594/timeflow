@@ -5,9 +5,10 @@ Notable changes to TimeFlow. Format loosely follows
 against user-visible behaviour, as described in
 [CONTRIBUTING](CONTRIBUTING.md#releases-and-tagging).
 
-> **1.0.0 is cut but not yet tagged.** Everything below is the 1.0.0 release;
-> `package.json` has read `1.0.0` since the repo was created and now agrees
-> with this file. The tag is what says which build is in production, so it is
+> **1.0.0 is cut but not yet tagged.** The `1.0.0` section below is the
+> release; anything under `Unreleased` above it landed after the cut and ships
+> in the next one. `package.json` has read `1.0.0` since the repo was created
+> and now agrees with this file. The tag is what says which build is in production, so it is
 > cut at deploy time, against the commit that was actually pushed:
 > `pac code push`, smoke-test, then `git tag -a v1.0.0 -m "Deployed to prod
 > <date>" && git push origin v1.0.0` — see
@@ -51,10 +52,15 @@ against user-visible behaviour, as described in
 - Week calendar: 24-hour grid with overlap layout, drag to create, resize and
   reschedule (Shift+arrows by keyboard), the running session drawn live, and
   untracked gaps surfaced as one-click log targets.
-- Overview landing page: today strip, weekly target ring, activity heatmap,
-  quick-start buttons for recent work.
-- Reports dashboard: daily/weekly bar chart, project breakdown, top tasks, KPI
-  strip, project × period matrix, all-time range.
+- The week's shape under the timer: a ring of hours tracked against an editable
+  weekly target, a day-by-day bar, one sentence saying whether the target is
+  still reachable with the days left, and a one-click restart of the last thing
+  worked on.
+- Reports: this week / last week / month / quarter, each with the period's
+  total against the period before it, a bar chart with the average drawn
+  across it, a **Where it went** project breakdown whose percentages are
+  allocated to sum to 100, and **Top tasks**. A period with nothing in it
+  offers the narrowest one that does have data rather than dead-ending.
 - Projects and tasks management with archive/restore and delete-with-undo.
 - CSV export with billing-style rounding, Jira ticket and ratio columns.
 - Manager **Team** view built on Dataverse hierarchy security, with its own CSV
@@ -75,6 +81,30 @@ against user-visible behaviour, as described in
 - An offline banner. Nothing is disabled: a save attempted during an outage
   still goes through the retry path
   ([#97](https://github.com/TheShield2594/timeflow/issues/97)).
+
+### Changed
+
+- **The 2026-09 redesign.** The app was rebuilt on one design system — one
+  typeface, one accent, an 8pt grid, ten type steps, two text colours per
+  theme, and no shadow on content. Three of its rules are asserted by
+  `src/styles.contrast.test.ts` and fail the build rather than a review. The
+  brief and every deviation from it are in
+  [docs/design/2026-09-redesign-handoff.md](docs/design/2026-09-redesign-handoff.md).
+- Three things went with it, each replaced by something that says the same
+  thing once. The **Overview** page: its content is the lower half of the timer
+  screen. The three-card **KPI strip** and the day-streak counter beside it:
+  the week rail answers the only question the strip was ever asked — am I going
+  to make it — and a streak gamifies compliance in a billing app, where the
+  target is a plan and not a rule somebody is marked against. And the **Project
+  × Period matrix** ([#150](https://github.com/TheShield2594/timeflow/issues/150)),
+  taking Reports' all-time range with it; the four presets above are what
+  Reports offers now.
+- Dates read month-first and clocks read 12-hour — `8 September` and `17:30`
+  are not what a US-based company reads
+  ([#152](https://github.com/TheShield2594/timeflow/issues/152)). The 24-hour
+  form survives only as the value `<input type="time">` takes.
+- Pages read their data from a context rather than from props, which is what
+  let the entry sheet grow a `Date` row and the calendar keep its geometry.
 
 ### Fixed
 
@@ -205,9 +235,10 @@ Findings from the [2026-08-12 application review](docs/reviews/2026-08-12-multi-
   and "No data for this period" at 2.46:1; decoration keeps the old value under
   a separate `--text-decor`
   ([#88](https://github.com/TheShield2594/timeflow/issues/88)).
-- The Project × Period matrix is a navigable table — scoped headers, the project
-  name as a row header, a caption, and each cell's exact duration in its
-  accessible name instead of a hover-only `title`. The same round moved the
+- The Project × Period matrix was made a navigable table — scoped headers, the
+  project name as a row header, a caption, and each cell's exact duration in
+  its accessible name instead of a hover-only `title`. The redesign has since
+  removed the matrix (see **Changed**); the rest of the round stands. The same round moved the
   calendar's keyboard-reschedule instructions, the CSV rounding note, the
   focus-mode summary, what Archive does and why Continue is disabled onto
   affordances a keyboard can reach
