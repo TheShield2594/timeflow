@@ -20,6 +20,14 @@ describe("resolveRange", () => {
       .toEqual({ from: "2026-07-01", to: WED });
   });
 
+  it("reads a reversed custom range as the span the user drew", () => {
+    // Two date pickers get filled in either order. A reversed pair matches no
+    // entry at all, so the page reads "nothing logged" for a window that does
+    // have time in it.
+    expect(resolveRange({ preset: "custom", customFrom: "2026-09-30", customTo: "2026-09-01" }, WED))
+      .toEqual({ from: "2026-09-01", to: "2026-09-30" });
+  });
+
   it("collapses a half-typed custom range to today rather than to all of history", () => {
     // A `from` of "" would compare below every real date and turn the next
     // read into the user's entire history.

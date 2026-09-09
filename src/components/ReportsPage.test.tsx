@@ -29,7 +29,18 @@ const projects: Project[] = [
 const gamma: Project = { id: "p3", name: "Gamma", color: "#CC4F00", isActive: true, createdAt: "" };
 const tasks: Task[] = [{ id: "t1", projectId: "p1", name: "Build", isActive: true }];
 
-const today = localDateStr();
+/**
+ * Pinned to Wednesday 9 September 2026.
+ *
+ * The recovery test places its fixture three weeks before last week and
+ * expects the month or quarter preset to reach it. Both are calendar-anchored,
+ * so on a real clock in the first weeks of a quarter — 5 January, say — every
+ * preset starts *after* the fixture and the assertion throws. A test that
+ * fails for a fortnight each quarter is a broken test, not a flaky one.
+ */
+const FROZEN_NOW = new Date("2026-09-09T12:00:00");
+
+const today = localDateStr(FROZEN_NOW);
 // Reports opens on *last* week, so the fixtures live there.
 const lastWeekStart = addDaysStr(weekStartStr(today), -7);
 const lastWeekDay = (i: number) => addDaysStr(lastWeekStart, i);
@@ -53,8 +64,11 @@ function threeDays(minutes: number, projectId = "p1"): TimeEntry[] {
 const renderReports = (entries: TimeEntry[], withProjects: Project[] = projects) =>
   renderWithData(<ReportsPage />, { entries, projects: withProjects, tasks });
 
-beforeEach(() => { localStorage.clear(); });
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+beforeEach(() => {
+  localStorage.clear();
+  vi.useFakeTimers({ now: FROZEN_NOW, shouldAdvanceTime: true });
+});
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); });
 
 describe("ReportsPage headline", () => {
   it("opens on last week, not on the half-finished current one", () => {

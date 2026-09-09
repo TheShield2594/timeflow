@@ -114,9 +114,13 @@ describe.each(THEMES)("$name theme", ({ scope }) => {
 // the comments here quote the very patterns being banned.
 const rules = css.replace(/\/\*[\s\S]*?\*\//g, "");
 
-/** Innermost declaration blocks — the bodies between `{` and `}` with no
- *  nested braces, which is every rule and no @media/@supports wrapper. */
-const declarationBlocks = [...rules.matchAll(/\{([^{}]*)\}/g)].map((m) => m[1]);
+/**
+ * Innermost rules — a selector, and the body between `{` and `}` with no
+ * nested braces. That is every declaration block and no @media/@supports
+ * wrapper.
+ */
+const declarationRules = [...rules.matchAll(/([^{}]*)\{([^{}]*)\}/g)]
+  .map((m) => ({ selector: m[1].trim(), body: m[2] }));
 
 describe("token definitions", () => {
   // The bug in #101 wasn't a badly chosen colour, it was five rules leaning on
@@ -162,9 +166,30 @@ describe("--decor usage", () => {
   // meant to read, which is the exact mistake #88 was about. Checked per
   // declaration block rather than per line so it can't be dodged by wrapping.
   it("never lands on a rule that sets a font-size", () => {
-    const offenders = declarationBlocks
-      .filter((body) => body.includes("var(--decor)"))
-      .filter((body) => /font-size\s*:/.test(body));
+    const offenders = declarationRules
+      .filter((r) => r.body.includes("var(--decor)"))
+      .filter((r) => /font-size\s*:/.test(r.body))
+      .map((r) => r.selector);
+    expect(offenders).toEqual([]);
+  });
+
+  /**
+   * The font-size check alone does not enforce the rule: `color: var(--decor)`
+   * on a rule that inherits its type passes it while painting text at 2.6:1.
+   * So the *foreground* uses are enumerated instead.
+   *
+   * Placeholders are the one exception, and a deliberate one: every field in
+   * this app carries a real <label>, the placeholder repeats it, and a
+   * placeholder at full contrast is indistinguishable from a filled-in value —
+   * which is its own, worse, failure.
+   */
+  const DECOR_TEXT_ALLOWLIST = /::placeholder/;
+
+  it("is never used as a foreground colour outside the documented exception", () => {
+    const offenders = declarationRules
+      .filter((r) => /(^|[^-])color\s*:[^;]*var\(--decor\)/.test(r.body))
+      .filter((r) => !DECOR_TEXT_ALLOWLIST.test(r.selector))
+      .map((r) => r.selector);
     expect(offenders).toEqual([]);
   });
 });

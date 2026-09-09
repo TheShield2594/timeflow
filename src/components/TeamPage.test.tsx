@@ -163,7 +163,10 @@ describe("TeamPage export controls", () => {
     vi.restoreAllMocks();
   });
 
-  it("disables the export button until the visible week has entries", async () => {
+  it("disables the export while the visible people have nothing logged", async () => {
+    // Rows exist for every direct report whether or not they logged anything,
+    // so "there are rows on screen" is not the same as "there is something to
+    // export".
     getTeamTimeEntries.mockResolvedValue([]);
     renderTeam();
     await screen.findByText("Avery Example");
@@ -176,18 +179,28 @@ describe("TeamPage export controls", () => {
     expect(screen.getByRole("button", { name: /Export CSV/ }).hasAttribute("disabled")).toBe(false);
   });
 
-  it("exports every visible member's rows, labeled by owner rather than the manager's own name", async () => {
+  // The export follows the toggle. A CSV that carried the whole hierarchy
+  // while the screen showed "Direct" is a manager sending out time they did
+  // not mean to send.
+  it("exports the rows behind the visible people, labeled by owner", async () => {
     getTeamTimeEntries.mockResolvedValue([
-      entry({}), // Avery
+      entry({}), // Avery — a direct report
       entry({ id: "te-2", ownerId: "su-me", ownerName: "User One", userId: "su-me", date: "2026-07-28", durationMinutes: 60 }),
     ]);
     renderTeam();
     await screen.findByText("Avery Example");
 
-    const csv = (await captureExport()).replace("﻿", "");
-    const rows = csv.trim().split("\n");
-    expect(rows).toHaveLength(3); // header + Avery's row + the manager's own row
+    // Direct reports only: the manager's own row isn't on screen, so it isn't
+    // in the file either.
+    let csv = (await captureExport()).replace("\uFEFF", "");
+    expect(csv.trim().split("\n")).toHaveLength(2); // header + Avery
     expect(csv).toContain("Avery Example");
+    expect(csv).not.toContain("User One");
+
+    // Whole line puts the manager back on screen, and back in the export.
+    fireEvent.click(screen.getByRole("tab", { name: /Whole line/ }));
+    csv = (await captureExport()).replace("\uFEFF", "");
+    expect(csv.trim().split("\n")).toHaveLength(3);
     expect(csv).toContain("User One");
   });
 

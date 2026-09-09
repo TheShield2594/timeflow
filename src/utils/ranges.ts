@@ -37,7 +37,13 @@ export function resolveRange(state: RangeState, todayStr: string = localDateStr(
   if (state.preset === "custom") {
     // An unfinished custom range collapses to today rather than to the whole
     // of history: a half-typed date must never become a 100,000-row read.
-    return { from: state.customFrom || todayStr, to: state.customTo || todayStr };
+    const from = state.customFrom || todayStr;
+    const to = state.customTo || todayStr;
+    // Two date pickers can be filled in either order, and a reversed pair is a
+    // range no entry can fall inside — the page reads as "nothing logged" for
+    // a window that does have time in it. Reading it as the span the user
+    // drew is the only interpretation that isn't a lie.
+    return from <= to ? { from, to } : { from: to, to: from };
   }
   if (state.preset === "thisWeek") {
     const from = weekStartStr(todayStr);

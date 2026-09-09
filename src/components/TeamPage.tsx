@@ -132,13 +132,26 @@ export const TeamPage: React.FC<Props> = ({ teamContext }) => {
   // told which it was.
   const noReportRows = !loading && !error && hasNoReportRows(entries, teamContext, weekStart, today);
 
-  const handleExport = () => {
-    // `ownerName` (not `userDisplayName`) is the reliable per-row owner — see
-    // teamService's FormattedValue-annotation fallback — so the CSV's "User"
-    // column reflects who actually logged each row.
-    const exportEntries = entries.map((e) => ({ ...e, userDisplayName: e.ownerName }));
+  /**
+   * Exactly the rows behind the people on screen.
+   *
+   * The button sits under a Direct/Whole-line toggle and a search box, and a
+   * CSV that quietly carried the whole hierarchy is a manager sending out
+   * other people's time they did not mean to send.
+   *
+   * `ownerName` (not `userDisplayName`) is the reliable per-row owner — see
+   * teamService's FormattedValue-annotation fallback — so the CSV's "User"
+   * column reflects who actually logged each row.
+   */
+  const exportEntries = useMemo(() => {
+    const visible = new Set(scoped.map((row) => row.id));
+    return entries
+      .filter((e) => e.ownerId && visible.has(e.ownerId))
+      .map((e) => ({ ...e, userDisplayName: e.ownerName }));
+  }, [entries, scoped]);
+
+  const handleExport = () =>
     exportToCSV(exportEntries, projects, tasks, `timeflow-team-${weekStart}-to-${weekEnd}.csv`, rounding);
-  };
 
   const setRoundingRule = (rule: RoundingRule) => {
     setRounding(rule);
@@ -281,7 +294,7 @@ export const TeamPage: React.FC<Props> = ({ teamContext }) => {
           </label>
         }
       >
-        <Pill tone="primary" onClick={handleExport} disabled={entries.length === 0}>Export CSV</Pill>
+        <Pill tone="primary" onClick={handleExport} disabled={exportEntries.length === 0}>Export CSV</Pill>
       </FloatingActionBar>
     </>
   );

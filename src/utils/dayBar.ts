@@ -105,22 +105,44 @@ export function buildDaySpans({
     .filter((x) => x.endMin > x.startMin)
     .sort((a, b) => a.startMin - b.startMin);
 
-  const offered = new Set(gaps.map((g) => `${g.startMin}-${g.endMin}`));
   const out: BarSpan[] = [];
   let cursor = window.startMin;
 
+  /**
+   * Fill the hole between two entries, split where an offered gap starts and
+   * ends.
+   *
+   * Intersection, not an exact boundary match. The gap search is capped at the
+   * current minute so the rest of today isn't offered before it has happened,
+   * while the bar is drawn to the end of the working day — so today's trailing
+   * hole is `[last entry, now]` in the gap list and `[last entry, 18:00]` here.
+   * Keyed on equality those never matched, and the one gap a person most wants
+   * to fill in — the one they are standing in — was the one segment of the bar
+   * that wasn't a button.
+   */
   const fill = (from: number, to: number) => {
     if (to <= from) return;
-    const isOffered = offered.has(`${from}-${to}`);
-    out.push({
-      key: `hole-${from}-${to}`,
-      startMin: from, endMin: to,
-      kind: isOffered ? "gap" : "slack",
-      warn: isOffered && warnGaps,
-      label: isOffered
-        ? `${clockAt(from)} to ${clockAt(to)} untracked`
-        : `${clockAt(from)} to ${clockAt(to)}`,
-    });
+    // Every boundary in [from, to]: the ends, plus any offered gap edge
+    // falling strictly inside it.
+    const cuts = new Set<number>([from, to]);
+    for (const gap of gaps) {
+      if (gap.startMin > from && gap.startMin < to) cuts.add(gap.startMin);
+      if (gap.endMin > from && gap.endMin < to) cuts.add(gap.endMin);
+    }
+    const edges = [...cuts].sort((a, b) => a - b);
+    for (let i = 0; i < edges.length - 1; i++) {
+      const [lo, hi] = [edges[i], edges[i + 1]];
+      const gap = gaps.find((g) => g.startMin <= lo && g.endMin >= hi);
+      out.push({
+        key: `hole-${lo}-${hi}`,
+        startMin: lo, endMin: hi,
+        kind: gap ? "gap" : "slack",
+        warn: !!gap && warnGaps,
+        label: gap
+          ? `${clockAt(lo)} to ${clockAt(hi)} untracked`
+          : `${clockAt(lo)} to ${clockAt(hi)}`,
+      });
+    }
   };
 
   for (const { entry, startMin, endMin } of placed) {

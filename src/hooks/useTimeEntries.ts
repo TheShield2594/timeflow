@@ -95,15 +95,26 @@ export function useTimeEntries(from?: string, to?: string) {
    * is the signal, not a foreign row in a full one.
    */
   const assertOwnRows = useCallback((rows: TimeEntry[]) => {
+    // The detection and the alarm come first, in their own try, and touch
+    // nothing that can fail. sessionStorage throws outright in some hardened
+    // and private-browsing configurations, and when the very first statement
+    // in this function was a `removeItem`, that throw skipped the ownership
+    // check entirely: foreign rows stayed loaded with no warning at all, in
+    // exactly the browsers most likely to be locked down.
+    try {
+      const currentUser = getCurrentUser();
+      if (!svc.hasForeignUserEntries(rows, currentUser.id)) return;
+      setIsolationBreach(true);
+    } catch {
+      return;
+    }
+
+    // Everything below is de-duplication of the *telemetry* — a report about a
+    // configuration, not a per-read event — and none of it gates the banner.
     try {
       const currentUser = getCurrentUser();
       sessionStorage.removeItem(`tt_isolation_warned:${currentUser.id}`);
       const warningKey = isolationWarningKey(currentUser.environmentId, currentUser.id);
-      if (!svc.hasForeignUserEntries(rows, currentUser.id)) return;
-      // The banner is raised on every detection; the sessionStorage key only
-      // de-duplicates the *telemetry*, which is a report about a
-      // configuration and not a per-read event.
-      setIsolationBreach(true);
       if (!sessionStorage.getItem(warningKey)) {
         sessionStorage.setItem(warningKey, "1");
         // Reported, not just logged. This is the one signal in the app that
@@ -123,8 +134,8 @@ export function useTimeEntries(from?: string, to?: string) {
         });
       }
     } catch {
-      // Never let a failure in the isolation-warning check (e.g. sessionStorage
-      // unavailable) mask the data load that already succeeded above.
+      // Never let a failure here (e.g. sessionStorage unavailable) mask the
+      // data load that already succeeded above, or the banner already raised.
     }
   }, []);
 

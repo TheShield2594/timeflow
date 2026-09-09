@@ -42,17 +42,34 @@ function clampMinute(value: unknown, fallback: number): number {
   return Math.min(MINUTES_PER_DAY, Math.max(0, Math.round(n)));
 }
 
-/** Read, then sanity-check: a stored end at or before its start would make
- *  every day gapless, which is the failure mode this whole setting exists to
- *  prevent. */
+/**
+ * Read, then sanity-check.
+ *
+ * A window whose end is at or before its start makes `findUntrackedGaps`
+ * return nothing at all, on every day, silently — the exact failure this
+ * setting exists to prevent. So the invariant `endMin > startMin` has to hold
+ * for *every* input, including the ones that reach the fallback: falling back
+ * to the default 18:00 against a stored 23:59 start is still inverted. The
+ * start is clamped against the resolved end last, so there is no path out of
+ * here with an empty window.
+ */
 export function normalizeWorkingHours(raw: Partial<WorkingHours> | null): WorkingHours {
   if (!raw) return DEFAULT_WORKING_HOURS;
-  const startMin = clampMinute(raw.startMin, DEFAULT_WORKING_HOURS.startMin);
-  const endMin = clampMinute(raw.endMin, DEFAULT_WORKING_HOURS.endMin);
+  const requestedStart = clampMinute(raw.startMin, DEFAULT_WORKING_HOURS.startMin);
+  const requestedEnd = clampMinute(raw.endMin, DEFAULT_WORKING_HOURS.endMin);
   const floor = Number(raw.gapMustExceedMinutes);
+
+  const endMin = requestedEnd > requestedStart ? requestedEnd : DEFAULT_WORKING_HOURS.endMin;
+  // A start the resolved end can't clear falls back too, and if even the
+  // default start doesn't clear it (an end before 08:00), the day opens at
+  // midnight rather than collapsing.
+  const startMin = requestedStart < endMin
+    ? requestedStart
+    : DEFAULT_WORKING_HOURS.startMin < endMin ? DEFAULT_WORKING_HOURS.startMin : 0;
+
   return {
     startMin,
-    endMin: endMin > startMin ? endMin : DEFAULT_WORKING_HOURS.endMin,
+    endMin,
     gapMustExceedMinutes:
       Number.isFinite(floor) && floor >= 0 ? Math.min(240, Math.round(floor)) : DEFAULT_WORKING_HOURS.gapMustExceedMinutes,
   };

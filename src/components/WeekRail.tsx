@@ -10,6 +10,9 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 const DAY_INITIALS = ["M", "T", "W", "T", "F", "S", "S"];
 
+/** A week has 168 of them; the input says so and the commit path agrees. */
+const MAX_TARGET_HOURS = 168;
+
 interface Props {
   /** Minutes tracked per weekday, Monday first. */
   dailyMinutes: number[];
@@ -39,7 +42,10 @@ export const WeekRail: React.FC<Props> = ({ dailyMinutes, weekMinutes, targetHou
   const commit = () => {
     if (editing === null) return;
     const hours = Number(editing);
-    if (Number.isFinite(hours) && hours > 0) onSetTarget(hours);
+    // Clamped to the bounds the input itself declares. Without this a typed
+    // 1000 was accepted and stored, and the ring then reported a percentage
+    // against a target the control says is invalid.
+    if (Number.isFinite(hours) && hours > 0) onSetTarget(Math.min(hours, MAX_TARGET_HOURS));
     setEditing(null);
   };
 
@@ -76,7 +82,7 @@ export const WeekRail: React.FC<Props> = ({ dailyMinutes, weekMinutes, targetHou
         <div className="week-rail__target-edit">
           <input
             className="input input--time"
-            type="number" min="1" max="168" step="0.5"
+            type="number" min="1" max={MAX_TARGET_HOURS} step="0.5"
             value={editing}
             onChange={(e) => setEditing(e.target.value)}
             onKeyDown={(e) => {

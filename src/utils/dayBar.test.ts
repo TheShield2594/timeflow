@@ -70,6 +70,27 @@ describe("buildDaySpans", () => {
     expect(entries.map((s) => [s.startMin, s.endMin])).toEqual([[540, 660], [660, 720]]);
   });
 
+  it("marks a trailing gap that ends before the window does", () => {
+    // The gap search is capped at the current minute so the rest of today
+    // isn't offered before it happens; the bar is drawn to the end of the
+    // working day. Keyed on exact boundaries those never matched, and the one
+    // gap a person is standing in was the one segment that wasn't a button.
+    const spans = buildDaySpans({
+      entries: [entry("a", "09:00", "10:00")],
+      projects, date: DATE, nowMinutes: 1000,
+      window: { startMin: 480, endMin: 1080 },
+      gaps: [{ startMin: 600, endMin: 1000 }],
+      describeEntry: (e) => e.id,
+    });
+
+    const offered = spans.filter((s) => s.kind === "gap");
+    expect(offered.map((s) => [s.startMin, s.endMin])).toEqual([[600, 1000]]);
+    // The rest of the working day is still drawn, just not offered.
+    expect(spans.filter((s) => s.kind === "slack").map((s) => [s.startMin, s.endMin]))
+      .toEqual([[480, 540], [1000, 1080]]);
+    expect(totalOf(spans)).toBe(600);
+  });
+
   it("marks only the offered gaps, leaving other slack quiet", () => {
     const gaps = [{ startMin: 600, endMin: 780 }];
     const spans = buildDaySpans({

@@ -34,6 +34,20 @@ describe("normalizeWorkingHours", () => {
       .toEqual({ startMin: 300, endMin: 780, gapMustExceedMinutes: DEFAULT_WORKING_HOURS.gapMustExceedMinutes });
   });
 
+  it("never returns an inverted window, even when the fallback is the problem", () => {
+    // The SettingsSheet reaches this: "day starts 23:59, day ends 00:00" made
+    // the end fall back to the 18:00 default *behind* the 23:59 start, and the
+    // stored window was gapless — the exact failure this function exists to
+    // prevent, produced by its own fallback.
+    const hours = normalizeWorkingHours({ startMin: 23 * 60 + 59, endMin: 0 });
+    expect(hours.endMin).toBeGreaterThan(hours.startMin);
+
+    // And when the end is earlier than the default start, the day opens at
+    // midnight rather than collapsing.
+    const early = normalizeWorkingHours({ startMin: 900, endMin: 60 });
+    expect(early.endMin).toBeGreaterThan(early.startMin);
+  });
+
   it("clamps the day to the clock face and the floor to something sane", () => {
     const hours = normalizeWorkingHours({ startMin: -60, endMin: 5000, gapMustExceedMinutes: 9999 });
     expect(hours.startMin).toBe(0);

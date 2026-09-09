@@ -18,7 +18,7 @@ Related: [#91](https://github.com/TheShield2594/timeflow/issues/91) (this
 checklist), [#54](https://github.com/TheShield2594/timeflow/issues/54)
 (packaging the tables and role into a solution),
 [README § Dataverse Security Configuration](../README.md#dataverse-security-configuration),
-[RUNBOOK § 5.5](RUNBOOK.md#55-a-user-reports-a-data-isolation-warning-toast)
+[RUNBOOK § 5.5](RUNBOOK.md#55-a-user-reports-the-data-isolation-warning-banner)
 (what to do when it fails in production).
 
 ## What you need
@@ -47,7 +47,7 @@ Run by: ______________  Date: ______________
 | 2 | As **A**: Calendar, Timer and Reports agree with the Timesheet. Reports' total for the week equals the sum of A's own entries only | ☐ |
 | 3 | As **A**: the CSV export contains only A's rows (open it — the User column is the one to read) | ☐ |
 | 4 | Repeat 1–3 signed in as **B** | ☐ |
-| 5 | **No "Data isolation warning" toast** for either user, at any point | ☐ |
+| 5 | **No isolation banner** — the red "This workspace is showing other people's time" strip never appears above the page, for either user, at any point | ☐ |
 | 6 | A direct unfiltered connector call from devtools returns only the caller's own rows (script below) | ☐ |
 | 7 | Team page: present for a manager and lists **only their direct reports** (plus themselves); absent entirely from the nav for a non-manager | ☐ |
 | 8 | Projects and tasks are visible to both A and B — these are Organization-scoped **by design**, and a failure here is the opposite failure: shared data that stopped being shared | ☐ |
@@ -80,7 +80,7 @@ console.log(rows.length, new Set(rows.map((r) => r._ownerid_value)));
 **Pass:** the owner set has exactly one id — A's own.
 **Fail:** more than one id, or a row count larger than A's own entries. Stop.
 Do not load real data into this environment. Go to
-[RUNBOOK § 5.5](RUNBOOK.md#55-a-user-reports-a-data-isolation-warning-toast) and
+[RUNBOOK § 5.5](RUNBOOK.md#55-a-user-reports-the-data-isolation-warning-banner) and
 fix the ownership scope before continuing.
 
 A manager account will legitimately see their reports' rows here — hierarchy
@@ -105,7 +105,7 @@ Defense in depth, not a substitute for the above — each of these is a *symptom
 detector that runs after the boundary has already failed:
 
 - `hasForeignUserEntries()` on the personal read path, surfaced as the "Data
-  isolation warning" toast and reported to telemetry as
+  isolation warning" banner and reported to telemetry as
   `data_isolation_personal` (`useTimeEntries`).
 - `findUnexpectedOwners()` on the Team read path, reported as
   `data_isolation_team` (`useTeam`). This one warns rather than alarms:

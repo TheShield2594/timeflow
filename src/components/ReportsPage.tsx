@@ -19,6 +19,15 @@ import { Pill } from "./Pill";
 
 const PRESETS: RangePreset[] = ["thisWeek", "lastWeek", "month", "quarter"];
 
+/** Sentence-initial, because it opens the sparse-data line. */
+const PERIOD_NOUN: Record<RangePreset, string> = {
+  thisWeek: "A week",
+  lastWeek: "A week",
+  month: "A month",
+  quarter: "A quarter",
+  custom: "A range",
+};
+
 // The rounding choice is a device preference, not data — persist locally.
 const ROUNDING_STORAGE_KEY = "tt_export_rounding";
 
@@ -131,12 +140,17 @@ export const ReportsPage: React.FC = () => {
       {isEmpty || trackedDays < 3 ? (
         <div className="empty">
           <div className="empty__title t-title2">
-            {isEmpty ? "Nothing tracked in this period" : `${3 - trackedDays === 1 ? "One more day" : "Two more days"} and this becomes useful`}
+            {isEmpty
+              ? "Nothing tracked in this period"
+              : `${3 - trackedDays === 1 ? "One more day" : "Two more days"} and this becomes useful`}
           </div>
           <p className="empty__body t-body">
             {isEmpty
               ? "A report can only show what was tracked. Pick a wider period, or log the time you have already spent."
-              : `A week needs three tracked days before its shape means anything. You have ${trackedDays === 1 ? "one" : trackedDays}.`}
+              /* Names the period that is actually selected. "A week needs
+                 three tracked days" under a Quarter filter describes
+                 something the reader did not ask for. */
+              : `${PERIOD_NOUN[range.preset]} needs three tracked days before its shape means anything. You have ${trackedDays === 1 ? "one" : trackedDays}.`}
           </p>
           {recovery && (
             <button

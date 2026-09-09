@@ -30,19 +30,35 @@ export const IdleSheet: React.FC<Props> = ({ lastActiveAt, startTime, onTrim, on
   const idleMinutes = Math.max(0, minutesBetween(lastIso, nowIso));
   const totalMinutes = keptMinutes + idleMinutes;
 
+  /**
+   * The bar is built from minutes *elapsed since the session started*, not
+   * from clock-face positions.
+   *
+   * `minutesOfDay` answers "where on a 24-hour dial", which stops increasing
+   * at midnight: a session that began 23:30, went quiet at 23:40 and is now
+   * 00:15 gives 1410, 1420 and 15, so the idle span collapses to zero width
+   * and the bar claims the whole session was tracked — contradicting the
+   * sentence directly above it, which is instant-based and correct. This
+   * prompt fires *because* nothing has happened for a long time, so crossing
+   * midnight is a normal case here rather than an edge one.
+   */
+  const workedEnd = keptMinutes;
+  const idleEnd = keptMinutes + idleMinutes;
+
   const startMin = minutesOfDay(startTime);
   const lastMin = minutesOfDay(lastIso);
   const nowMin = minutesOfDay(nowIso);
 
-  // A synthetic bar: this is one session split at the moment the input
-  // stopped, not the shape of a whole day.
+  // A synthetic bar: one session split at the moment the input stopped, not
+  // the shape of a whole day. The labels still read in clock time, which is
+  // what the user recognises.
   const spans: BarSpan[] = [
     {
-      key: "worked", startMin, endMin: Math.max(startMin, lastMin), kind: "entry", accent: true,
+      key: "worked", startMin: 0, endMin: workedEnd, kind: "entry", accent: true,
       label: `Tracked ${clockAt(startMin)} to ${clockAt(lastMin)}`,
     },
     {
-      key: "idle", startMin: Math.max(startMin, lastMin), endMin: Math.max(lastMin, nowMin), kind: "gap", warn: true,
+      key: "idle", startMin: workedEnd, endMin: idleEnd, kind: "gap", warn: true,
       label: `No input ${clockAt(lastMin)} to ${clockAt(nowMin)}`,
     },
   ];
@@ -55,7 +71,7 @@ export const IdleSheet: React.FC<Props> = ({ lastActiveAt, startTime, onTrim, on
       </p>
 
       <div className="sheet__section">
-        <DayBarTrack spans={spans} windowStart={startMin} windowEnd={Math.max(startMin + 1, nowMin)} small />
+        <DayBarTrack spans={spans} windowStart={0} windowEnd={Math.max(1, idleEnd)} small />
         <div className="span-legend">
           <span>{clockAt(startMin)} started</span>
           <span>{clockAt(lastMin)} last activity</span>

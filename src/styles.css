@@ -545,7 +545,10 @@ button.day-bar__seg--gap:hover { background: color-mix(in srgb, var(--warn) 30%,
 }
 .field-row__select:hover { background: color-mix(in srgb, var(--label) 4%, transparent); }
 .field-row__action { font-size: 15px; font-weight: 600; color: var(--accent); min-height: 34px; }
-.field-row__sep { color: var(--decor); }
+/* Carries "to" between the two time fields as well as the "·" — a word the
+   reader has to read to know which field is which, so it takes the secondary
+   text colour rather than the decor grey. */
+.field-row__sep { color: var(--label-secondary); }
 
 .form-error { margin-top: 10px; font-size: 15px; line-height: 20px; color: var(--danger); }
 

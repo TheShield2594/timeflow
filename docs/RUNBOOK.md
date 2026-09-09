@@ -67,7 +67,7 @@ git push origin v1.2.0
    [§3.1](#31-app-code).
 6. **No isolation banner.** If the red "This workspace is showing other
    people's time" banner appears above the page, stop and go to
-   [§5.5](#55-a-user-reports-a-data-isolation-warning-toast) — that is a P0.
+   [§5.5](#55-a-user-reports-the-data-isolation-warning-banner) — that is a P0.
    Since the 2026-09 redesign it is a persistent full-width banner rather than
    a toast, so it cannot be missed and cannot be dismissed.
 
@@ -247,16 +247,16 @@ the entry by editing its end time on the Timesheet.
 
 The Calendar chip tells you which layer failed:
 
-- **"Outlook: not connected"** — the connector isn't wired up in this
+- **"Outlook not connected"** — the connector isn't wired up in this
   environment, or the DLP policy blocks it, or the user declined the consent
   prompt. Walk §6's Outlook block.
-- **"Outlook: on" but a specific meeting is absent** — all-day events are never
+- **"Outlook on" but a specific meeting is absent** — all-day events are never
   shown (no time span to lay out), meetings crossing midnight are clamped to
   their start day, and a *muted subject* hides an entire recurring series.
   Muting is per-device; the Calendar shows a count of what's hidden and can
   unmute.
 
-### 5.5 "A user reports a data isolation warning toast"
+### 5.5 "A user reports the data isolation warning banner"
 
 **This is a P0. Treat it as a possible cross-user data exposure.**
 
@@ -380,9 +380,9 @@ both operations. Do not redo those steps. What remains per environment:
       "worked in dev, blocked in prod" failure.
 - [ ] **Per-user consent**: each user gets a one-time prompt for the Office 365
       Outlook connection on their first launch after this ships. Tell users it
-      is expected; a declined prompt shows as "Outlook: not connected" for that
+      is expected; a declined prompt shows as "Outlook not connected" for that
       user only.
-- [ ] Verify: Calendar shows the "Outlook: on" chip and this week's meetings as
+- [ ] Verify: Calendar shows the "Outlook on" chip and this week's meetings as
       dashed ghost blocks.
 
 ### Manager Team view
@@ -477,8 +477,10 @@ things to have ready when people ask:
 
 - It travels with the browser, not the account: a new machine starts at the
   08:00–18:00 default. Code Apps have no per-user settings table.
-- It only affects which stretches of a day are *offered* as untracked gaps.
-  It changes no stored entry, no total, and nothing in an export.
+- It decides which stretches of a day are *offered* as untracked gaps, and it
+  is also the window the day bar is drawn across — so a 06:00 start widens the
+  bar on the timer screen as well as the gaps under it. It changes no stored
+  entry, no total, and nothing in an export.
 
 ---
 

@@ -19,6 +19,25 @@ import { Pill } from "./Pill";
 const PRESETS: RangePreset[] = ["thisWeek", "lastWeek", "month", "custom"];
 const INITIAL_VISIBLE_DAYS = 30;
 
+/**
+ * Minutes since local midnight, re-read once a minute.
+ *
+ * The running row's duration and the trailing untracked gap are both measured
+ * against "now", and reading the clock once at render froze them until some
+ * unrelated state change happened to re-render the page. A minute is the
+ * finest either figure is shown at, so it is also the fastest this needs to
+ * tick — and it is deliberately not a second, which would re-render the whole
+ * list sixty times a minute for a digit that doesn't change (#95).
+ */
+function useNowMinutes(): number {
+  const [now, setNow] = useState(() => minutesOfDay(new Date().toISOString()));
+  useEffect(() => {
+    const handle = setInterval(() => setNow(minutesOfDay(new Date().toISOString())), 30_000);
+    return () => clearInterval(handle);
+  }, []);
+  return now;
+}
+
 interface Props {
   workingHours: WorkingHours;
   /** Navigate to Projects — the first-run move when nothing exists yet. */
@@ -58,7 +77,7 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
 
   const projectById = useMemo(() => indexById(projects), [projects]);
   const taskById = useMemo(() => indexById(tasks), [tasks]);
-  const nowMinutes = minutesOfDay(new Date().toISOString());
+  const nowMinutes = useNowMinutes();
 
   useEffect(() => { setVisibleDays(INITIAL_VISIBLE_DAYS); }, [from, to, search]);
 
@@ -75,6 +94,19 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
 
   const totalMinutes = filtered.reduce((sum, e) => sum + (e.durationMinutes || 0), 0);
 
+  // Every entry in the loaded range, grouped once. The gap search below needs
+  // the whole day rather than the filtered rows, and re-scanning `entries`
+  // inside the per-day map made that O(days × entries) — over a quarter, on
+  // every keystroke in the search box.
+  const allByDate = useMemo(() => {
+    const map = new Map<string, TimeEntry[]>();
+    for (const entry of entries) {
+      if (!map.has(entry.date)) map.set(entry.date, []);
+      map.get(entry.date)!.push(entry);
+    }
+    return map;
+  }, [entries]);
+
   const days = useMemo(() => {
     const byDate = new Map<string, TimeEntry[]>();
     for (const entry of filtered) {
@@ -90,7 +122,7 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
         // entirely rather than reporting the wrong ones.
         const gaps: Gap[] = search.trim() === "" && date <= today
           ? findUntrackedGaps({
-              entries: entries.filter((e) => e.date === date),
+              entries: allByDate.get(date) ?? [],
               date,
               nowMinutes: date === today ? nowMinutes : MINUTES_PER_DAY,
               upperBoundMin: date === today ? nowMinutes : undefined,
@@ -116,7 +148,7 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
           total: dayEntries.reduce((sum, e) => sum + (e.durationMinutes || 0), 0),
         };
       });
-  }, [filtered, entries, search, today, nowMinutes, workingHours]);
+  }, [filtered, allByDate, search, today, nowMinutes, workingHours]);
 
   const visible = days.slice(0, visibleDays);
   const hidden = days.length - visible.length;
@@ -293,14 +325,21 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
   );
 };
 
-/** A new manual entry defaults to the last full hour inside working hours —
- *  the span somebody is most often catching up on. */
+/**
+ * A new manual entry defaults to the last full hour inside working hours —
+ * the span somebody is most often catching up on.
+ *
+ * The "has today got a last hour yet" test is against the clock, not against
+ * the arithmetic below: clamping first made `end` at least
+ * `startMin + 60` for any sane configuration, so the fallback only ever fired
+ * on a degenerate window and somebody opening the sheet at 07:00 on a
+ * 09:00–17:00 day was handed 09:00–10:00 — an hour that has not happened.
+ */
 function defaultDraft(today: string, workingHours: WorkingHours): EntryDraft {
   const now = minutesOfDay(new Date().toISOString());
-  const end = Math.min(workingHours.endMin, Math.max(workingHours.startMin + 60, Math.floor(now / 60) * 60));
-  const start = Math.max(workingHours.startMin, end - 60);
-  // Before the working day has started there is no "last hour" today; offer
-  // yesterday's last hour rather than a zero-length span.
-  if (end <= start) return draftForSpan(addDaysStr(today, -1), workingHours.endMin - 60, workingHours.endMin);
-  return draftForSpan(today, start, end);
+  if (now < workingHours.startMin + 60) {
+    return draftForSpan(addDaysStr(today, -1), workingHours.endMin - 60, workingHours.endMin);
+  }
+  const end = Math.min(workingHours.endMin, Math.floor(now / 60) * 60);
+  return draftForSpan(today, Math.max(workingHours.startMin, end - 60), end);
 }

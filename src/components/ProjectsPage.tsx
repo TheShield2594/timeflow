@@ -145,13 +145,19 @@ export const ProjectsPage: React.FC = () => {
 
   const saveDraft = async () => {
     if (!draft || !draft.name.trim()) return;
+    // Editing must not resurrect an archived project. The Edit button is on
+    // every expanded row, archived ones included, so a payload that hardcoded
+    // `isActive: true` turned "fix a typo in the name" into "un-archive it" —
+    // and the row then vanished out of the list the user was looking at.
+    // Archiving and restoring are their own explicit actions.
+    const existing = draft.editingId ? projects.find((p) => p.id === draft.editingId) : undefined;
     const payload = {
       name: draft.name.trim(),
       description: draft.description.trim() || undefined,
       color: draft.color,
       ratio: parseRatioInput(draft.ratio),
       jiraTicket: draft.jiraTicket.trim() || undefined,
-      isActive: true,
+      isActive: existing ? existing.isActive : true,
     };
     try {
       if (draft.editingId) await editProject(draft.editingId, payload);
@@ -165,12 +171,18 @@ export const ProjectsPage: React.FC = () => {
   const createTask = async (projectId: string) => {
     const name = newTaskName.trim();
     if (!name) { setNewTaskFor(null); return; }
+    // Cleared *before* the await, not after. The field commits on Enter and
+    // again on blur, and pressing Enter then clicking away sent the same name
+    // twice while the first request was still in flight — two task records for
+    // one typed name.
+    setNewTaskName("");
+    setNewTaskFor(null);
     try {
       await addTask({ projectId, name, isActive: true });
-      setNewTaskName("");
-      setNewTaskFor(null);
     } catch {
-      // Toasted upstream; leave the field open.
+      // Toasted upstream. The name is already cleared, which is the right
+      // trade: a lost keystroke is recoverable, a duplicate task is a name
+      // somebody else will bill against.
     }
   };
 

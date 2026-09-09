@@ -217,14 +217,24 @@ export const EntrySheet: React.FC<Props> = ({
 
   const handleCreateTask = async () => {
     const name = newTaskName.trim();
-    if (!name || !draft.projectId || !onAddTask) return;
+    if (!name || !draft.projectId || !onAddTask) {
+      // An empty field that lost focus is somebody changing their mind, not a
+      // task waiting to be named.
+      setAddingTask(false);
+      setNewTaskName("");
+      return;
+    }
+    // Cleared *before* the await: the field commits on Enter and again on
+    // blur, and pressing Enter then clicking away sent the same name twice
+    // while the first request was still in flight.
+    setAddingTask(false);
+    setNewTaskName("");
     try {
       const task = await onAddTask({ projectId: draft.projectId, name, isActive: true });
       set({ taskId: task.id });
-      setAddingTask(false);
-      setNewTaskName("");
     } catch {
-      // The data hooks already toast the failure; keep the field open to retry.
+      // Toasted upstream. A lost keystroke is recoverable; a duplicate task is
+      // a name somebody else will bill against.
     }
   };
 
