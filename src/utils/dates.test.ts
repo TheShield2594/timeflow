@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   localDateStr, localDateDaysAgo, addDaysStr, weekStartStr, friendlyDate, toTimeInput,
+  clockAt, clockAtCompact, timeInputAt,
   minutesOfDay, dateAtMinutes, isoAtMinutes, minutesBetween, dayLengthMinutes,
 } from "./dates";
 
@@ -114,18 +115,50 @@ describe("friendlyDate", () => {
     expect(friendlyDate("2024-06-14")).toBe("Yesterday");
   });
 
-  it("returns a long weekday/day/month string for any other date", () => {
+  it("returns a long weekday/month/day string for any other date", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2024, 5, 15, 9));
-    // Day-first, matching every other date in the app — see DATE_LOCALE.
-    expect(friendlyDate("2024-06-01")).toBe("Saturday 1 June");
+    // Month-first, matching every other date in the app — see DATE_LOCALE.
+    expect(friendlyDate("2024-06-01")).toBe("Saturday, June 1");
     expect(friendlyDate("2024-06-01")).toBe(
-      new Date("2024-06-01T00:00:00").toLocaleDateString("en-GB", {
+      new Date("2024-06-01T00:00:00").toLocaleDateString("en-US", {
         weekday: "long",
         month: "long",
         day: "numeric",
       })
     );
+  });
+});
+
+describe("clockAt / clockAtCompact / timeInputAt", () => {
+  it("reads times back on a 12-hour clock (#152)", () => {
+    expect(clockAt(0)).toBe("12:00 AM");
+    expect(clockAt(9 * 60 + 5)).toBe("9:05 AM");
+    expect(clockAt(12 * 60)).toBe("12:00 PM");
+    expect(clockAt(17 * 60 + 30)).toBe("5:30 PM");
+  });
+
+  it("clamps to the clock face at both ends", () => {
+    expect(clockAt(-30)).toBe("12:00 AM");
+    // 1440 is the end of this day; a 12-hour clock cannot say that in the
+    // notation itself, so it reads the same as its start.
+    expect(clockAt(24 * 60)).toBe("12:00 AM");
+    expect(clockAt(25 * 60)).toBe("12:00 AM");
+  });
+
+  it("drops the minutes on the hour for axis ticks, and keeps them otherwise", () => {
+    expect(clockAtCompact(9 * 60)).toBe("9 AM");
+    expect(clockAtCompact(12 * 60)).toBe("12 PM");
+    expect(clockAtCompact(9 * 60 + 30)).toBe("9:30 AM");
+  });
+
+  it("keeps <input type=\"time\"> values on the 24-hour clock the element takes", () => {
+    // The element renders in the user's locale, but its *value* is always
+    // this. Swapping in clockAt here would silently empty every time field.
+    expect(timeInputAt(0)).toBe("00:00");
+    expect(timeInputAt(9 * 60 + 5)).toBe("09:05");
+    expect(timeInputAt(17 * 60 + 30)).toBe("17:30");
+    expect(timeInputAt(24 * 60)).toBe("24:00");
   });
 });
 

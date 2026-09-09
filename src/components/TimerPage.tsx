@@ -3,6 +3,7 @@ import type { TimeEntry, TimerState } from "../types";
 import { formatElapsed, formatMinutes } from "../hooks";
 import { useData } from "../contexts/DataContext";
 import { useToday } from "../hooks/useToday";
+import { useEntriesOnDate } from "../hooks/useEntriesOnDate";
 import { useRangeRequest } from "../contexts/DataRangeContext";
 import type { WorkingHours } from "../hooks/useWorkingHours";
 import {
@@ -111,6 +112,7 @@ export const TimerPage: React.FC<Props> = ({
   timerBusy, onGoToProjects, shortcutHint,
 }) => {
   const { entries, projects, tasks, createEntry, loadTasksForProject, addTask } = useData();
+  const entriesOnDate = useEntriesOnDate();
   const today = useToday();
   const nowMinutes = useNowMinutes();
   const running = useElapsed(timer.startTime, timer.isRunning);
@@ -424,7 +426,7 @@ export const TimerPage: React.FC<Props> = ({
           initial={sheet}
           projects={projects}
           tasks={tasks}
-          dayEntries={todayEntries}
+          entriesOnDate={entriesOnDate}
           workingHours={workingHours}
           nowMinutes={nowMinutes}
           onSave={handleSheetSave}

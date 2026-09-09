@@ -78,7 +78,7 @@ describe("TimerPage hero", () => {
       isRunning: true, startTime: `${today}T09:00:00`, projectId: "p1", description: "Rebuild the timer bar",
     });
     expect(screen.getByText("Running")).toBeTruthy();
-    expect(screen.getByText(/started 09:00/)).toBeTruthy();
+    expect(screen.getByText(/started 9:00 AM/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Stop" }));
     expect(onStop).toHaveBeenCalled();
   });
@@ -104,7 +104,7 @@ describe("TimerPage hero", () => {
     });
 
     expect(screen.getByText("Not saved")).toBeTruthy();
-    expect(screen.getByText(/Stopped at 16:29/)).toBeTruthy();
+    expect(screen.getByText(/Stopped at 4:29 PM/)).toBeTruthy();
     // The clock freezes at the length the entry actually had rather than
     // resetting to zero: the hero is still about that session.
     expect(screen.getByText("07:29:00")).toBeTruthy();

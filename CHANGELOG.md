@@ -133,6 +133,16 @@ Findings from the [2026-08-12 application review](docs/reviews/2026-08-12-multi-
   manager" takes when the field is edited on the manager instead of on each
   report, and it opened a Team page whose only member was the person reading it
   ([#131](https://github.com/TheShield2594/timeflow/issues/131)).
+- An entry can be re-dated from the sheet that edits it, so a day logged
+  against the wrong date is correctable from the Timesheet rather than only by
+  dragging the block on the Calendar. The day bar and the untracked-gap line
+  recompute from the edited date; a date outside the loaded range draws no day
+  bar rather than an empty one
+  ([#151](https://github.com/TheShield2594/timeflow/issues/151)).
+- A task creation that fails hands the typed name back to the field instead of
+  clearing it and leaving a toast. The field still clears *before* the write,
+  which is what stops Enter-then-blur filing the same name twice
+  ([#153](https://github.com/TheShield2594/timeflow/issues/153)).
 - A failed direct-reports probe reports itself. The Team page vanishing for
   every manager in an environment has exactly one other symptom — an absent nav
   item — and the missing privilege behind it was only ever logged to the

@@ -9,6 +9,7 @@ import { useTeamContext } from "./hooks/useTeam";
 import { useIdleGuard } from "./hooks/useIdleGuard";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { useAppBootstrap } from "./hooks/useAppBootstrap";
+import { useEntriesOnDate } from "./hooks/useEntriesOnDate";
 import { useTheme, Theme } from "./hooks/useTheme";
 import { useWeeklyTarget } from "./hooks/useWeeklyTarget";
 import { useWorkingHours } from "./hooks/useWorkingHours";
@@ -93,9 +94,10 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void; userName: 
   const online = useOnlineStatus();
 
   const {
-    projects, tasks, entries, addTask, loadTasksForProject, refreshEntries,
+    projects, tasks, addTask, loadTasksForProject, refreshEntries,
     editEntry, deleteEntry, createEntry, isolationBreach,
   } = useData();
+  const entriesOnDate = useEntriesOnDate();
   const { teamContext } = useTeamContext();
   const isManager = (teamContext?.reports.length ?? 0) > 0;
 
@@ -295,7 +297,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void; userName: 
           entryId={stopSheetEntry.id}
           projects={projects}
           tasks={tasks}
-          dayEntries={entries.filter((e) => e.date === stopSheetEntry.date)}
+          entriesOnDate={entriesOnDate}
           workingHours={workingHours}
           nowMinutes={nowMinutes}
           onSave={(data) => editEntry(stopSheetEntry.id, data)}
@@ -304,11 +306,11 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void; userName: 
           onClose={() => closeStopSheet(stopSheetEntry)}
           onLoadTasksForProject={loadTasksForProject}
           onAddTask={addTask}
-          onFillGap={(startMin, endMin) => {
+          onFillGap={(date, startMin, endMin) => {
             setStopSheetEntry(null);
             setEntrySheet({
               mode: "create",
-              draft: draftForSpan(stopSheetEntry.date, startMin, endMin, stopSheetProject?.id ?? ""),
+              draft: draftForSpan(date, startMin, endMin, stopSheetProject?.id ?? ""),
             });
           }}
         />
@@ -321,7 +323,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void; userName: 
           entryId={entrySheet.id}
           projects={projects}
           tasks={tasks}
-          dayEntries={entries.filter((e) => e.date === entrySheet.draft.date)}
+          entriesOnDate={entriesOnDate}
           workingHours={workingHours}
           nowMinutes={nowMinutes}
           onSave={(data) => (entrySheet.id ? editEntry(entrySheet.id, data) : createEntry(data))}

@@ -27,6 +27,7 @@ import { useDragCreate, useEntryMove, useEntryResize } from "../hooks/useCalenda
 import { useGridRovingFocus } from "../hooks/useGridRovingFocus";
 import { useRangeRequest } from "../contexts/DataRangeContext";
 import { useData } from "../contexts/DataContext";
+import { useEntriesOnDate } from "../hooks/useEntriesOnDate";
 import type { WorkingHours } from "../hooks/useWorkingHours";
 import { EntrySheet, EntryDraft, EntrySaveData } from "./EntrySheet";
 import { FloatingActionBar } from "./FloatingActionBar";
@@ -314,6 +315,7 @@ export const CalendarPage: React.FC<Props> = ({ workingHours }) => {
     createEntry: onCreateEntry, editEntry: onEdit, deleteEntry: onDelete,
     loadTasksForProject: onLoadTasksForProject, addTask,
   } = useData();
+  const entriesOnDate = useEntriesOnDate();
   const [anchor, setAnchor] = useState(() => new Date());
   const weekDays = useMemo(() => getWeekDays(anchor), [anchor]);
   const projectById = useMemo(() => indexById(projects), [projects]);
@@ -825,7 +827,7 @@ export const CalendarPage: React.FC<Props> = ({ workingHours }) => {
           initial={modal.draft}
           projects={projects}
           tasks={tasks}
-          dayEntries={entries.filter((e) => e.date === modal.draft.date)}
+          entriesOnDate={entriesOnDate}
           workingHours={workingHours}
           nowMinutes={nowMinutes}
           onSave={handleModalSave}

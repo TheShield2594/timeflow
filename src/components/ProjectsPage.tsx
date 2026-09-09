@@ -180,9 +180,12 @@ export const ProjectsPage: React.FC = () => {
     try {
       await addTask({ projectId, name, isActive: true });
     } catch {
-      // Toasted upstream. The name is already cleared, which is the right
-      // trade: a lost keystroke is recoverable, a duplicate task is a name
-      // somebody else will bill against.
+      // Toasted upstream — and the field comes back with what was typed in it.
+      // The duplicate came from the double-submit path, which the clear above
+      // still closes; a write that *failed* left nothing to duplicate, so
+      // there is no trade to make here (#153).
+      setNewTaskFor(projectId);
+      setNewTaskName(name);
     }
   };
 

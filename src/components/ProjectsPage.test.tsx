@@ -76,6 +76,43 @@ describe("ProjectsPage list", () => {
   });
 });
 
+describe("ProjectsPage task creation", () => {
+  it("hands the typed name back when the write fails (#153)", async () => {
+    const addTask = vi.fn().mockRejectedValue(new Error("Dataverse said no"));
+    renderPage({ addTask });
+
+    fireEvent.click(screen.getByRole("button", { name: /Alpha/ }));
+    fireEvent.click(screen.getByRole("button", { name: "New task" }));
+    const field = screen.getByLabelText("New task name") as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "Discovery call" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+
+    // The clear happens before the await, so the field is empty while the
+    // write is in flight — that is what stops Enter-then-blur sending twice.
+    expect(screen.queryByLabelText("New task name")).toBeNull();
+
+    await vi.waitFor(() => {
+      const reopened = screen.getByLabelText("New task name") as HTMLInputElement;
+      expect(reopened.value).toBe("Discovery call");
+    });
+    expect(addTask).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the field clear when the write succeeds", async () => {
+    const addTask = vi.fn().mockResolvedValue({ id: "t9", projectId: "p1", name: "Discovery call", isActive: true });
+    renderPage({ addTask });
+
+    fireEvent.click(screen.getByRole("button", { name: /Alpha/ }));
+    fireEvent.click(screen.getByRole("button", { name: "New task" }));
+    const field = screen.getByLabelText("New task name") as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "Discovery call" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+
+    await vi.waitFor(() => expect(addTask).toHaveBeenCalledTimes(1));
+    expect(screen.queryByLabelText("New task name")).toBeNull();
+  });
+});
+
 describe("ProjectsPage colour picker", () => {
   it("refuses a colour another active project already wears", () => {
     renderPage();

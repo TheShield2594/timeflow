@@ -39,7 +39,7 @@ function renderSheet(over: Partial<React.ComponentProps<typeof EntrySheet>> = {}
       initial={draftForSpan(DATE, 10 * 60, 11 * 60, "p1")}
       projects={projects}
       tasks={tasks}
-      dayEntries={[]}
+      entriesOnDate={() => []}
       workingHours={DEFAULT_WORKING_HOURS}
       nowMinutes={18 * 60}
       onSave={onSave}
@@ -130,11 +130,12 @@ describe("EntrySheet overnight spans", () => {
 });
 
 describe("EntrySheet modes", () => {
-  it("stops without a Time row — the clock already decided that span", () => {
+  it("stops without a Time or Date row — the clock already decided both", () => {
     renderSheet({ mode: "stop", initial: draftForEntry(saved), entryId: saved.id, onDelete: vi.fn() });
     expect(screen.queryByLabelText("Time")).toBeNull();
+    expect(screen.queryByLabelText("Date")).toBeNull();
     expect(screen.getByText("1h 24m")).toBeTruthy();
-    expect(screen.getByText("15:05 – 16:29 · Tuesday 8 September")).toBeTruthy();
+    expect(screen.getByText("3:05 PM – 4:29 PM · Tuesday, September 8")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Discard" })).toBeTruthy();
   });
 
@@ -155,6 +156,78 @@ describe("EntrySheet modes", () => {
   });
 });
 
+describe("EntrySheet re-dating (#151)", () => {
+  it("writes the entry to the edited date", async () => {
+    const { onSave } = renderSheet({ mode: "edit", initial: draftForEntry(saved), entryId: saved.id });
+
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-09-04" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    // The instants move with it, not just the date column — a row whose
+    // startTime still says 8 September is a wrong number, not a wrong label.
+    expect(onSave.mock.calls[0][0]).toMatchObject({
+      date: "2026-09-04",
+      startTime: new Date("2026-09-04T15:05:00").toISOString(),
+      endTime: new Date("2026-09-04T16:29:00").toISOString(),
+      durationMinutes: 84,
+    });
+  });
+
+  it("moves the day bar and the gap nudge onto the edited date", () => {
+    // 8 September is fully tracked 08:00–18:00; 4 September holds nothing.
+    const fullDay: TimeEntry = {
+      ...saved, id: "full", startTime: `${DATE}T08:00:00`, endTime: `${DATE}T18:00:00`, durationMinutes: 600,
+    };
+    renderSheet({
+      mode: "edit",
+      initial: draftForEntry(fullDay),
+      entryId: fullDay.id,
+      entriesOnDate: (date) => (date === DATE ? [fullDay] : []),
+      onFillGap: vi.fn(),
+    });
+    expect(screen.queryByText(/still untracked/)).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-09-04" } });
+
+    // The bar is now describing 4 September, where the same 08:00–18:00 span
+    // leaves nothing untracked either — but it is that day it is answering
+    // about, which is the whole point of recomputing it.
+    expect(screen.getByText("8:00 AM – 6:00 PM · Friday, September 4")).toBeTruthy();
+  });
+
+  it("draws no day at all for a date outside the loaded range", async () => {
+    // null is not "nobody worked that day" — a bar built from an unfetched
+    // day would report the whole of it as untracked.
+    const { onSave } = renderSheet({
+      mode: "edit",
+      initial: draftForEntry(saved),
+      entryId: saved.id,
+      entriesOnDate: (date) => (date === DATE ? [saved] : null),
+    });
+    expect(document.querySelector(".day-bar")).not.toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2019-04-01" } });
+
+    expect(document.querySelector(".day-bar")).toBeNull();
+    expect(screen.getByText(/outside the range loaded/)).toBeTruthy();
+
+    // Still saves to it: the sheet can't draw that day, which is not the same
+    // as refusing to file time against it.
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0]).toMatchObject({ date: "2019-04-01" });
+  });
+
+  it("refuses to save with the date cleared, and says why", () => {
+    renderSheet({ mode: "edit", initial: draftForEntry(saved), entryId: saved.id });
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "" } });
+
+    expect(screen.getByText("Pick a date.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
+  });
+});
+
 describe("EntrySheet gap nudge", () => {
   it("names the hole this entry left behind and offers to fill it", () => {
     const onFillGap = vi.fn();
@@ -162,14 +235,16 @@ describe("EntrySheet gap nudge", () => {
       mode: "stop",
       initial: draftForEntry(saved),
       entryId: saved.id,
-      dayEntries: [saved],
+      entriesOnDate: () => [saved],
       onFillGap,
     });
 
     // 08:00–15:05 is untracked before it; the sheet points at the nearest one.
     expect(screen.getByText(/still untracked/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Fill it" }));
-    expect(onFillGap).toHaveBeenCalled();
+    // The date comes first, and it is the draft's — a gap found after a
+    // re-date belongs to the day it was found on.
+    expect(onFillGap).toHaveBeenCalledWith(DATE, expect.any(Number), expect.any(Number));
   });
 });
 
@@ -203,7 +278,7 @@ describe("EntrySheet gap bounds", () => {
       mode: "edit",
       initial: draftForEntry(pastEntry),
       entryId: pastEntry.id,
-      dayEntries: [pastEntry],
+      entriesOnDate: () => [pastEntry],
       nowMinutes: 10 * 60,
       onFillGap: vi.fn(),
     });

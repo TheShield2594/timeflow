@@ -4,6 +4,7 @@ import { formatMinutes } from "../hooks";
 import { useData } from "../contexts/DataContext";
 import { useRangeRequest } from "../contexts/DataRangeContext";
 import { useToday } from "../hooks/useToday";
+import { useEntriesOnDate } from "../hooks/useEntriesOnDate";
 import type { WorkingHours } from "../hooks/useWorkingHours";
 import { MINUTES_PER_DAY, addDaysStr, clockAt, friendlyDate, minutesOfDay } from "../utils/dates";
 import { byId, indexById } from "../utils/entityIndex";
@@ -66,6 +67,7 @@ type Row =
  */
 export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects }) => {
   const { entries, projects, tasks, deleteEntry, editEntry, createEntry, loadTasksForProject, addTask } = useData();
+  const entriesOnDate = useEntriesOnDate();
   const today = useToday();
   const [sheet, setSheet] = useState<SheetState | null>(null);
   const [search, setSearch] = useState("");
@@ -309,7 +311,7 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
           entryId={sheet.id}
           projects={projects}
           tasks={tasks}
-          dayEntries={entries.filter((e) => e.date === sheet.draft.date)}
+          entriesOnDate={entriesOnDate}
           workingHours={workingHours}
           nowMinutes={nowMinutes}
           onSave={(data) => (sheet.id ? editEntry(sheet.id, data) : createEntry(data))}
@@ -317,8 +319,8 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
           onClose={() => setSheet(null)}
           onLoadTasksForProject={loadTasksForProject}
           onAddTask={addTask}
-          onFillGap={(startMin, endMin) =>
-            setSheet({ mode: "create", draft: draftForSpan(sheet.draft.date, startMin, endMin) })}
+          onFillGap={(date, startMin, endMin) =>
+            setSheet({ mode: "create", draft: draftForSpan(date, startMin, endMin) })}
         />
       )}
     </>

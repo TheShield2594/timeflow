@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { clockAt } from "../utils/dates";
+import { clockAt, timeInputAt } from "../utils/dates";
 import { normalizeWorkingHours, type WorkingHours } from "../hooks/useWorkingHours";
 import { Sheet } from "./Sheet";
 import { Pill } from "./Pill";
@@ -23,8 +23,10 @@ function toMinutes(hhmm: string): number {
  * was complete when two hours of it were outside the search window.
  */
 export const SettingsSheet: React.FC<Props> = ({ workingHours, onChange, onClose }) => {
-  const [start, setStart] = useState(clockAt(workingHours.startMin));
-  const [end, setEnd] = useState(clockAt(workingHours.endMin));
+  // `timeInputAt`, not `clockAt`: these are <input type="time"> values, which
+  // are 24-hour "HH:MM" whatever the browser renders them as.
+  const [start, setStart] = useState(timeInputAt(workingHours.startMin));
+  const [end, setEnd] = useState(timeInputAt(workingHours.endMin));
   const [floor, setFloor] = useState(String(workingHours.gapMustExceedMinutes));
 
   const preview = normalizeWorkingHours({
