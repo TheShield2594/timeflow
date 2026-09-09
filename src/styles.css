@@ -13,8 +13,10 @@
 
    2. Depth is earned. No box-shadow on content. A container gets a surface
       only by floating, scrolling independently, or being dismissible, and
-      it gets there through a *material* — 72% background plus a blur —
-      with one hairline and no shadow. Never a card inside a card.
+      it gets there through a *material* — a tinted background plus a blur —
+      with one hairline and no shadow. Never a card inside a card. A thing
+      that floats over content is 72% (--material); a sheet, which is read
+      *through*, is --material-sheet.
 
    3. Two text colours per theme. --label and --label-secondary are the
       only colours a reader ever reads; --decor is for marks that carry no
@@ -73,6 +75,12 @@
   --canvas:          #FBFBF8;
   --surface:         #FFFFFF;
   --material:        rgba(255,255,255,.72);
+  /* A sheet is read *through*, not glanced at: it carries typed values over
+     whatever the page was showing, and at 72% a calendar block behind it
+     still reads as text. Blur alone doesn't rescue that — backdrop-filter is
+     the first thing a locked-down host drops — so the modal material is
+     opaque enough to stand on its own and keeps the blur as a bonus. */
+  --material-sheet:  rgba(255,255,255,.96);
   --separator:       rgba(20,22,16,.09);
 
   --label:           #1B1D17;  /* 16.4:1 on canvas */
@@ -117,6 +125,7 @@
   --canvas:          #0F110E;
   --surface:         #191C17;
   --material:        rgba(30,34,28,.72);
+  --material-sheet:  rgba(30,34,28,.96);
   --separator:       rgba(239,242,234,.11);
 
   --label:           #EFF2EA;
@@ -439,7 +448,11 @@ button.day-bar__seg--gap:hover { background: color-mix(in srgb, var(--warn) 30%,
 .search { width: 240px; }
 .search::placeholder, .input::placeholder { color: var(--decor); }
 .search:focus-visible, .input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
-.input--time { width: 88px; text-align: center; }
+/* Wide enough for the 12-hour value *and* the picker glyph the browser puts
+   beside it: at 88px "04:00 PM" lost its meridiem behind the clock icon. */
+.input--time { width: 132px; text-align: center; }
+/* The week target borrows the time field's shape but holds two digits. */
+.input--num { width: 88px; text-align: center; }
 .input--wide { width: 100%; }
 
 /* =====================================================================
@@ -486,7 +499,7 @@ button.day-bar__seg--gap:hover { background: color-mix(in srgb, var(--warn) 30%,
 .sheet {
   width: 580px; max-width: 100%; max-height: calc(100dvh - 48px); overflow-y: auto;
   border-radius: var(--radius-sheet); padding: 28px 28px 22px;
-  background: var(--material);
+  background: var(--material-sheet);
   backdrop-filter: blur(24px) saturate(1.6);
   -webkit-backdrop-filter: blur(24px) saturate(1.6);
   box-shadow: inset 0 0 0 1px var(--separator);

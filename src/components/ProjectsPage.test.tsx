@@ -51,7 +51,7 @@ describe("ProjectsPage list", () => {
     renderPage();
     const names = [...document.querySelectorAll(".projects__name")].map((el) => el.textContent);
     expect(names[0]).toContain("Alpha");
-    expect(screen.getByText("2 tasks · Account 2")).toBeTruthy();
+    expect(screen.getByText("2 tasks · Ratio 2")).toBeTruthy();
     // A project with no billing account says so rather than leaving a gap the
     // reader has to interpret.
     expect(screen.getByText("1 task · no billing account")).toBeTruthy();

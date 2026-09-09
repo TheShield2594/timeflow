@@ -69,7 +69,7 @@ describe("EntrySheet payload", () => {
 
   it("keeps the billing account a whole number and never a multiplier (#71)", async () => {
     const { onSave } = renderSheet();
-    fireEvent.change(screen.getByLabelText(/Billing account/), { target: { value: "2.6" } });
+    fireEvent.change(screen.getByLabelText(/^Ratio/), { target: { value: "2.6" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(onSave).toHaveBeenCalled());
     expect(onSave.mock.calls[0][0].ratio).toBe(3);

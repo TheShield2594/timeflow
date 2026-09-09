@@ -505,10 +505,13 @@ export const EntrySheet: React.FC<Props> = ({
               className="field-row__input"
               type="number" step="1" min="0"
               style={{ maxWidth: 110 }}
-              placeholder="Account"
+              placeholder="Ratio"
               /* A billing account identifier, never a multiplier — nothing in
-                 the app may do arithmetic with it (#71). */
-              aria-label="Billing account this entry's time is billed to"
+                 the app may do arithmetic with it (#71). The field is called
+                 the ratio everywhere else the company uses it, including the
+                 Dataverse column and the CSV header, so that is what it is
+                 called here too. */
+              aria-label="Ratio — the billing account this entry's time is billed to"
               value={draft.ratio}
               onChange={(e) => set({ ratio: e.target.value })}
             />
