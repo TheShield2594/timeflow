@@ -365,3 +365,14 @@ The helpers and their tests were left in place because the brief asks
 explicitly that `reportAggregations`' tests keep passing untouched; removing
 them is a small, separate cleanup rather than something to fold into this
 change.
+
+**`--dim-display` is exempt from the 4.5:1 rule the brief states above.** The
+token table gives it as 3.2:1 while the sentence introducing the tables says
+`styles.contrast.test.ts` asserts 4.5:1 for *every* text token — the brief
+contradicts itself, and taken literally the gate it describes would fail on the
+palette it ships with. The tables won, because the exemption is real: WCAG's
+large-text threshold is 3:1, and the idle clock is 96px. So the test asserts
+4.5:1 for `--label`, `--label-secondary`, `--accent`, `--danger` and `--warn`,
+and 3:1 for `--dim-display` alone — held to that one use by a separate
+assertion that the token is referenced exactly once, which is what stops the
+exemption spreading to text nobody exempted.
