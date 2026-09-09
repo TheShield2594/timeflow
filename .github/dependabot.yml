@@ -8,10 +8,50 @@ updates:
       day: monday
       time: "06:00"
     open-pull-requests-limit: 5
-    # One PR per weekly batch for the dev toolchain — vite, vitest, eslint and
-    # typescript-eslint move together, and separate PRs for each just fail
-    # against one another's peer ranges.
+    # Dev tooling is grouped so peer-coupled packages move in one PR: a plugin
+    # pinned to its host's major cannot cross that major on its own, and split
+    # across two PRs neither side resolves.
+    #
+    # This used to be a single minor+patch batch, which left majors arriving
+    # one package per PR — the very case the grouping exists to prevent. It is
+    # how #144 and #146 arrived: eslint 10 in one, the react-hooks plugin that
+    # peers on it in another, and `npm ci` failing on either alone (#157). So
+    # the cohorts below are matched by name across *all* update types.
+    #
+    # A dependency joins the first group it matches, so they sit above the
+    # catch-all batch.
     groups:
+      # Every plugin, config and preset here declares a peer range on eslint
+      # itself, and @eslint/js pins the major outright (`^10.0.0`). None of
+      # them can cross a major alone.
+      eslint:
+        patterns:
+          - "eslint"
+          - "@eslint/*"
+          - "eslint-plugin-*"
+          - "eslint-config-*"
+          - "typescript-eslint"
+          - "@typescript-eslint/*"
+        update-types:
+          - major
+          - minor
+          - patch
+      # Tighter still: @vitest/coverage-v8 peers on an *exact* vitest version,
+      # so a vitest bump without it doesn't just warn, it fails to resolve.
+      # @vitejs/plugin-react peers on vite's major the same way.
+      vite:
+        patterns:
+          - "vite"
+          - "vitest"
+          - "@vitejs/*"
+          - "@vitest/*"
+        update-types:
+          - major
+          - minor
+          - patch
+      # Everything else dev-side. Majors stay out: outside the cohorts above
+      # they're one-package migrations that deserve their own PR and their own
+      # decision, not a silent seat in the weekly batch.
       dev-dependencies:
         dependency-type: development
         update-types:
