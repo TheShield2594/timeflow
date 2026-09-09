@@ -438,8 +438,8 @@ export const ProjectsPage: React.FC = () => {
                 />
                 <span className="field-row__sep" aria-hidden="true">·</span>
                 <input
-                  className="field-row__input" style={{ maxWidth: 140 }} placeholder="Ticket"
-                  aria-label="Default ticket reference"
+                  className="field-row__input" style={{ maxWidth: 140 }} placeholder="Jira Ticket"
+                  aria-label="Default Jira ticket for this project's entries"
                   value={draft.jiraTicket} onChange={(e) => setDraft({ ...draft, jiraTicket: e.target.value })}
                   maxLength={50}
                 />

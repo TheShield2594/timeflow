@@ -519,8 +519,8 @@ export const EntrySheet: React.FC<Props> = ({
             <input
               className="field-row__input"
               style={{ maxWidth: 140 }}
-              placeholder="Ticket"
-              aria-label="Ticket reference"
+              placeholder="Jira Ticket"
+              aria-label="Jira ticket this entry's time is booked against"
               value={draft.jiraTicket}
               onChange={(e) => set({ jiraTicket: e.target.value })}
               maxLength={50}

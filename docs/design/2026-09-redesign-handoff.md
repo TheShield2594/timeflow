@@ -412,9 +412,10 @@ thing a locked-down host drops, and where it does the sheet is 72% of nothing.
 So `--material-sheet` is the modal's fill at 96%, the blur stays as the bonus
 it now is, and the action bar keeps `--material` unchanged.
 
-**The `Billed to` row's number field is labelled `Ratio`.** The brief names the
-row but not the placeholder, which read `Account`. Everywhere else the company
-meets this value it is the ratio — the Dataverse column, the CSV header, the
-Projects list — and a field that answers to two names in one app is a field
-people fill in wrong. It is still an account identifier and still never a
-multiplier (#71); only the word on screen changed.
+**The `Billed to` row's two fields are labelled `Ratio` and `Jira Ticket`.**
+The brief names the row but neither placeholder; they read `Account` and
+`Ticket`. Everywhere else the company meets these values they are the ratio and
+the Jira ticket — the Dataverse columns, both CSV headers, the Projects list —
+and a field that answers to two names in one app is a field people fill in
+wrong. The ratio is still an account identifier and still never a multiplier
+(#71); only the words on screen changed.
