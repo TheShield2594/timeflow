@@ -5,15 +5,20 @@ Notable changes to TimeFlow. Format loosely follows
 against user-visible behaviour, as described in
 [CONTRIBUTING](CONTRIBUTING.md#releases-and-tagging).
 
-> **No tag has been cut yet.** `package.json` has read `1.0.0` since the repo
-> was created, and there are no git tags and no GitHub releases, so there is
-> currently no way to say which build is in production. The next deploy should
-> tag its commit `v1.0.0` and record it below; every deploy after that gets its
-> own tag. See [#112](https://github.com/TheShield2594/timeflow/issues/112).
+> **1.0.0 is cut but not yet tagged.** Everything below is the 1.0.0 release;
+> `package.json` has read `1.0.0` since the repo was created and now agrees
+> with this file. The tag is what says which build is in production, so it is
+> cut at deploy time, against the commit that was actually pushed:
+> `pac code push`, smoke-test, then `git tag -a v1.0.0 -m "Deployed to prod
+> <date>" && git push origin v1.0.0` — see
+> [the runbook](docs/RUNBOOK.md#2-deploy). Until that tag exists there is still
+> no way to answer "what is prod running?", which is
+> [#112](https://github.com/TheShield2594/timeflow/issues/112); every deploy
+> after this one gets its own tag.
 
 ---
 
-## Unreleased — to ship as 1.0.0
+## 1.0.0 — 2026-09-09
 
 ### Added
 
