@@ -87,6 +87,13 @@ function DropdownInner<T extends string>(
     if (open) setActiveIndex(selectedIndex < 0 ? 0 : selectedIndex);
   }, [open, selectedIndex]);
 
+  // A native button ignores aria-activedescendant, so a reader can't follow the
+  // highlight if focus stays on it. Move DOM focus into the listbox while it is
+  // open — the supported model — and hand it back to the trigger on close.
+  useEffect(() => {
+    if (open) listRef.current?.focus();
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const node = listRef.current?.children[activeIndex] as HTMLElement | undefined;
@@ -105,35 +112,45 @@ function DropdownInner<T extends string>(
     setActiveIndex(index);
   };
 
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+  // The trigger only opens — once open, focus is in the listbox below, which
+  // owns navigation.
+  const handleTriggerKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openAt(selectedIndex < 0 ? 0 : selectedIndex);
+    }
+  };
+
+  const handleListKeyDown = (event: React.KeyboardEvent<HTMLUListElement>) => {
     switch (event.key) {
       case "ArrowDown":
         event.preventDefault();
-        if (!open) openAt(selectedIndex < 0 ? 0 : selectedIndex);
-        else setActiveIndex((i) => Math.min(i + 1, options.length - 1));
+        setActiveIndex((i) => Math.min(i + 1, options.length - 1));
         return;
       case "ArrowUp":
         event.preventDefault();
-        if (!open) openAt(selectedIndex < 0 ? options.length - 1 : selectedIndex);
-        else setActiveIndex((i) => Math.max(i - 1, 0));
+        setActiveIndex((i) => Math.max(i - 1, 0));
         return;
       case "Home":
-        if (open) { event.preventDefault(); setActiveIndex(0); }
+        event.preventDefault();
+        setActiveIndex(0);
         return;
       case "End":
-        if (open) { event.preventDefault(); setActiveIndex(options.length - 1); }
+        event.preventDefault();
+        setActiveIndex(options.length - 1);
         return;
       case "Enter":
       case " ":
         event.preventDefault();
-        if (open) commit(activeIndex);
-        else setOpen(true);
+        commit(activeIndex);
         return;
       case "Escape":
-        if (open) { event.preventDefault(); setOpen(false); }
+        event.preventDefault();
+        setOpen(false);
+        triggerRef.current?.focus();
         return;
       case "Tab":
-        if (open) setOpen(false);
+        setOpen(false);
         return;
       default:
         break;
@@ -147,12 +164,10 @@ function DropdownInner<T extends string>(
       state.query = now - state.at > 600 ? event.key : state.query + event.key;
       state.at = now;
       const query = state.query.toLowerCase();
-      const from = open ? activeIndex : Math.max(selectedIndex, 0);
       for (let step = 1; step <= options.length; step++) {
-        const index = (from + step) % options.length;
+        const index = (activeIndex + step) % options.length;
         if (options[index].label.toLowerCase().startsWith(query)) {
-          if (open) setActiveIndex(index);
-          else openAt(index);
+          setActiveIndex(index);
           break;
         }
       }
@@ -172,9 +187,8 @@ function DropdownInner<T extends string>(
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={ariaLabel}
-        aria-activedescendant={open ? `${baseId}-opt-${activeIndex}` : undefined}
         onClick={() => setOpen((o) => !o)}
-        onKeyDown={handleKeyDown}
+        onKeyDown={handleTriggerKeyDown}
       >
         {selected?.color !== undefined && (
           <span className="dot" style={{ "--pc": selected.color } as React.CSSProperties} />
@@ -198,8 +212,11 @@ function DropdownInner<T extends string>(
         <ul
           ref={listRef}
           role="listbox"
+          tabIndex={-1}
           aria-label={ariaLabel}
+          aria-activedescendant={`${baseId}-opt-${activeIndex}`}
           className={`dropdown__menu dropdown__menu--${direction} dropdown__menu--${align}`}
+          onKeyDown={handleListKeyDown}
         >
           {options.map((option, index) => (
             <li

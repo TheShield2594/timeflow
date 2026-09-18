@@ -78,13 +78,26 @@ describe("Dropdown", () => {
     const onChange = vi.fn();
     render(<Harness onChange={onChange} />);
 
+    // The trigger opens; focus then moves to the listbox, which owns navigation.
     // Opening lands on the current selection (Apple); ArrowDown moves to Banana.
     fireEvent.keyDown(trigger(), { key: "ArrowDown" });
-    fireEvent.keyDown(trigger(), { key: "ArrowDown" });
-    fireEvent.keyDown(trigger(), { key: "Enter" });
+    const listbox = screen.getByRole("listbox");
+    fireEvent.keyDown(listbox, { key: "ArrowDown" });
+    fireEvent.keyDown(listbox, { key: "Enter" });
 
     expect(onChange).toHaveBeenCalledWith("banana");
     expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("marks the active option for assistive tech via the listbox", () => {
+    render(<Harness />);
+    fireEvent.click(trigger());
+    const listbox = screen.getByRole("listbox");
+    // The active option is named by aria-activedescendant on the focusable
+    // listbox — the model a native button cannot support.
+    const activeId = listbox.getAttribute("aria-activedescendant");
+    expect(activeId).toBeTruthy();
+    expect(screen.getByRole("option", { selected: true }).id).toBe(activeId);
   });
 
   it("closes on Escape without changing the value", () => {
@@ -92,7 +105,7 @@ describe("Dropdown", () => {
     render(<Harness onChange={onChange} />);
 
     fireEvent.click(trigger());
-    fireEvent.keyDown(trigger(), { key: "Escape" });
+    fireEvent.keyDown(screen.getByRole("listbox"), { key: "Escape" });
 
     expect(screen.queryByRole("listbox")).toBeNull();
     expect(onChange).not.toHaveBeenCalled();

@@ -487,6 +487,9 @@ button.day-bar__seg--gap:hover { background: color-mix(in srgb, var(--warn) 30%,
   box-shadow: inset 0 0 0 1px var(--separator);
   animation: dropdown-in 140ms ease-out;
 }
+/* Focus sits on the menu while it is open, but the highlight the reader
+   follows is drawn on the active option, so the container takes no ring. */
+.dropdown__menu:focus, .dropdown__menu:focus-visible { outline: none; }
 .dropdown__menu--down { top: calc(100% + 6px); }
 .dropdown__menu--up { bottom: calc(100% + 6px); }
 .dropdown__menu--start { left: 0; }
