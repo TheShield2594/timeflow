@@ -208,9 +208,8 @@ describe("TeamPage export controls", () => {
     getTeamTimeEntries.mockResolvedValue([entry({})]);
     renderTeam();
     await screen.findByText("Avery Example");
-    fireEvent.change(screen.getByLabelText("Rounding applied to exported durations"), {
-      target: { value: "up15" },
-    });
+    fireEvent.click(screen.getByRole("button", { name: "Rounding applied to exported durations" }));
+    fireEvent.click(screen.getByRole("option", { name: "round up to 15 min" }));
     expect(localStorage.getItem("tt_team_export_rounding")).toBe("up15");
     expect(localStorage.getItem("tt_export_rounding")).toBeNull();
   });

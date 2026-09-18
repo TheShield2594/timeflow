@@ -5,6 +5,7 @@ import { useData } from "../contexts/DataContext";
 import { DEFAULT_PROJECT_COLOR } from "../utils/colors";
 import { ListCard } from "./ListCard";
 import { SegmentedControl } from "./SegmentedControl";
+import { Dropdown } from "./Dropdown";
 import { FloatingActionBar } from "./FloatingActionBar";
 import { Sheet } from "./Sheet";
 import { Pill } from "./Pill";
@@ -231,19 +232,19 @@ export const ProjectsPage: React.FC = () => {
             value={search}
             onChange={(e) => { setSearch(e.target.value); setVisible(PAGE_SIZE); }}
           />
-          <label className="t-subhead t-secondary">
+          <span className="t-subhead t-secondary projects__sort">
             Sort ·{" "}
-            <select
-              className="field-row__select"
+            <Dropdown
               value={sort}
-              onChange={(e) => setSort(e.target.value as Sort)}
-              aria-label="Sort projects"
-            >
-              {(Object.keys(SORT_LABEL) as Sort[]).map((key) => (
-                <option key={key} value={key}>{SORT_LABEL[key]}</option>
-              ))}
-            </select>
-          </label>
+              onChange={setSort}
+              ariaLabel="Sort projects"
+              align="end"
+              options={(Object.keys(SORT_LABEL) as Sort[]).map((key) => ({
+                value: key,
+                label: SORT_LABEL[key],
+              }))}
+            />
+          </span>
         </div>
       </div>
 

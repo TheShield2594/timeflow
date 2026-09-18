@@ -440,6 +440,77 @@ button.day-bar__seg--gap:hover { background: color-mix(in srgb, var(--warn) 30%,
 :root[data-theme="dark"] .segmented__item--on { box-shadow: 0 1px 2px rgba(0,0,0,.34); }
 
 /* =====================================================================
+   PRIMITIVES · DROPDOWN
+
+   The alternative to the segmented control, for the choices not worth
+   showing at rest. The trigger reads as text (inline) or as a chip the
+   size of its neighbour; the menu floats and is dismissible, so it earns
+   a material and a hairline — the same way a sheet does — and never a
+   drop shadow.
+   ===================================================================== */
+.dropdown { position: relative; display: inline-flex; }
+.dropdown__trigger {
+  display: inline-flex; align-items: center; gap: 6px;
+  font: inherit; color: var(--label);
+  background: transparent; border: 0; cursor: pointer;
+}
+.dropdown__trigger--empty { color: var(--label-secondary); }
+.dropdown__value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dropdown__chev {
+  flex: none; width: 16px; height: 16px; color: var(--label-secondary);
+  transition: transform 160ms ease-out;
+}
+.dropdown[data-open="true"] .dropdown__chev { transform: rotate(180deg); }
+
+/* Inline: mirrors the plain-select shape it replaces in a line of text. */
+.dropdown__trigger--inline {
+  height: 34px; min-height: 34px; padding: 0 4px 0 8px;
+  border-radius: var(--radius-control); font-size: 17px;
+}
+.dropdown__trigger--inline:hover { background: color-mix(in srgb, var(--label) 4%, transparent); }
+
+/* Chip: a standalone control, sized to sit beside the timer's project name. */
+.dropdown__trigger--chip {
+  gap: 10px; height: 44px; padding: 0 12px 0 14px;
+  border-radius: var(--radius-block); font-size: 17px;
+  background: var(--surface); box-shadow: inset 0 0 0 1px var(--separator);
+}
+
+.dropdown__menu {
+  position: absolute; z-index: 30; margin: 0; padding: 4px; list-style: none;
+  min-width: 100%; width: max-content; max-width: 280px;
+  max-height: min(320px, 60vh); overflow-y: auto;
+  border-radius: var(--radius-card);
+  background: var(--material);
+  backdrop-filter: blur(24px) saturate(1.6);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  box-shadow: inset 0 0 0 1px var(--separator);
+  animation: dropdown-in 140ms ease-out;
+}
+/* Focus sits on the menu while it is open, but the highlight the reader
+   follows is drawn on the active option, so the container takes no ring. */
+.dropdown__menu:focus, .dropdown__menu:focus-visible { outline: none; }
+.dropdown__menu--down { top: calc(100% + 6px); }
+.dropdown__menu--up { bottom: calc(100% + 6px); }
+.dropdown__menu--start { left: 0; }
+.dropdown__menu--end { right: 0; }
+@keyframes dropdown-in {
+  from { opacity: 0; transform: scale(0.98); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.dropdown__option {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 36px; padding: 6px 10px; border-radius: var(--radius-control);
+  font-size: 15px; color: var(--label); cursor: pointer;
+}
+.dropdown__option--active { background: color-mix(in srgb, var(--label) 6%, transparent); }
+.dropdown__option-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dropdown__check { flex: none; width: 15px; height: 15px; color: var(--accent); }
+
+/* The two inline filters that sit after a word of label. */
+.projects__sort, .team__rounding { display: inline-flex; align-items: center; }
+
+/* =====================================================================
    PRIMITIVES · SEARCH FIELD + PLAIN INPUTS
    ===================================================================== */
 .search, .input {
@@ -692,17 +763,6 @@ input.timer-hero__desc::placeholder { color: var(--label-secondary); }
    sits next to. Start is never disabled — with nothing picked it focuses
    this chip and flashes the hint instead. */
 .timer-hero__idle-row { display: flex; align-items: center; gap: 24px; margin-top: 22px; flex-wrap: wrap; }
-.timer-hero__project {
-  display: flex; align-items: center; gap: 10px;
-  height: 44px; padding: 0 16px 0 14px; border-radius: var(--radius-block);
-  background: var(--surface); box-shadow: inset 0 0 0 1px var(--separator);
-  font-size: 17px; color: var(--label); position: relative;
-}
-.timer-hero__project--empty { color: var(--label-secondary); }
-.timer-hero__project-select {
-  position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer;
-}
-.timer-hero__chev { font-size: 13px; color: var(--label-secondary); margin-left: 4px; }
 .timer-hero__desc-input {
   flex: 1; min-width: 200px; max-width: 420px; height: 44px; padding: 0;
   background: transparent; border: 0; font-size: 17px; color: var(--label);
