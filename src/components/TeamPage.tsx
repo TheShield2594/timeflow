@@ -7,6 +7,7 @@ import { addDaysStr, localDateStr, weekStartStr } from "../utils/dates";
 import { rangeLabel } from "../utils/ranges";
 import { exportToCSV, ROUNDING_LABELS, type RoundingRule } from "../services/csvExport";
 import { SegmentedControl } from "./SegmentedControl";
+import { Dropdown } from "./Dropdown";
 import { FloatingActionBar } from "./FloatingActionBar";
 import { Pill } from "./Pill";
 
@@ -279,19 +280,19 @@ export const TeamPage: React.FC<Props> = ({ teamContext }) => {
 
       <FloatingActionBar
         hint={
-          <label>
+          <span className="team__rounding">
             Rounding ·{" "}
-            <select
-              className="field-row__select"
+            <Dropdown
               value={rounding}
-              onChange={(e) => setRoundingRule(e.target.value as RoundingRule)}
-              aria-label="Rounding applied to exported durations"
-            >
-              {(Object.keys(ROUNDING_LABELS) as RoundingRule[]).map((rule) => (
-                <option key={rule} value={rule}>{ROUNDING_LABELS[rule].toLowerCase()}</option>
-              ))}
-            </select>
-          </label>
+              onChange={setRoundingRule}
+              ariaLabel="Rounding applied to exported durations"
+              direction="up"
+              options={(Object.keys(ROUNDING_LABELS) as RoundingRule[]).map((rule) => ({
+                value: rule,
+                label: ROUNDING_LABELS[rule].toLowerCase(),
+              }))}
+            />
+          </span>
         }
       >
         <Pill tone="primary" onClick={handleExport} disabled={exportEntries.length === 0}>Export CSV</Pill>

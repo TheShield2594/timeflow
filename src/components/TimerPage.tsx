@@ -13,6 +13,7 @@ import { findUntrackedGaps } from "../utils/gaps";
 import { DEFAULT_PROJECT_COLOR } from "../utils/colors";
 import { indexById } from "../utils/entityIndex";
 import { DayBar } from "./DayBar";
+import { Dropdown } from "./Dropdown";
 import { ListCard, ListRow } from "./ListCard";
 import { WeekRail } from "./WeekRail";
 import { Pill } from "./Pill";
@@ -127,7 +128,7 @@ export const TimerPage: React.FC<Props> = ({
     : running;
   const [sheet, setSheet] = useState<EntryDraft | null>(null);
   const [needsProject, setNeedsProject] = useState(false);
-  const projectRef = useRef<HTMLSelectElement>(null);
+  const projectRef = useRef<HTMLButtonElement>(null);
 
   const weekStart = weekStartStr(today);
   useRangeRequest("timer", weekStart, addDaysStr(weekStart, 6));
@@ -258,27 +259,23 @@ export const TimerPage: React.FC<Props> = ({
               </>
             ) : (
               <div className="timer-hero__idle-row">
-                <span className={`timer-hero__project${draft.projectId ? "" : " timer-hero__project--empty"}`}>
-                  <span className="dot" style={{ "--pc": activeProject?.color || DEFAULT_PROJECT_COLOR } as React.CSSProperties} />
-                  {activeProject?.name ?? "Pick a project"}
-                  <span className="timer-hero__chev" aria-hidden="true">▾</span>
-                  <select
-                    ref={projectRef}
-                    className="timer-hero__project-select"
-                    aria-label="Project"
-                    value={draft.projectId}
-                    onChange={(e) => {
-                      onDraftChange({ projectId: e.target.value });
-                      setNeedsProject(false);
-                      if (e.target.value) loadTasksForProject(e.target.value);
-                    }}
-                  >
-                    <option value="">Pick a project</option>
-                    {projects.filter((p) => p.isActive).map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
-                </span>
+                <Dropdown
+                  ref={projectRef}
+                  variant="chip"
+                  ariaLabel="Project"
+                  placeholder="Pick a project"
+                  value={draft.projectId}
+                  onChange={(projectId) => {
+                    onDraftChange({ projectId });
+                    setNeedsProject(false);
+                    if (projectId) loadTasksForProject(projectId);
+                  }}
+                  options={projects.filter((p) => p.isActive).map((p) => ({
+                    value: p.id,
+                    label: p.name,
+                    color: p.color || DEFAULT_PROJECT_COLOR,
+                  }))}
+                />
                 <input
                   className="timer-hero__desc-input"
                   placeholder="What are you working on?"
