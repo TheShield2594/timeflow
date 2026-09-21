@@ -103,6 +103,16 @@
   --pc-lift:      0%;
   --pc-lift-with: #FFFFFF;
 
+  /* The toast is dark in both themes, so it can't borrow the theme's accent:
+     light's #5A7800 sits at about 2.3:1 on it, which made Undo, the one
+     thing a toast asks you to press, the least readable text on screen.
+     These are the dark theme's values, fixed, and the dark block doesn't
+     redefine them. --toast-bg is the fill before its 10% show-through. */
+  --toast-bg:     #1E221C;
+  --on-toast:     #EFF2EA;
+  --toast-accent: #A9CB4B;
+  --toast-warn:   #F0B34A;
+
   --font: "Instrument Sans", system-ui, -apple-system, sans-serif;
 
   --sidebar-w:      232px;
@@ -185,6 +195,24 @@ ul, ol { padding: 0; list-style: none; }
    target smaller than a finger; it is only a reason to make it precise. */
 button, [role="button"], a { min-height: 44px; }
 button.is-inline, .is-inline { min-height: 0; }
+
+/* The controls drawn smaller than that (row pills at 34, segments at 26, the
+   calendar's chips at 30) keep the drawing and get the 44 as an invisible
+   band above and below. The comment on .pill--row always promised "44 to the
+   pointer, 34 to the eye"; its own min-height made it 34 to both. The band is
+   vertical only, so neighbours in a row never trade clicks. */
+.pill--row, .pill--inline, .pill--tiny, .segmented__item, .dropdown__trigger--inline,
+.field-row__action, .sidebar__setting, .week-rail__set-target, .toast__action,
+.cal-nav-btn, .cal-outlook-toggle, .cal-day-log-all, .projects__task-remove, .swatch {
+  position: relative;
+}
+.pill--row::after, .pill--inline::after, .pill--tiny::after, .segmented__item::after,
+.dropdown__trigger--inline::after, .field-row__action::after, .sidebar__setting::after,
+.week-rail__set-target::after, .toast__action::after, .cal-nav-btn::after,
+.cal-outlook-toggle::after, .cal-day-log-all::after, .projects__task-remove::after, .swatch::after {
+  content: ""; position: absolute; left: 0; right: 0; top: 50%;
+  height: 44px; transform: translateY(-50%);
+}
 
 :focus-visible {
   outline: 2px solid var(--accent);
@@ -854,10 +882,10 @@ input.timer-hero__desc::placeholder { color: var(--label-secondary); }
 .toast {
   display: flex; align-items: center; gap: 12px;
   height: 52px; padding: 0 20px; border-radius: var(--radius-card);
-  background: rgba(30,34,28,.90);
+  background: color-mix(in srgb, var(--toast-bg) 90%, transparent);
   backdrop-filter: blur(24px) saturate(1.6);
   -webkit-backdrop-filter: blur(24px) saturate(1.6);
-  color: #EFF2EA; font-size: 16px;
+  color: var(--on-toast); font-size: 16px;
   pointer-events: auto;
   opacity: 0; transform: translateY(6px);
   transition: opacity 200ms ease-out, transform 200ms ease-out;
@@ -865,9 +893,9 @@ input.timer-hero__desc::placeholder { color: var(--label-secondary); }
 .toast--shown { opacity: 1; transform: translateY(0); }
 .toast-region { display: flex; flex-direction: column; gap: 8px; align-items: center; }
 .toast__message { flex: 1; }
-.toast__dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
-.toast__dot--warn { background: var(--warn); }
-.toast__action { font-size: 16px; font-weight: 600; color: var(--accent); min-height: 32px; }
+.toast__dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--toast-accent); }
+.toast__dot--warn { background: var(--toast-warn); }
+.toast__action { font-size: 16px; font-weight: 600; color: var(--toast-accent); min-height: 32px; }
 
 /* =====================================================================
    TIMESHEET

@@ -136,7 +136,10 @@ const CalendarEntryBlock = React.memo<EntryBlockProps>(({
         height: `${height}px`,
         left: `calc(${col * widthPct}% + 2px)`,
         width: `calc(${widthPct}% - 4px)`,
-        borderLeft: `3px solid ${color}`,
+        // No inline border: `.cal-entry` draws the left edge from --pc through
+        // the dark-theme lift. An inline `3px solid ${color}` here used to beat
+        // that rule on specificity and put the raw navy back on a near-black
+        // card, the exact case the comment below exists for.
         // Project accent colors include dark swatches (navy, forest) picked to
         // read fine on light theme's white cards; on dark theme's near-black
         // cards that same dark hex is barely distinguishable from the
@@ -854,13 +857,21 @@ export const CalendarPage: React.FC<Props> = ({ workingHours }) => {
                 Outlook off
               </button>
             ) : outlook.status === "unavailable" ? (
-              <button
-                className="cal-outlook-toggle cal-outlook-toggle--warn"
-                onClick={outlook.cycleMode}
-                title="The Office 365 Outlook connector isn't set up for this app yet — an admin needs to add it (see the README's Outlook calendar section)."
-              >
-                Outlook not connected
-              </button>
+              <>
+                <button
+                  className="cal-outlook-toggle cal-outlook-toggle--warn"
+                  onClick={outlook.cycleMode}
+                  title="The Office 365 Outlook connector isn't set up for this app yet — an admin needs to add it (see the README's Outlook calendar section)."
+                  aria-describedby="outlook-unavailable-why"
+                >
+                  Outlook not connected
+                </button>
+                {/* The title is mouse-only; this is the same sentence for
+                    everyone else. */}
+                <span id="outlook-unavailable-why" className="visually-hidden">
+                  The Outlook connector isn&rsquo;t set up for this app yet. An admin needs to add it.
+                </span>
+              </>
             ) : (
               <>
                 <button className="cal-outlook-toggle cal-outlook-toggle--active" onClick={outlook.cycleMode}>

@@ -63,7 +63,7 @@ function renderPage(entries: TimeEntry[], opts: { from?: string; to?: string } =
     <TimesheetPage workingHours={TEST_WORKING_HOURS} />,
     { entries, projects },
   );
-  fireEvent.click(screen.getByRole("tab", { name: "Custom" }));
+  fireEvent.click(screen.getByRole("radio", { name: "Custom" }));
   fireEvent.change(screen.getByLabelText("From"), { target: { value: opts.from ?? daysAgo(40) } });
   fireEvent.change(screen.getByLabelText("To"), { target: { value: opts.to ?? today } });
   return result;

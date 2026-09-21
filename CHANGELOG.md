@@ -39,6 +39,23 @@ against user-visible behaviour, as described in
 - Esc on a stop sheet holding a correction no longer closes it with a "Saved"
   toast while dropping the correction. Esc in the new-task field backs out of
   the field without closing the sheet.
+- Undo on a toast is readable in light mode. The toast is dark in both themes
+  but borrowed the light accent, which sat at about 2.3:1 on it. It now has
+  its own tokens (`--toast-accent`, `--on-toast`, `--toast-warn`), and the
+  contrast test covers them.
+- After a delete, keyboard focus lands on the toast's Undo instead of being
+  lost with the deleted row. A toast never takes focus from anywhere real.
+  The toast names the entry it deleted.
+- Segmented controls are announced as radio groups and move with the arrow
+  keys. They said `tablist`, which promised a keyboard pattern they didn't
+  have.
+- Controls drawn under 44px (row pills, segments, the calendar's chips,
+  swatches, the task delete) get a 44px hit band above and below, with no
+  visual change.
+- Team rows list each day's hours for screen readers; they were only in a
+  `title=`. The week rail's list reads "Tuesday" and "Thursday" rather than
+  "T" twice. Swatches are announced by palette name, not hex. "Outlook not
+  connected" carries its explanation for keyboard and screen-reader users.
 - The failed-save toast names the button that retries ("Retry save") rather
   than "Stop". The Timesheet header reads "6h this week" or a date span, not
   "6h in custom".

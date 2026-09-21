@@ -16,18 +16,18 @@ import { Pill } from "./Pill";
  * dot or a calendar block, so the picker excludes hues already taken: two
  * projects sharing one makes every one of those marks ambiguous.
  */
-const PALETTE = [
-  "#719500", // green
-  "#358450", // grass
-  "#225433", // forest
-  "#B5BF00", // lime
-  "#0080BD", // blue
-  "#4DC5E2", // robin
-  "#00739F", // royal
-  "#003346", // navy
-  "#CC4F00", // pumpkin
-  "#F3AE00", // lemon
-  "#4B5457", // charcoal
+const PALETTE: { hex: string; name: string }[] = [
+  { hex: "#719500", name: "Green" },
+  { hex: "#358450", name: "Grass" },
+  { hex: "#225433", name: "Forest" },
+  { hex: "#B5BF00", name: "Lime" },
+  { hex: "#0080BD", name: "Blue" },
+  { hex: "#4DC5E2", name: "Robin" },
+  { hex: "#00739F", name: "Royal" },
+  { hex: "#003346", name: "Navy" },
+  { hex: "#CC4F00", name: "Pumpkin" },
+  { hex: "#F3AE00", name: "Lemon" },
+  { hex: "#4B5457", name: "Charcoal" },
 ];
 
 const PAGE_SIZE = 5;
@@ -48,7 +48,7 @@ interface FormDraft {
 }
 
 function emptyDraft(taken: Set<string>): FormDraft {
-  const free = PALETTE.find((c) => !taken.has(c.toLowerCase())) ?? DEFAULT_PROJECT_COLOR;
+  const free = PALETTE.find((c) => !taken.has(c.hex.toLowerCase()))?.hex ?? DEFAULT_PROJECT_COLOR;
   return { editingId: null, name: "", description: "", color: free, ratio: "", jiraTicket: "" };
 }
 
@@ -451,7 +451,7 @@ export const ProjectsPage: React.FC = () => {
           <div className="sheet__section">
             <div className="t-group-label t-secondary" style={{ marginBottom: 10 }}>Colour</div>
             <div className="swatches">
-              {PALETTE.map((colour) => {
+              {PALETTE.map(({ hex: colour, name }) => {
                 const taken = takenColors.has(colour.toLowerCase()) && colour !== draft.color;
                 return (
                   <button
@@ -461,7 +461,9 @@ export const ProjectsPage: React.FC = () => {
                     style={{ "--pc": colour } as React.CSSProperties}
                     disabled={taken}
                     onClick={() => setDraft({ ...draft, color: colour })}
-                    aria-label={taken ? `${colour}, already used by another project` : colour}
+                    /* The palette's own names, not the hex: "#003346" is
+                       nothing a screen-reader user can pick between. */
+                    aria-label={taken ? `${name}, already used by another project` : name}
                     aria-pressed={draft.color === colour}
                   />
                 );

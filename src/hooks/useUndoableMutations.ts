@@ -50,7 +50,10 @@ export function useUndoableMutations({
     }
     if (snapshot) {
       const { id: _omit, userId: _u, userDisplayName: _n, ...data } = snapshot;
-      toast("Entry deleted.", "info", {
+      // Named, so the toast says which entry the Undo would bring back.
+      const what = snapshot.description?.trim();
+      const named = what ? `“${what.length > 40 ? `${what.slice(0, 39)}…` : what}”` : "the entry";
+      toast(`Deleted ${named}.`, "info", {
         label: "Undo",
         onAction: () => { createEntry(data).catch(() => { /* toasted by hook */ }); },
       });

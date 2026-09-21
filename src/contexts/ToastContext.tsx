@@ -110,8 +110,18 @@ const ToastItem: React.FC<{ toast: Toast; onDismiss: () => void }> = ({ toast, o
   const remainingRef = useRef(toast.action ? ACTION_TOAST_TTL_MS : TOAST_TTL_MS);
   const resumedAtRef = useRef(0);
 
+  const actionRef = useRef<HTMLButtonElement>(null);
+
   useEffect(() => {
-    const id = requestAnimationFrame(() => setShown(true));
+    const id = requestAnimationFrame(() => {
+      setShown(true);
+      // A delete removes the row that had focus, so the keyboard user lands on
+      // <body> with an 8-second Undo they can no longer Tab to in time. When
+      // focus has nowhere else to be, it goes to the Undo. Anyone whose focus
+      // is still somewhere real keeps it; a toast never steals focus.
+      const lost = !document.activeElement || document.activeElement === document.body;
+      if (lost) actionRef.current?.focus();
+    });
     return () => cancelAnimationFrame(id);
   }, []);
 
@@ -153,7 +163,7 @@ const ToastItem: React.FC<{ toast: Toast; onDismiss: () => void }> = ({ toast, o
       )}
       <span className="toast__message">{toast.message}</span>
       {toast.action && (
-        <button className="toast__action" onClick={handleAction}>
+        <button ref={actionRef} className="toast__action" onClick={handleAction}>
           {toast.action.label}
         </button>
       )}

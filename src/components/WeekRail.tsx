@@ -9,6 +9,9 @@ const RADIUS = 58;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 const DAY_INITIALS = ["M", "T", "W", "T", "F", "S", "S"];
+// The screen-reader list reads these, not the initials: "T: 2h" twice is two
+// different days nobody listening can tell apart.
+const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 /** A week has 168 of them; the input says so and the commit path agrees. */
 const MAX_TARGET_HOURS = 168;
@@ -118,7 +121,7 @@ export const WeekRail: React.FC<Props> = ({ dailyMinutes, weekMinutes, targetHou
       </div>
       <ul className="visually-hidden">
         {dailyMinutes.map((minutes, i) => (
-          <li key={i}>{DAY_INITIALS[i]}: {formatMinutes(minutes)}</li>
+          <li key={i}>{DAY_NAMES[i]}: {formatMinutes(minutes)}</li>
         ))}
       </ul>
     </div>
