@@ -580,6 +580,14 @@ button.day-bar__seg--gap:hover { background: color-mix(in srgb, var(--warn) 30%,
   display: flex; align-items: center; gap: 10px;
   font-size: 14px; color: var(--label-secondary); min-width: 0;
 }
+/* A select inside the hint reads as part of its sentence ("Rounding · round
+   up to 15 min"), not as a field-list value: same size as the words around
+   it, left-aligned so the value sits against its label instead of floating
+   off to the right of an empty gap. */
+.action-bar__hint .field-row__select {
+  font-size: 14px; color: var(--label);
+  text-align: left; text-align-last: left;
+}
 .action-bar__swatch {
   display: inline-block; width: 22px; height: 12px; border-radius: 3px;
   background: repeating-linear-gradient(135deg, var(--decor) 0 3px, transparent 3px 6px);
