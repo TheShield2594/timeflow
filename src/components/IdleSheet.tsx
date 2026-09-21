@@ -64,7 +64,7 @@ export const IdleSheet: React.FC<Props> = ({ lastActiveAt, startTime, onTrim, on
   ];
 
   return (
-    <Sheet label="The timer kept running while you were away" onClose={onKeep} narrow>
+    <Sheet label="The timer kept running while you were away" onClose={onKeep} requireChoice narrow>
       <h2 className="t-title1">You stopped moving at {clockAt(lastMin)}</h2>
       <p className="sheet__meta t-body t-prose">
         The timer kept running for {formatMinutes(idleMinutes)} after that. Only you know whether that was work.

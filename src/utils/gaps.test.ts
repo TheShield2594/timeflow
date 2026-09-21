@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   findUntrackedGaps, coveredSpans, WORK_DAY_START_MIN, WORK_DAY_END_MIN,
-  GAP_MUST_EXCEED_MINUTES,
+  GAP_MUST_EXCEED_MINUTES, missedWorkdayGap,
 } from "./gaps";
 import type { TimeEntry } from "../types";
 
@@ -196,5 +196,32 @@ describe("zero-length entries", () => {
       upperBoundMin: NOON,
     });
     expect(asClock(gaps)).toEqual(["08:00-12:00"]);
+  });
+});
+
+describe("missedWorkdayGap", () => {
+  // 2026-07-29 is a Wednesday; 2026-08-01 a Saturday.
+  const WED = "2026-07-29";
+
+  it("offers a past weekday's whole working window", () => {
+    expect(missedWorkdayGap({ date: WED, today: "2026-07-31", nowMinutes: 600 }))
+      .toEqual({ startMin: WORK_DAY_START_MIN, endMin: WORK_DAY_END_MIN });
+  });
+
+  it("stays silent on weekends and on days that haven't happened", () => {
+    expect(missedWorkdayGap({ date: "2026-08-01", today: "2026-08-03", nowMinutes: 600 })).toBeNull();
+    expect(missedWorkdayGap({ date: "2026-08-02", today: "2026-08-03", nowMinutes: 600 })).toBeNull();
+    expect(missedWorkdayGap({ date: "2026-07-30", today: WED, nowMinutes: 600 })).toBeNull();
+  });
+
+  it("caps today at now, and says nothing before the day has started", () => {
+    expect(missedWorkdayGap({ date: WED, today: WED, nowMinutes: 11 * 60 }))
+      .toEqual({ startMin: WORK_DAY_START_MIN, endMin: 11 * 60 });
+    expect(missedWorkdayGap({ date: WED, today: WED, nowMinutes: WORK_DAY_START_MIN + 10 })).toBeNull();
+  });
+
+  it("follows the user's own working hours", () => {
+    expect(missedWorkdayGap({ date: WED, today: "2026-07-31", nowMinutes: 0, workDayStartMin: 6 * 60, workDayEndMin: 14 * 60 }))
+      .toEqual({ startMin: 6 * 60, endMin: 14 * 60 });
   });
 });

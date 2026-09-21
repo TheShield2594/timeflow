@@ -23,6 +23,25 @@ against user-visible behaviour, as described in
 
 ### Fixed
 
+- The entry sheet no longer claims the ratio and Jira ticket are "inherited"
+  from the project. Nothing ever copied them in, so entries exported with
+  blank billing columns under a note saying otherwise. The note now asks for
+  them per entry.
+- The Timesheet's Export CSV bills under the same rounding rule as Reports,
+  and shows the rule beside the button. It used to export exact minutes while
+  Reports rounded, so one range could come out as two different totals.
+- The Timesheet lists a weekday with nothing logged as one full working-day
+  gap with **Fill it**, once the range has anything in it. A forgotten day
+  used to be the one day the page didn't show.
+- The idle prompt and the 12h auto-stop sheet can only be closed by one of
+  their own answers. Esc or a stray click on the backdrop used to answer
+  "Keep all of it" and "It was right".
+- Esc on a stop sheet holding a correction no longer closes it with a "Saved"
+  toast while dropping the correction. Esc in the new-task field backs out of
+  the field without closing the sheet.
+- The failed-save toast names the button that retries ("Retry save") rather
+  than "Stop". The Timesheet header reads "6h this week" or a date span, not
+  "6h in custom".
 - Every duration in a grouped list sits on the same right edge again. The
   separator between rows is inset to the text origin, and it got there by
   insetting the row — but the row is also `width: 100%`, so the margin made it

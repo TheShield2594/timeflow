@@ -8,17 +8,27 @@ import { useEntriesOnDate } from "../hooks/useEntriesOnDate";
 import type { WorkingHours } from "../hooks/useWorkingHours";
 import { MINUTES_PER_DAY, addDaysStr, clockAt, friendlyDate, minutesOfDay } from "../utils/dates";
 import { byId, indexById } from "../utils/entityIndex";
-import { findUntrackedGaps, type Gap } from "../utils/gaps";
-import { RANGE_LABEL, resolveRange, type RangePreset, type RangeState } from "../utils/ranges";
+import { findUntrackedGaps, missedWorkdayGap, type Gap } from "../utils/gaps";
+import { RANGE_LABEL, rangeLabel, resolveRange, type RangePreset, type RangeState } from "../utils/ranges";
 import { buildExportFilename, exportToCSV } from "../services/csvExport";
+import { useExportRounding } from "../hooks/useExportRounding";
 import { EntrySheet, draftForEntry, draftForSpan, type EntryDraft } from "./EntrySheet";
 import { ListCard, ListRow } from "./ListCard";
+import { RoundingSelect } from "./RoundingSelect";
 import { SegmentedControl } from "./SegmentedControl";
 import { FloatingActionBar } from "./FloatingActionBar";
 import { Pill } from "./Pill";
 
 const PRESETS: RangePreset[] = ["thisWeek", "lastWeek", "month", "custom"];
 const INITIAL_VISIBLE_DAYS = 30;
+
+/** What the header total is a total *of* — "6h this week", never "6h in custom". */
+function totalPhrase(preset: RangePreset, from: string, to: string): string {
+  if (preset === "thisWeek") return "this week";
+  if (preset === "lastWeek") return "last week";
+  if (preset === "month") return "this month";
+  return from === to ? `on ${rangeLabel(from, to)}` : rangeLabel(from, to);
+}
 
 /**
  * Minutes since local midnight, re-read once a minute.
@@ -66,7 +76,7 @@ type Row =
  * at the same weight as the work either side.
  */
 export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects }) => {
-  const { entries, projects, tasks, deleteEntry, editEntry, createEntry, loadTasksForProject, addTask } = useData();
+  const { entries, projects, tasks, rangeLoading, deleteEntry, editEntry, createEntry, loadTasksForProject, addTask } = useData();
   const entriesOnDate = useEntriesOnDate();
   const today = useToday();
   const [sheet, setSheet] = useState<SheetState | null>(null);
@@ -115,6 +125,32 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
       if (!byDate.has(entry.date)) byDate.set(entry.date, []);
       byDate.get(entry.date)!.push(entry);
     }
+    // A weekday with nothing logged gets a group too, so the day you forgot is
+    // on the page you reconcile the week on. Not while a search is narrowing
+    // the list (an unmatched day isn't an empty one), not while the range is
+    // still loading (every day would look empty for a moment), and not on a
+    // range with nothing in it at all: the empty state already says that, and
+    // names the last entry, which a column of blank days wouldn't.
+    const missed = new Map<string, Gap>();
+    if (search.trim() === "" && !rangeLoading && byDate.size > 0) {
+      for (let date = to < today ? to : today; date >= from; date = addDaysStr(date, -1)) {
+        if (allByDate.has(date)) continue;
+        const gap = missedWorkdayGap({
+          date,
+          today,
+          nowMinutes,
+          workDayStartMin: workingHours.startMin,
+          workDayEndMin: workingHours.endMin,
+          gapMustExceedMinutes: workingHours.gapMustExceedMinutes,
+        });
+        if (gap) missed.set(date, gap);
+      }
+    }
+    const missedDays = [...missed.entries()].map(([date, gap]) => ({
+      date,
+      rows: [{ kind: "gap" as const, at: gap.startMin, gap }] as Row[],
+      total: 0,
+    }));
     return [...byDate.entries()]
       .sort((a, b) => b[0].localeCompare(a[0]))
       .map(([date, dayEntries]) => {
@@ -149,8 +185,10 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
           rows,
           total: dayEntries.reduce((sum, e) => sum + (e.durationMinutes || 0), 0),
         };
-      });
-  }, [filtered, allByDate, search, today, nowMinutes, workingHours]);
+      })
+      .concat(missedDays)
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [filtered, allByDate, search, today, nowMinutes, workingHours, from, to, rangeLoading]);
 
   const visible = days.slice(0, visibleDays);
   const hidden = days.length - visible.length;
@@ -167,14 +205,15 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
     [entries]
   );
 
-  const handleExport = () => exportToCSV(filtered, projects, tasks, buildExportFilename(from, to));
+  const [rounding, setRounding] = useExportRounding();
+  const handleExport = () => exportToCSV(filtered, projects, tasks, buildExportFilename(from, to), rounding);
 
   return (
     <>
       <div className="page__head">
         <h1 className="page__title t-large-title">Timesheet</h1>
         <span className="t-subhead t-secondary">
-          {formatMinutes(totalMinutes)} in {RANGE_LABEL[range.preset].toLowerCase()}
+          {formatMinutes(totalMinutes)} {totalPhrase(range.preset, from, to)}
         </span>
       </div>
 
@@ -295,7 +334,14 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
         </>
       )}
 
-      <FloatingActionBar hint={`Export the visible range as CSV — ${filtered.length} ${filtered.length === 1 ? "entry" : "entries"}.`}>
+      <FloatingActionBar
+        hint={
+          <>
+            <span>{filtered.length} {filtered.length === 1 ? "entry" : "entries"} ·</span>
+            <RoundingSelect value={rounding} onChange={setRounding} />
+          </>
+        }
+      >
         <div style={{ display: "flex", gap: 12 }}>
           <Pill onClick={handleExport} disabled={filtered.length === 0}>Export CSV</Pill>
           <Pill tone="primary" onClick={() => setSheet({ mode: "create", draft: defaultDraft(today, workingHours) })}>

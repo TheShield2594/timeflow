@@ -48,7 +48,7 @@ re-adding one is a decision rather than an oversight:
 | **Activity heatmap** | Twelve weeks of 3px squares is not a readable shape, and it answered a question nobody asked. |
 | **Day-streak KPI** | Gamified compliance in a billing app. |
 | **The KPI strips** | Today, This week and the target ring said the same thing three ways. One ring and one sentence replace them. |
-| **Ratio + ticket in the timer bar** | Optional on most entries; they live on the stop sheet, inherited from the project. |
+| **Ratio + ticket in the timer bar** | Optional on most entries; they live on the stop sheet and entry sheet, entered per entry (the project's own values are not copied in). |
 | **Inline "+ New task…" before starting** | Naming work before doing it produces bad names. Task creation moved to the stop sheet. |
 
 ---

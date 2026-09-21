@@ -320,7 +320,7 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       onStop(entry);
       return entry;
     } catch (err) {
-      toast("Failed to save entry. Press Stop to retry.", "error");
+      toast("Couldn’t save the entry. Your time is kept — press Retry save.", "error");
       throw err;
     }
   }, [onStop, persistTimer, applyTimer, toast]);

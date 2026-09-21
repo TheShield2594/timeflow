@@ -18,7 +18,7 @@ interface Props {
  * and it does not call itself a safety net.
  */
 export const AutoStopSheet: React.FC<Props> = ({ projectName, onFix, onAccept }) => (
-  <Sheet label="Timer stopped after 12 hours" onClose={onAccept} narrow>
+  <Sheet label="Timer stopped after 12 hours" onClose={onAccept} requireChoice narrow>
     <h2 className="t-title1">Stopped after 12 hours</h2>
     <p className="sheet__meta t-body t-prose">
       A timer this long is almost always one somebody forgot. It was saved at 12h 00m

@@ -11,8 +11,10 @@ import {
 } from "../utils/reportAggregations";
 import { previousPeriod, RANGE_LABEL, rangeLabel, resolveRange, type RangePreset, type RangeState } from "../utils/ranges";
 import { DEFAULT_PROJECT_COLOR } from "../utils/colors";
-import { buildExportFilename, exportToCSV, ROUNDING_LABELS, type RoundingRule } from "../services/csvExport";
+import { buildExportFilename, exportToCSV } from "../services/csvExport";
+import { useExportRounding } from "../hooks/useExportRounding";
 import { ListCard, ListRow } from "./ListCard";
+import { RoundingSelect } from "./RoundingSelect";
 import { SegmentedControl } from "./SegmentedControl";
 import { FloatingActionBar } from "./FloatingActionBar";
 import { Pill } from "./Pill";
@@ -27,17 +29,6 @@ const PERIOD_NOUN: Record<RangePreset, string> = {
   quarter: "A quarter",
   custom: "A range",
 };
-
-// The rounding choice is a device preference, not data — persist locally.
-const ROUNDING_STORAGE_KEY = "tt_export_rounding";
-
-function readStoredRounding(): RoundingRule {
-  try {
-    const v = localStorage.getItem(ROUNDING_STORAGE_KEY);
-    if (v && v in ROUNDING_LABELS) return v as RoundingRule;
-  } catch { /* default below */ }
-  return "exact";
-}
 
 function shortLabel(key: string, bucket: Bucket): string {
   const date = new Date((bucket === "month" ? `${key}-01` : key) + "T00:00:00");
@@ -58,7 +49,7 @@ export const ReportsPage: React.FC = () => {
   const { entries, projects, tasks } = useData();
   const today = useToday();
   const [range, setRange] = useState<RangeState>({ preset: "lastWeek", customFrom: "", customTo: "" });
-  const [rounding, setRounding] = useState<RoundingRule>(readStoredRounding);
+  const [rounding, setRounding] = useExportRounding();
 
   const { from, to } = useMemo(() => resolveRange(range, today), [range, today]);
   const prior = useMemo(() => previousPeriod(from, to), [from, to]);
@@ -96,11 +87,6 @@ export const ReportsPage: React.FC = () => {
     () => buildTaskBreakdown(filtered, tasks, projects, 6),
     [filtered, tasks, projects]
   );
-
-  const handleRounding = (rule: RoundingRule) => {
-    setRounding(rule);
-    try { localStorage.setItem(ROUNDING_STORAGE_KEY, rule); } catch { /* preference only */ }
-  };
 
   const isEmpty = filtered.length === 0;
   const trackedDays = countActiveDays(filtered);
@@ -263,21 +249,7 @@ export const ReportsPage: React.FC = () => {
       )}
 
       <FloatingActionBar
-        hint={
-          <label>
-            Rounding ·{" "}
-            <select
-              className="field-row__select"
-              value={rounding}
-              onChange={(e) => handleRounding(e.target.value as RoundingRule)}
-              aria-label="Rounding applied to exported durations"
-            >
-              {(Object.keys(ROUNDING_LABELS) as RoundingRule[]).map((rule) => (
-                <option key={rule} value={rule}>{ROUNDING_LABELS[rule].toLowerCase()}</option>
-              ))}
-            </select>
-          </label>
-        }
+        hint={<RoundingSelect value={rounding} onChange={setRounding} />}
       >
         <Pill
           tone="primary"

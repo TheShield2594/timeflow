@@ -384,3 +384,33 @@ describe("EntrySheet dismissal", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("EntrySheet dismissal", () => {
+  it("won't let Esc drop a correction on the stop sheet", () => {
+    // Closing the stop sheet reports "Saved …"; with an edit in it, that toast
+    // would be about a save that just threw the edit away.
+    const { onClose } = renderSheet({ mode: "stop", initial: draftForEntry(saved), entryId: saved.id, onDelete: vi.fn() });
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    onClose.mockClear();
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Rebuild the timer bar, properly" } });
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("keeps Esc as Cancel on the edit sheet", () => {
+    const { onClose } = renderSheet({ mode: "edit", initial: draftForEntry(saved), entryId: saved.id });
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Changed" } });
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets Esc back out of a new task name without closing the sheet", () => {
+    const { onClose } = renderSheet({ onAddTask: vi.fn() });
+    fireEvent.click(screen.getByRole("button", { name: /New task/ }));
+    fireEvent.keyDown(screen.getByLabelText("New task name"), { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("New task name")).toBeNull();
+  });
+});
