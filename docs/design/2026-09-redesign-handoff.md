@@ -419,3 +419,10 @@ the Jira ticket — the Dataverse columns, both CSV headers, the Projects list �
 and a field that answers to two names in one app is a field people fill in
 wrong. The ratio is still an account identifier and still never a multiplier
 (#71); only the words on screen changed.
+
+**The note under the stop sheet's field list no longer says "Inherited from …".**
+Nothing ever copied a project's ratio or Jira ticket into an entry: not the
+sheet, not Start, not the CSV export. So the brief's line told people their
+billing fields were filled when the export wrote them blank. The note now says
+the values are not filled in from the project and asks for them per entry.
+Prefilling them was considered and not chosen for now, so the fix is the words.

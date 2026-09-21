@@ -13,6 +13,7 @@ import { Pill } from "./Pill";
 
 const PAGE_SIZE = 9;
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+const WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
 // The rounding choice is a device preference, not data — persisted separately
 // from the personal Reports export so a manager can pick different rounding
@@ -234,6 +235,16 @@ export const TeamPage: React.FC<Props> = ({ teamContext }) => {
                   </span>
                 )}
               </span>
+              {/* The bars are a picture of the week; this is the week. A
+                  `title=` is unreachable by keyboard and by most screen
+                  readers, so the per-day numbers were mouse-only. */}
+              <ul className="visually-hidden" aria-label={`${row.name}'s week`}>
+                {weekDays.slice(0, 5).map((date, i) => (
+                  <li key={date}>
+                    {WEEKDAY_NAMES[i]}: {row.missingDays.includes(date) ? "missing" : formatMinutes(row.dayMinutes.get(date) ?? 0)}
+                  </li>
+                ))}
+              </ul>
               {weekDays.slice(0, 5).map((date, i) => {
                 const minutes = row.dayMinutes.get(date) ?? 0;
                 const missing = row.missingDays.includes(date);
@@ -243,7 +254,7 @@ export const TeamPage: React.FC<Props> = ({ teamContext }) => {
                     ? "team__bar team__bar--empty"
                     : `team__bar${date === today ? " team__bar--today" : ""}`;
                 return (
-                  <span key={date} className="team__bar-box">
+                  <span key={date} className="team__bar-box" aria-hidden="true">
                     <span
                       className={cls}
                       style={{ height: missing ? "40%" : minutes === 0 ? "9%" : `${Math.max(10, (minutes / peak) * 100)}%` }}

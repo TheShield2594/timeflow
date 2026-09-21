@@ -64,7 +64,7 @@ function renderTimer(
 }
 
 beforeEach(() => { localStorage.clear(); });
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); vi.clearAllMocks(); vi.useRealTimers(); });
 
 describe("TimerPage hero", () => {
   it("offers Start when idle and Stop while running", () => {
@@ -122,6 +122,12 @@ describe("TimerPage hero", () => {
 
 describe("TimerPage day", () => {
   it("reports what is tracked and what is still missing from the day", () => {
+    // Pinned to mid-afternoon: the day's gaps are measured up to "now", and on
+    // the real clock this failed every morning before about 10:16, when the
+    // hole after the 9–10 entry is still under the 15-minute threshold and
+    // the day has one gap, not "gaps".
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(`${today}T15:00:00`));
     renderTimer({}, { entries: [entry({ id: "a", description: "Standup" })] });
     expect(screen.getByText("1h tracked")).toBeTruthy();
     // 08:00–09:00 and 10:00 onward are untracked inside an 08:00–18:00 day.

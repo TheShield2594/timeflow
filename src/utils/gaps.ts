@@ -151,3 +151,42 @@ export function findUntrackedGaps({
     }))
     .filter((g) => g.endMin - g.startMin > gapMustExceedMinutes);
 }
+
+export interface MissedWorkdayOptions {
+  /** The local YYYY-MM-DD day to check. It must have no entries at all. */
+  date: string;
+  /** Local YYYY-MM-DD today; later days are never reported. */
+  today: string;
+  /** Minutes since midnight now, which caps today's window. */
+  nowMinutes: number;
+  workDayStartMin?: number;
+  workDayEndMin?: number;
+  gapMustExceedMinutes?: number;
+}
+
+/**
+ * The whole working window of a weekday that has no entries at all, or null.
+ *
+ * `findUntrackedGaps` stays silent on an empty day on purpose, because the
+ * day bar and the calendar show every day, including weekends and holidays.
+ * The Timesheet is where the week gets reconciled, though, and a forgotten
+ * Wednesday is the biggest hole a week can have. Leaving it out made that day
+ * vanish from the list entirely. Weekends are still skipped: there's no
+ * per-user working-days setting, and eight hatched hours on every Saturday
+ * would be the noise the rule above exists to prevent.
+ */
+export function missedWorkdayGap({
+  date,
+  today,
+  nowMinutes,
+  workDayStartMin = WORK_DAY_START_MIN,
+  workDayEndMin = WORK_DAY_END_MIN,
+  gapMustExceedMinutes = GAP_MUST_EXCEED_MINUTES,
+}: MissedWorkdayOptions): Gap | null {
+  if (date > today) return null;
+  const weekday = new Date(`${date}T00:00:00`).getDay();
+  if (weekday === 0 || weekday === 6) return null;
+  const endMin = date === today ? Math.min(workDayEndMin, nowMinutes) : workDayEndMin;
+  if (endMin - workDayStartMin <= gapMustExceedMinutes) return null;
+  return { startMin: workDayStartMin, endMin };
+}

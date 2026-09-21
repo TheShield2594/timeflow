@@ -77,7 +77,7 @@ describe("ReportsPage headline", () => {
       entry(today, 600), // this week — must not reach the headline
     ]);
 
-    expect(screen.getByRole("tab", { name: "Last week" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("radio", { name: "Last week" }).getAttribute("aria-checked")).toBe("true");
     expect(screen.getByText("3h")).toBeTruthy();
   });
 

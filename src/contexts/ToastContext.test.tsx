@@ -153,3 +153,25 @@ describe("toast action", () => {
     expect(screen.queryByText("Entry deleted.")).toBeNull();
   });
 });
+
+describe("toast focus", () => {
+  const nextFrame = () => act(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
+
+  it("catches focus a delete dropped, so Undo is reachable by keyboard", async () => {
+    renderWithToasts(<Pusher message="Deleted “Standup”." action={{ label: "Undo", onAction: vi.fn() }} />);
+    fireEvent.click(screen.getByRole("button", { name: "push" }));
+    // The row that held focus is gone: focus is on <body>.
+    (document.activeElement as HTMLElement | null)?.blur();
+    await nextFrame();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Undo" }));
+  });
+
+  it("never takes focus from somewhere real", async () => {
+    renderWithToasts(<Pusher message="Deleted “Standup”." action={{ label: "Undo", onAction: vi.fn() }} />);
+    const push = screen.getByRole("button", { name: "push" });
+    push.focus();
+    fireEvent.click(push);
+    await nextFrame();
+    expect(document.activeElement).toBe(push);
+  });
+});

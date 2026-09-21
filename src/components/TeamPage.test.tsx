@@ -97,7 +97,7 @@ describe("TeamPage", () => {
     expect(within(jordanRow).getByText("3 missing")).toBeTruthy();
 
     // The manager's own row appears on the whole line, labelled, never flagged.
-    fireEvent.click(screen.getByRole("tab", { name: /Whole line/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /Whole line/ }));
     const meRow = screen.getByText("User One (you)").closest<HTMLElement>(".team__row")!;
     expect(within(meRow).queryByText(/missing/)).toBeNull();
   });
@@ -198,7 +198,7 @@ describe("TeamPage export controls", () => {
     expect(csv).not.toContain("User One");
 
     // Whole line puts the manager back on screen, and back in the export.
-    fireEvent.click(screen.getByRole("tab", { name: /Whole line/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /Whole line/ }));
     csv = (await captureExport()).replace("\uFEFF", "");
     expect(csv.trim().split("\n")).toHaveLength(3);
     expect(csv).toContain("User One");

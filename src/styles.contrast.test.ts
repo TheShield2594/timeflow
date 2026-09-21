@@ -110,6 +110,31 @@ describe.each(THEMES)("$name theme", ({ scope }) => {
   });
 });
 
+/** `fg` laid over `bg` at `alpha`, as a hex — what a translucent fill shows. */
+function over(fg: string, bg: string, alpha: number): string {
+  return "#" + [1, 3, 5]
+    .map((i) => Math.round(parseInt(fg.slice(i, i + 2), 16) * alpha + parseInt(bg.slice(i, i + 2), 16) * (1 - alpha)))
+    .map((v) => v.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+// The toast is dark in both themes, so the theme tokens above say nothing
+// about it: light's --accent passed every surface test while its Undo sat at
+// about 2.3:1 on the toast. Measured on the lightest the toast can get, its
+// 90% fill over the light canvas.
+describe("toast", () => {
+  const root = THEMES[0].scope;
+  const fill = over(token(root, "toast-bg"), token(root, "canvas"), 0.9);
+
+  it.each(["on-toast", "toast-accent", "toast-warn"])("--%s reads at AA on the toast", (name) => {
+    expect(Number(contrast(token(root, name), fill).toFixed(2))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("isn't redefined by the dark theme", () => {
+    expect(THEMES[1].scope).not.toMatch(/--(on-toast|toast-[\w-]+):/);
+  });
+});
+
 // Declarations only. These assertions are about what the stylesheet *does*, and
 // the comments here quote the very patterns being banned.
 const rules = css.replace(/\/\*[\s\S]*?\*\//g, "");

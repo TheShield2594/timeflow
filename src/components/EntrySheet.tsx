@@ -342,6 +342,11 @@ export const EntrySheet: React.FC<Props> = ({
       onClose={() => { if (!saving) onClose(); }}
       busy={saving}
       keepOnBackdropClick={isDirtyDraft(draft, pristine.current)}
+      /* The stop sheet sits over an entry that is already saved, and closing
+         it says so ("Saved 1h 24m to …"). Once it holds a correction, that
+         toast would be reporting a save that just dropped the correction, so
+         Esc waits for Save instead. Edit and create keep Esc as Cancel. */
+      keepOnEscape={mode === "stop" && isDirtyDraft(draft, pristine.current)}
     >
       <div className="t-large-title">{headlineDuration}</div>
       <div className="sheet__meta t-subhead">
@@ -433,7 +438,7 @@ export const EntrySheet: React.FC<Props> = ({
                 onChange={(e) => setNewTaskName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") { e.preventDefault(); handleCreateTask(); }
-                  if (e.key === "Escape") openTaskField(false);
+                  if (e.key === "Escape") { e.preventDefault(); openTaskField(false); }
                 }}
                 onBlur={handleCreateTask}
                 autoFocus
@@ -531,7 +536,7 @@ export const EntrySheet: React.FC<Props> = ({
 
       {activeProject && (
         <p className="sheet__note">
-          Inherited from {activeProject.name}. Changing it here affects this entry only.
+          Not filled in from {activeProject.name}. Enter the ratio and ticket this entry is billed to.
         </p>
       )}
 

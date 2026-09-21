@@ -70,7 +70,7 @@ describe("ProjectsPage list", () => {
   it("scopes the archived list behind its own segment", () => {
     renderPage();
     expect(screen.queryByText(/Archived One/)).toBeNull();
-    fireEvent.click(screen.getByRole("tab", { name: "Archived 1" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Archived 1" }));
     expect(screen.getByText(/Archived One/)).toBeTruthy();
     expect(screen.queryByText("Alpha")).toBeNull();
   });
@@ -138,29 +138,32 @@ describe("ProjectsPage task creation", () => {
   });
 });
 
+/** A swatch, by the palette name it is announced with. */
+const SWATCH_NAME = /^(Green|Grass|Forest|Lime|Blue|Robin|Royal|Navy|Pumpkin|Lemon|Charcoal)(,|$)/;
+
 describe("ProjectsPage colour picker", () => {
   it("refuses a colour another active project already wears", () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "New project" }));
-
-    const swatches = within(screen.getByRole("dialog")).getAllByRole("button", { name: /^#/ });
+    // Named by the palette, not by hex: "#003346" is nothing to choose by ear.
+    const swatches = within(screen.getByRole("dialog")).getAllByRole("button", { name: SWATCH_NAME });
     const taken = swatches.filter((s) => s.hasAttribute("disabled")).map((s) => s.getAttribute("aria-label"));
     // Both active projects' colours are out; the archived one's is free again.
     expect(taken).toEqual(expect.arrayContaining([
-      expect.stringContaining("#719500"),
-      expect.stringContaining("#00739F"),
+      expect.stringContaining("Green"),
+      expect.stringContaining("Royal"),
     ]));
-    expect(taken.some((label) => label!.includes("#CC4F00"))).toBe(false);
+    expect(taken.some((label) => label!.includes("Pumpkin"))).toBe(false);
   });
 
   it("opens a new project on a colour nobody is using", () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "New project" }));
     const selected = within(screen.getByRole("dialog"))
-      .getAllByRole("button", { name: /^#/ })
+      .getAllByRole("button", { name: SWATCH_NAME })
       .find((s) => s.getAttribute("aria-pressed") === "true")!;
     expect(selected.hasAttribute("disabled")).toBe(false);
-    expect(selected.getAttribute("aria-label")).not.toBe("#719500");
+    expect(selected.getAttribute("aria-label")).not.toBe("Green");
   });
 });
 

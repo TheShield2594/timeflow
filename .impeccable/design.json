@@ -1,0 +1,383 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-21T14:36:23.864Z",
+  "title": "Design System: TimeFlow",
+  "extensions": {
+    "colorMeta": {
+      "field-green": {
+        "role": "primary",
+        "displayName": "Everence Field Green",
+        "canonical": "#5A7800",
+        "tonalRamp": [
+          "#1c2600",
+          "#2f3f00",
+          "#435800",
+          "#5A7800",
+          "#789a1f",
+          "#97b84a",
+          "#bdd488",
+          "#e3eecb"
+        ]
+      },
+      "night-field-green": {
+        "role": "primary",
+        "displayName": "Everence Field Green (dark)",
+        "canonical": "#A9CB4B"
+      },
+      "rust-danger": {
+        "role": "secondary",
+        "displayName": "Rust",
+        "canonical": "#A33E00",
+        "tonalRamp": [
+          "#331300",
+          "#5a2200",
+          "#7f2f00",
+          "#A33E00",
+          "#c95f22",
+          "#e88a57",
+          "#f4b690",
+          "#fbe1d1"
+        ]
+      },
+      "ochre-warn": {
+        "role": "secondary",
+        "displayName": "Ochre",
+        "canonical": "#8A5A00",
+        "tonalRamp": [
+          "#2b1c00",
+          "#4a3000",
+          "#6a4500",
+          "#8A5A00",
+          "#b07a14",
+          "#d49f3f",
+          "#ebc77f",
+          "#f8e7c4"
+        ]
+      },
+      "paper-white": {
+        "role": "neutral",
+        "displayName": "Paper White",
+        "canonical": "#FBFBF8"
+      },
+      "sheet-white": {
+        "role": "neutral",
+        "displayName": "Sheet White",
+        "canonical": "#FFFFFF"
+      },
+      "charcoal-night": {
+        "role": "neutral",
+        "displayName": "Charcoal Night",
+        "canonical": "#0F110E"
+      },
+      "night-surface": {
+        "role": "neutral",
+        "displayName": "Night Surface",
+        "canonical": "#191C17"
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#1B1D17",
+        "tonalRamp": [
+          "#1B1D17",
+          "#33362e",
+          "#4c5046",
+          "#676B60",
+          "#83877b",
+          "#9BA093",
+          "#c4c8bc",
+          "#eff2ea"
+        ]
+      },
+      "ink-secondary": {
+        "role": "neutral",
+        "displayName": "Ink Secondary",
+        "canonical": "#676B60"
+      },
+      "decor-sage": {
+        "role": "neutral",
+        "displayName": "Decor Sage (non-text)",
+        "canonical": "#9BA093"
+      },
+      "dim-display": {
+        "role": "neutral",
+        "displayName": "Dim Display (96px clock only)",
+        "canonical": "#8A9083"
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "rgba(20,22,16,.09)"
+      },
+      "project-green": {
+        "role": "tertiary",
+        "displayName": "Project · Everence Green",
+        "canonical": "#719500"
+      },
+      "project-pumpkin": {
+        "role": "tertiary",
+        "displayName": "Project · Pumpkin",
+        "canonical": "#CC4F00"
+      },
+      "project-blue": {
+        "role": "tertiary",
+        "displayName": "Project · Blue",
+        "canonical": "#0080BD"
+      },
+      "toast-bg": {
+        "role": "neutral",
+        "displayName": "Toast Night",
+        "canonical": "#1E221C"
+      },
+      "on-toast": {
+        "role": "neutral",
+        "displayName": "Toast Ink",
+        "canonical": "#EFF2EA"
+      },
+      "toast-accent": {
+        "role": "primary",
+        "displayName": "Toast Field Green",
+        "canonical": "#A9CB4B"
+      },
+      "toast-warn": {
+        "role": "secondary",
+        "displayName": "Toast Ochre",
+        "canonical": "#F0B34A"
+      }
+    },
+    "typographyMeta": {
+      "timer": {
+        "displayName": "Timer",
+        "purpose": "The running clock, once in the app."
+      },
+      "display": {
+        "displayName": "Display",
+        "purpose": "Headline totals on Reports."
+      },
+      "large-title": {
+        "displayName": "Large Title",
+        "purpose": "Page titles."
+      },
+      "title1": {
+        "displayName": "Title 1",
+        "purpose": "Week total beside the ring; section heroes."
+      },
+      "title2": {
+        "displayName": "Title 2",
+        "purpose": "Sheet titles and sub-sections."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "List-row titles and values."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Prose and empty states, 46–56ch."
+      },
+      "subhead": {
+        "displayName": "Subhead",
+        "purpose": "Row subtitles, field labels, pill text."
+      },
+      "footnote": {
+        "displayName": "Footnote",
+        "purpose": "Axis labels, row times, notes."
+      },
+      "group-label": {
+        "displayName": "Group Label",
+        "purpose": "Uppercase list-group headers."
+      }
+    },
+    "shadows": [
+      {
+        "name": "segment-lift",
+        "value": "0 1px 2px rgba(20,22,16,.10)",
+        "purpose": "The selected segment of a segmented control. The only shadow in the system; rgba(0,0,0,.34) in dark."
+      },
+      {
+        "name": "material-ring",
+        "value": "inset 0 0 0 1px var(--separator)",
+        "purpose": "The one hairline on anything that floats or dismisses."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state",
+        "value": "160ms ease-out",
+        "purpose": "Background/colour on pills, nav, segments."
+      },
+      {
+        "name": "menu-in",
+        "value": "140ms ease-out, scale .98→1",
+        "purpose": "Dropdown menus."
+      },
+      {
+        "name": "sheet-in",
+        "value": "200ms ease-out, scale .97→1",
+        "purpose": "Sheets. The ceiling: nothing runs longer than 200ms."
+      },
+      {
+        "name": "timer-pulse",
+        "value": "2.4s ease-in-out infinite",
+        "purpose": "The running-timer dot; the only looping motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "reports-split",
+        "value": "900px"
+      },
+      {
+        "name": "calendar-reflow",
+        "value": "860px"
+      },
+      {
+        "name": "timer-cols",
+        "value": "1040px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Pill",
+      "kind": "button",
+      "refersTo": "pill-primary",
+      "description": "The screen's one primary action.",
+      "html": "<button class=\"ds-pill ds-pill--primary\">Start</button>",
+      "css": ".ds-pill { display:inline-flex; align-items:center; justify-content:center; gap:8px; height:44px; padding:0 24px; border-radius:999px; border:0; font-family:var(--font, 'Instrument Sans', system-ui, sans-serif); font-size:15px; font-weight:600; letter-spacing:-0.01em; cursor:pointer; transition:background 160ms ease-out, color 160ms ease-out; } .ds-pill--primary { background:var(--accent, #5A7800); color:var(--on-accent, #fff); } .ds-pill--primary:hover { background:color-mix(in srgb, var(--accent, #5A7800) 88%, var(--label, #1B1D17)); } .ds-pill:focus-visible { outline:2px solid var(--accent, #5A7800); outline-offset:2px; }"
+    },
+    {
+      "name": "Tint Pill",
+      "kind": "button",
+      "refersTo": "pill-tint",
+      "description": "Secondary action.",
+      "html": "<button class=\"ds-pill-tint\">Continue</button>",
+      "css": ".ds-pill-tint { display:inline-flex; align-items:center; height:44px; padding:0 24px; border-radius:999px; border:0; font-family:var(--font, 'Instrument Sans', system-ui, sans-serif); font-size:15px; font-weight:600; background:var(--accent-tint, rgba(90,120,0,.12)); color:var(--accent, #5A7800); cursor:pointer; transition:background 160ms ease-out; } .ds-pill-tint:hover { background:color-mix(in srgb, var(--accent-tint, rgba(90,120,0,.12)) 100%, var(--accent, #5A7800) 8%); } .ds-pill-tint:focus-visible { outline:2px solid var(--accent, #5A7800); outline-offset:2px; }"
+    },
+    {
+      "name": "Danger Pill",
+      "kind": "button",
+      "refersTo": "pill-danger",
+      "description": "Destructive action; text only, never filled.",
+      "html": "<button class=\"ds-pill-danger\">Delete entry</button>",
+      "css": ".ds-pill-danger { display:inline-flex; align-items:center; height:44px; padding:0 24px; border-radius:999px; border:0; background:none; font-family:var(--font, 'Instrument Sans', system-ui, sans-serif); font-size:15px; font-weight:600; color:var(--danger, #A33E00); cursor:pointer; transition:background 160ms ease-out; } .ds-pill-danger:hover { background:color-mix(in srgb, var(--danger, #A33E00) 8%, transparent); } .ds-pill-danger:focus-visible { outline:2px solid var(--accent, #5A7800); outline-offset:2px; }"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Plain input and search field.",
+      "html": "<input class=\"ds-input\" placeholder=\"Search projects\" />",
+      "css": ".ds-input { height:34px; padding:0 12px; width:240px; border-radius:6px; border:0; background:var(--surface, #fff); box-shadow:inset 0 0 0 1px var(--separator, rgba(20,22,16,.09)); font-family:var(--font, 'Instrument Sans', system-ui, sans-serif); font-size:15px; color:var(--label, #1B1D17); } .ds-input::placeholder { color:var(--decor, #9BA093); } .ds-input:focus-visible { outline:2px solid var(--accent, #5A7800); outline-offset:-1px; }"
+    },
+    {
+      "name": "Sidebar Navigation",
+      "kind": "nav",
+      "refersTo": "nav-link",
+      "description": "Text-only nav; no icon set.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav__link ds-nav__link--active\" href=\"#\">Timer</a><a class=\"ds-nav__link\" href=\"#\">Timesheet</a><a class=\"ds-nav__link\" href=\"#\">Calendar</a><a class=\"ds-nav__link\" href=\"#\">Reports</a><a class=\"ds-nav__link\" href=\"#\">Projects</a></nav>",
+      "css": ".ds-nav { display:flex; flex-direction:column; gap:2px; width:204px; padding:14px; background:color-mix(in srgb, var(--label, #1B1D17) 3%, var(--canvas, #FBFBF8)); font-family:var(--font, 'Instrument Sans', system-ui, sans-serif); } .ds-nav__link { display:flex; align-items:center; height:44px; padding:0 12px; border-radius:8px; font-size:15px; color:var(--label, #1B1D17); text-decoration:none; transition:background 160ms ease-out, color 160ms ease-out; } .ds-nav__link:hover { background:var(--accent-tint-hover, rgba(90,120,0,.07)); } .ds-nav__link--active { background:var(--accent-tint, rgba(90,120,0,.12)); color:var(--accent, #5A7800); font-weight:600; } .ds-nav__link:focus-visible { outline:2px solid var(--accent, #5A7800); outline-offset:2px; }"
+    },
+    {
+      "name": "Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Static uppercase label; warn variant for missing time.",
+      "html": "<span class=\"ds-chip\">Running</span> <span class=\"ds-chip ds-chip--warn\">2 days missing</span>",
+      "css": ".ds-chip { display:inline-flex; align-items:center; height:20px; padding:0 8px; border-radius:999px; background:var(--accent-tint, rgba(90,120,0,.12)); color:var(--accent, #5A7800); font-family:var(--font, 'Instrument Sans', system-ui, sans-serif); font-size:11px; line-height:1; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; white-space:nowrap; } .ds-chip--warn { background:color-mix(in srgb, var(--warn, #8A5A00) 14%, transparent); color:var(--warn, #8A5A00); }"
+    },
+    {
+      "name": "List Card",
+      "kind": "card",
+      "refersTo": "list-card",
+      "description": "The time entry as a list row: dot, what the user typed, the number. Separators inset to the text origin.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-row\"><span class=\"ds-dot\" style=\"--pc:#0080BD\"></span><span><b class=\"ds-row__t\">API review</b><span class=\"ds-row__s\">Platform · Code review</span></span><span class=\"ds-row__v\">1:45</span></div><div class=\"ds-row\"><span class=\"ds-dot\" style=\"--pc:#CC4F00\"></span><span><b class=\"ds-row__t\">Standup</b><span class=\"ds-row__s\">Internal · Meetings</span></span><span class=\"ds-row__v\">0:15</span></div></div>",
+      "css": ".ds-card { background:var(--surface, #fff); border-radius:14px; padding:2px 18px; font-family:var(--font, 'Instrument Sans', system-ui, sans-serif); font-variant-numeric:tabular-nums; } .ds-row { position:relative; display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:14px; padding:10px 0; } .ds-row + .ds-row::before { content:''; position:absolute; top:0; left:23px; right:0; border-top:1px solid var(--separator, rgba(20,22,16,.09)); } .ds-dot { width:9px; height:9px; border-radius:50%; background:var(--pc); } .ds-row__t { display:block; font-size:17px; line-height:22px; font-weight:600; color:var(--label, #1B1D17); } .ds-row__s { display:block; font-size:15px; line-height:20px; color:var(--label-secondary, #676B60); } .ds-row__v { font-size:17px; font-weight:600; color:var(--label, #1B1D17); }"
+    },
+    {
+      "name": "Day Bar",
+      "kind": "custom",
+      "refersTo": "day-bar",
+      "description": "The day as a bar: project segments and hatched gaps at the same scale.",
+      "html": "<div class=\"ds-daybar\"><span style=\"flex:90;--pc:#0080BD\" class=\"ds-seg\"></span><span style=\"flex:45\" class=\"ds-seg ds-seg--gap\"></span><span style=\"flex:120;--pc:#CC4F00\" class=\"ds-seg\"></span><span style=\"flex:60;--pc:#719500\" class=\"ds-seg\"></span></div>",
+      "css": ".ds-daybar { display:flex; gap:2px; height:18px; width:360px; border-radius:9px; overflow:hidden; background:color-mix(in srgb, var(--separator, rgba(20,22,16,.09)) 60%, transparent); } .ds-seg { display:block; background:var(--pc); } .ds-seg--gap { background:repeating-linear-gradient(135deg, color-mix(in srgb, var(--warn, #8A5A00) 42%, transparent) 0 5px, color-mix(in srgb, var(--warn, #8A5A00) 16%, transparent) 5px 10px); }"
+    },
+    {
+      "name": "Toast",
+      "kind": "custom",
+      "refersTo": "toast",
+      "description": "Dark in both themes; its action uses the fixed toast accent, never the theme accent.",
+      "html": "<div class=\"ds-toast\"><span class=\"ds-toast__dot\"></span><span>Deleted “Standup”.</span><button class=\"ds-toast__action\">Undo</button></div>",
+      "css": ".ds-toast { display:inline-flex; align-items:center; gap:12px; height:52px; padding:0 20px; border-radius:14px; background:color-mix(in srgb, var(--toast-bg, #1E221C) 90%, transparent); color:var(--on-toast, #EFF2EA); font-family:var(--font, \"Instrument Sans\", system-ui, sans-serif); font-size:16px; } .ds-toast__dot { width:8px; height:8px; border-radius:50%; background:var(--toast-accent, #A9CB4B); } .ds-toast__action { background:none; border:0; font:inherit; font-weight:600; color:var(--toast-accent, #A9CB4B); cursor:pointer; } .ds-toast__action:focus-visible { outline:2px solid var(--toast-accent, #A9CB4B); outline-offset:2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Honest Ledger",
+    "overview": "TimeFlow is a record, and the design behaves like one. It is quiet, exact and has no decoration. Colour carries meaning or it isn't there. Numbers sit in tabular columns that never jitter. Missing time is drawn at the same scale as logged time, so a gap can't hide. The system comes from the 2026-09 \"first-party\" redesign: content first, one unmistakable primary action per screen, a real type hierarchy on an 8pt grid, one accent, and depth from material rather than shadow. It uses no Apple fonts, icons or layouts. The discipline is borrowed, the look is not.\n\nThe density is calm rather than sparse. A screen shows the day as a shape before it shows it as numbers: a bar, a ring, a block on a grid. One sentence explains the shape instead of a KPI strip repeating it. The palette is warm paper and ink with a single darkened Everence green that means \"you can act here\". Every other colour on screen is a project's own colour, used on that project's marks only.",
+    "keyCharacteristics": [
+      "One typeface (Instrument Sans, self-hosted), ten type steps, tabular figures everywhere.",
+      "Two readable text colours per theme; a third grey exists only for non-text marks.",
+      "One accent, used for actions. Project colours are data and appear only on that project's marks.",
+      "Flat content on a warm canvas; material and a single hairline only for what floats or dismisses.",
+      "The time entry has four renderings (list row, day bar, calendar block, ring), all built from the same tokens.",
+      "Light and dark are equal. In dark mode the accent becomes the lightest thing on screen."
+    ],
+    "rules": [
+      {
+        "name": "The Colour-Is-Data Rule",
+        "body": "The accent means \"act here\" and a project colour means \"this project\". Nothing else in the app is coloured. If you want colour for emphasis, the answer is weight or size.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two-Inks Rule",
+        "body": "A reader only ever reads Ink or Ink Secondary. Both clear 4.5:1 on every surface in both themes, and styles.contrast.test.ts fails the build if they don't. There is no tertiary text colour.",
+        "section": "colors"
+      },
+      {
+        "name": "The Decor-Is-Mute Rule",
+        "body": "Decor Sage never carries text. A rule that gives it a font-size fails the build.",
+        "section": "colors"
+      },
+      {
+        "name": "The Ten-Steps Rule",
+        "body": "A screen that needs an eleventh size has drifted. Use a .t-* step.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Rule",
+        "body": "Every duration, time and count uses tabular figures, set globally so a column of times never shifts as its digits change.",
+        "section": "typography"
+      },
+      {
+        "name": "The Forty-Four Rule",
+        "body": "Every button, role=button and link is at least 44px tall, including on desktop. Controls drawn smaller (row pills at 34px, segments at 26px, the calendar's chips, swatches) keep their drawing and get an invisible 44px band above and below from a shared ::after rule in the BASE section. The band is vertical only, so neighbours in a row never trade clicks. A new small control joins that selector list.",
+        "section": "layout"
+      },
+      {
+        "name": "The Depth-Is-Earned Rule",
+        "body": "No box-shadow on content, ever. Never put a card inside a card. If a thing doesn't float, scroll or dismiss, it sits on the canvas.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use Field Green only where the user can act, with one primary pill per screen.",
+      "Do paint a project's colour only on that project's dots, bars and blocks.",
+      "Do set every size from the ten .t-* steps and every gap from the 8pt grid (4px is the only half-step).",
+      "Do show the day as a shape first (bar, ring, block) and explain it in one sentence.",
+      "Do draw missing time at the same scale as logged time, with the 135° ochre hatch.",
+      "Do start separators at the text origin (23px in), never at the card edge.",
+      "Do give anything that floats or dismisses the material fill and one inset hairline, and nothing more.",
+      "Do keep transitions at 200ms or less and respect prefers-reduced-motion.",
+      "Do keep every hit target at least 44px tall."
+    ],
+    "donts": [
+      "Don't add a box-shadow to content, or put a card inside a card.",
+      "Don't introduce a third text colour, or set text in Decor Sage.",
+      "Don't use Dim Display anywhere except the 96px idle clock.",
+      "Don't fill a destructive button.",
+      "Don't add an icon set to navigation.",
+      "Don't add KPI strips, streaks, heatmaps or any other gamified compliance.",
+      "Don't use colour for emphasis or decoration.",
+      "Don't add an eleventh type size."
+    ]
+  }
+}

@@ -9,7 +9,9 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { screen, cleanup, fireEvent, within } from "@testing-library/react";
 import { TimesheetPage } from "./TimesheetPage";
 import { renderWithData, TEST_WORKING_HOURS } from "../test/dataHarness";
-import { addDaysStr, localDateStr } from "../utils/dates";
+import { addDaysStr, friendlyDate, localDateStr } from "../utils/dates";
+import { rangeLabel } from "../utils/ranges";
+import { exportToCSV } from "../services/csvExport";
 import type { Project, TimeEntry } from "../types";
 
 // The SDK's app entrypoint has an extensionless internal import that Node's
@@ -22,6 +24,10 @@ vi.mock("../services/userService", async (importOriginal) => ({
   getCurrentUser: () => ({ id: "user-1", email: "user1@example.com", displayName: "User One", environmentId: "env-1" }),
 }));
 vi.mock("../generated", () => ({ MicrosoftDataverseService: {} }));
+vi.mock("../services/csvExport", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../services/csvExport")>()),
+  exportToCSV: vi.fn(),
+}));
 
 const projects: Project[] = [
   { id: "p1", name: "Alpha", color: "#719500", isActive: true, createdAt: "" },
@@ -57,7 +63,7 @@ function renderPage(entries: TimeEntry[], opts: { from?: string; to?: string } =
     <TimesheetPage workingHours={TEST_WORKING_HOURS} />,
     { entries, projects },
   );
-  fireEvent.click(screen.getByRole("tab", { name: "Custom" }));
+  fireEvent.click(screen.getByRole("radio", { name: "Custom" }));
   fireEvent.change(screen.getByLabelText("From"), { target: { value: opts.from ?? daysAgo(40) } });
   fireEvent.change(screen.getByLabelText("To"), { target: { value: opts.to ?? today } });
   return result;
@@ -76,7 +82,7 @@ describe("TimesheetPage totals", () => {
       entry({ id: "c", date: daysAgo(45), durationMinutes: 600 }),
     ]);
 
-    expect(screen.getByText(/^2h in custom$/)).toBeTruthy();
+    expect(screen.getByText(new RegExp(`^2h ${rangeLabel(daysAgo(40), today)}$`))).toBeTruthy();
   });
 
   it("groups entries by day, newest first, with a per-day total", () => {
@@ -86,9 +92,55 @@ describe("TimesheetPage totals", () => {
       entry({ id: "c", date: daysAgo(1), durationMinutes: 45, description: "Newer too" }),
     ]);
 
-    const totals = Array.from(document.querySelectorAll(".timesheet__group-total"))
-      .map((el) => el.textContent);
+    // Weekdays with nothing logged get a group of their own (see "missed
+    // days" below); this is about the groups that hold entries.
+    const totals = Array.from(document.querySelectorAll(".timesheet__group"))
+      .filter((group) => group.querySelector(".list-row"))
+      .map((group) => group.querySelector(".timesheet__group-total")!.textContent);
     expect(totals).toEqual(["1h 15m", "1h"]);
+  });
+});
+
+/** The day group for one date, found by the heading it's drawn under. */
+function groupFor(date: string): HTMLElement {
+  return screen.getByText(friendlyDate(date)).closest<HTMLElement>(".timesheet__group")!;
+}
+
+/** The most recent weekday strictly before today that isn't in `exclude`. */
+function pastWeekday(exclude: string[] = []): string {
+  for (let n = 1; ; n++) {
+    const date = daysAgo(n);
+    const weekday = new Date(`${date}T00:00:00`).getDay();
+    if (weekday !== 0 && weekday !== 6 && !exclude.includes(date)) return date;
+  }
+}
+
+describe("TimesheetPage missed days", () => {
+  it("lists a weekday with nothing logged as one full working-day gap", () => {
+    // The Friday reconcile: the day you forgot is the biggest hole in the week,
+    // and it used to be the one day the page didn't show at all.
+    const logged = pastWeekday();
+    const missed = pastWeekday([logged]);
+    renderPage([entry({ id: "a", date: logged })], { from: missed, to: logged });
+
+    const group = groupFor(missed);
+    const gap = group.querySelector(".list-gap-row")!;
+    expect(gap.textContent).toMatch(/8:00 AM – 6:00 PM/);
+    expect(within(group).getByRole("button", { name: "Fill it" })).toBeTruthy();
+  });
+
+  it("leaves weekends out, and stays out of a search", () => {
+    const entries = Array.from({ length: 3 }, (_, i) => entry({ id: `e${i}`, date: daysAgo(i + 1) }));
+    renderPage(entries, { from: daysAgo(14) });
+
+    for (const group of document.querySelectorAll(".timesheet__group")) {
+      if (group.querySelector(".list-row")) continue;
+      const heading = group.querySelector(".timesheet__group-day")!.textContent!;
+      expect(heading).not.toMatch(/Saturday|Sunday/);
+    }
+
+    fireEvent.change(screen.getByLabelText(/Search descriptions/), { target: { value: "anything" } });
+    expect(document.querySelectorAll(".list-gap-row").length).toBe(0);
   });
 });
 
@@ -123,7 +175,7 @@ describe("TimesheetPage untracked gaps", () => {
       entry({ id: "b", date, description: "Invoicing", startTime: `${date}T11:00:00`, endTime: `${date}T18:00:00` }),
     ]);
 
-    const card = document.querySelector(".list-card")!;
+    const card = groupFor(date).querySelector(".list-card")!;
     const lines = [...card.children].map((el) =>
       el.classList.contains("list-gap-row")
         ? `gap ${el.textContent!.match(/\d{1,2}:\d{2} [AP]M – \d{1,2}:\d{2} [AP]M/)![0]}`
@@ -187,7 +239,7 @@ describe("TimesheetPage paging", () => {
     renderPage(entries, { from: daysAgo(40) });
 
     expect(screen.queryByText("Day 32")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Show 5 more days/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Show \d+ more days/ }));
     expect(screen.getByText("Day 32")).toBeTruthy();
   });
 
@@ -197,12 +249,25 @@ describe("TimesheetPage paging", () => {
     );
     renderPage(entries, { from: daysAgo(40) });
 
-    fireEvent.click(screen.getByRole("button", { name: /Show 5 more/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Show \d+ more/ }));
     expect(screen.getByText("Day 32")).toBeTruthy();
 
     // Search for something every entry matches: the list is the same length,
     // but the page count has to start over.
     fireEvent.change(screen.getByLabelText(/Search descriptions/), { target: { value: "Day" } });
     expect(screen.queryByText("Day 32")).toBeNull();
+  });
+});
+
+describe("TimesheetPage export", () => {
+  it("bills under the same rounding rule as Reports", () => {
+    // The two personal exports used to disagree: Reports rounded, the
+    // Timesheet didn't, so one range came out as two different invoices.
+    localStorage.setItem("tt_export_rounding", "up15");
+    renderPage([entry({ id: "a", date: daysAgo(1), durationMinutes: 7 })]);
+
+    expect((screen.getByLabelText("Rounding applied to exported durations") as HTMLSelectElement).value).toBe("up15");
+    fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+    expect(vi.mocked(exportToCSV).mock.calls[0][4]).toBe("up15");
   });
 });

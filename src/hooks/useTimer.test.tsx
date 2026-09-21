@@ -149,7 +149,7 @@ describe("useTimer", () => {
     });
 
     expect(onStop).not.toHaveBeenCalled();
-    expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining("retry"), "error");
+    expect(toastSpy).toHaveBeenCalledWith(expect.stringMatching(/retry/i), "error");
     // Stop persists pendingStopAt so the user can retry without losing the running state.
     expect(JSON.parse(localStorage.getItem(TIMER_STORAGE_KEY)!).pendingStopAt).toBeTruthy();
   });
@@ -395,7 +395,7 @@ describe("useTimer", () => {
     expect(svc.updateTimeEntry).toHaveBeenCalledWith("draft-1", expect.objectContaining({ endTime: expect.any(String) }));
     expect(onStop).toHaveBeenCalledWith(savedEntry);
     expect(result.current.timer.isRunning).toBe(false);
-    expect(toastSpy).not.toHaveBeenCalledWith(expect.stringContaining("retry"), "error");
+    expect(toastSpy).not.toHaveBeenCalledWith(expect.stringMatching(/retry/i), "error");
     // The save above only proves the stop path survived; this proves it
     // survived *because* persistTimer swallowed the write, not because the
     // spied setItem was never reached.
