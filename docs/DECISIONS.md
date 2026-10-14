@@ -50,6 +50,32 @@ the README's Licence line to match.
 Recorded because the reasoning is not visible from the code and has been
 re-litigated at least once.
 
+### Environments move by managed solution, exported by hand (2026-10-14)
+
+[#54](https://github.com/TheShield2594/timeflow/issues/54). The three tables,
+the TimeFlow User security role, both connection references and the Code App
+itself live in one solution. Dev holds it unmanaged and is the only place
+anything is edited; QA and Prod get it as a managed import, exported once per
+release so the zip QA signed off is the zip Prod installs.
+
+Before this, each environment's tables and role were recreated by hand from the
+README, and one wrong dropdown — `ever_timeentries` created Organization-owned —
+would have shown every user everyone's time with nothing in the app to stop it.
+A solution makes the role and ownership a versioned artifact rather than a
+memory, though not a verified one: the UAT checklist still runs after every
+import, because an import can replace the role it checked.
+
+The app is in the solution rather than pushed per environment so that one
+import is one release: code, schema and role can't drift apart between Prod and
+what QA tested. The cost is that `pac code push` is a Dev-only operation, and
+that managed solutions only roll forward — see
+[RUNBOOK §3](RUNBOOK.md#3-rollback).
+
+Promotion is a manual export and import, not a Power Platform pipeline. A
+pipeline would remove the hand-run steps the runbook has to warn about; it is
+worth revisiting when releases get frequent enough for those steps to be
+skipped.
+
 ### Tasks are shared per project, deliberately (2026-08-26)
 
 D-1, [#129](https://github.com/TheShield2594/timeflow/issues/129). `ever_workitems`

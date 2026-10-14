@@ -16,7 +16,7 @@ who set it knows it is still right.
 
 Related: [#91](https://github.com/TheShield2594/timeflow/issues/91) (this
 checklist), [#54](https://github.com/TheShield2594/timeflow/issues/54)
-(packaging the tables and role into a solution),
+(the managed solution that carries the tables and role),
 [README § Dataverse Security Configuration](../README.md#dataverse-security-configuration),
 [RUNBOOK § 5.5](RUNBOOK.md#55-a-user-reports-the-data-isolation-warning-banner)
 (what to do when it fails in production).

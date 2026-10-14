@@ -61,7 +61,8 @@ Outlook meetings shown as ghost blocks.
 ## Capabilities and Constraints
 
 - Stack: React 18 + TypeScript + Vite, plain CSS in `src/styles.css`, no UI
-  library. Deployed with `pac code push`. Vite assets over 4KB break in the host,
+  library. Pushed to Dev with `pac code push`; reaches QA and Prod inside a managed
+  solution. Vite assets over 4KB break in the host,
   so the inline limit is 32KB.
 - Data: `ever_projects`, `ever_workitems` (tasks) and `ever_timeentries` in
   Dataverse. Reads are filtered server-side (`eq-userid`,
