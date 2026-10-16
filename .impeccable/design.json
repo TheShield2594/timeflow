@@ -7,12 +7,12 @@
       "field-green": {
         "role": "primary",
         "displayName": "Everence Field Green",
-        "canonical": "#5A7800",
+        "canonical": "#225433",
         "tonalRamp": [
           "#1c2600",
           "#2f3f00",
           "#435800",
-          "#5A7800",
+          "#225433",
           "#789a1f",
           "#97b84a",
           "#bdd488",
@@ -22,7 +22,7 @@
       "night-field-green": {
         "role": "primary",
         "displayName": "Everence Field Green (dark)",
-        "canonical": "#A9CB4B"
+        "canonical": "#B5BF00"
       },
       "rust-danger": {
         "role": "secondary",
@@ -57,7 +57,7 @@
       "paper-white": {
         "role": "neutral",
         "displayName": "Paper White",
-        "canonical": "#FBFBF8"
+        "canonical": "#FAFAF7"
       },
       "sheet-white": {
         "role": "neutral",
@@ -137,12 +137,12 @@
       "toast-accent": {
         "role": "primary",
         "displayName": "Toast Field Green",
-        "canonical": "#A9CB4B"
+        "canonical": "#B5BF00"
       },
       "toast-warn": {
         "role": "secondary",
         "displayName": "Toast Ochre",
-        "canonical": "#F0B34A"
+        "canonical": "#F3AE00"
       }
     },
     "typographyMeta": {
@@ -243,7 +243,7 @@
       "refersTo": "pill-primary",
       "description": "The screen's one primary action.",
       "html": "<button class=\"ds-pill ds-pill--primary\">Start</button>",
-      "css": ".ds-pill { display:inline-flex; align-items:center; justify-content:center; gap:8px; height:44px; padding:0 24px; border-radius:999px; border:0; font-family:var(--font, 'Instrument Sans', system-ui, sans-serif); font-size:15px; font-weight:600; letter-spacing:-0.01em; cursor:pointer; transition:background 160ms ease-out, color 160ms ease-out; } .ds-pill--primary { background:var(--accent, #5A7800); color:var(--on-accent, #fff); } .ds-pill--primary:hover { background:color-mix(in srgb, var(--accent, #5A7800) 88%, var(--label, #1B1D17)); } .ds-pill:focus-visible { outline:2px solid var(--accent, #5A7800); outline-offset:2px; }"
+      "css": ".ds-pill { display:inline-flex; align-items:center; justify-content:center; gap:8px; height:44px; padding:0 24px; border-radius:999px; border:0; font-family:var(--font, Verdana, system-ui, sans-serif); font-size:15px; font-weight:600; letter-spacing:-0.01em; cursor:pointer; transition:background 160ms ease-out, color 160ms ease-out; } .ds-pill--primary { background:var(--accent, #225433); color:var(--on-accent, #fff); } .ds-pill--primary:hover { background:color-mix(in srgb, var(--accent, #225433) 88%, var(--label, #1B1D17)); } .ds-pill:focus-visible { outline:2px solid var(--accent, #225433); outline-offset:2px; }"
     },
     {
       "name": "Tint Pill",
@@ -251,7 +251,7 @@
       "refersTo": "pill-tint",
       "description": "Secondary action.",
       "html": "<button class=\"ds-pill-tint\">Continue</button>",
-      "css": ".ds-pill-tint { display:inline-flex; align-items:center; height:44px; padding:0 24px; border-radius:999px; border:0; font-family:var(--font, 'Instrument Sans', system-ui, sans-serif); font-size:15px; font-weight:600; background:var(--accent-tint, rgba(90,120,0,.12)); color:var(--accent, #5A7800); cursor:pointer; transition:background 160ms ease-out; } .ds-pill-tint:hover { background:color-mix(in srgb, var(--accent-tint, rgba(90,120,0,.12)) 100%, var(--accent, #5A7800) 8%); } .ds-pill-tint:focus-visible { outline:2px solid var(--accent, #5A7800); outline-offset:2px; }"
+      "css": ".ds-pill-tint { display:inline-flex; align-items:center; height:44px; padding:0 24px; border-radius:999px; border:0; font-family:var(--font, Verdana, system-ui, sans-serif); font-size:15px; font-weight:600; background:var(--accent-tint, rgba(34,84,51,.12)); color:var(--accent, #225433); cursor:pointer; transition:background 160ms ease-out; } .ds-pill-tint:hover { background:color-mix(in srgb, var(--accent-tint, rgba(34,84,51,.12)) 100%, var(--accent, #225433) 8%); } .ds-pill-tint:focus-visible { outline:2px solid var(--accent, #225433); outline-offset:2px; }"
     },
     {
       "name": "Danger Pill",
@@ -259,7 +259,7 @@
       "refersTo": "pill-danger",
       "description": "Destructive action; text only, never filled.",
       "html": "<button class=\"ds-pill-danger\">Delete entry</button>",
-      "css": ".ds-pill-danger { display:inline-flex; align-items:center; height:44px; padding:0 24px; border-radius:999px; border:0; background:none; font-family:var(--font, 'Instrument Sans', system-ui, sans-serif); font-size:15px; font-weight:600; color:var(--danger, #A33E00); cursor:pointer; transition:background 160ms ease-out; } .ds-pill-danger:hover { background:color-mix(in srgb, var(--danger, #A33E00) 8%, transparent); } .ds-pill-danger:focus-visible { outline:2px solid var(--accent, #5A7800); outline-offset:2px; }"
+      "css": ".ds-pill-danger { display:inline-flex; align-items:center; height:44px; padding:0 24px; border-radius:999px; border:0; background:none; font-family:var(--font, Verdana, system-ui, sans-serif); font-size:15px; font-weight:600; color:var(--danger, #A33E00); cursor:pointer; transition:background 160ms ease-out; } .ds-pill-danger:hover { background:color-mix(in srgb, var(--danger, #A33E00) 8%, transparent); } .ds-pill-danger:focus-visible { outline:2px solid var(--accent, #225433); outline-offset:2px; }"
     },
     {
       "name": "Input",
@@ -267,7 +267,7 @@
       "refersTo": "input",
       "description": "Plain input and search field.",
       "html": "<input class=\"ds-input\" placeholder=\"Search projects\" />",
-      "css": ".ds-input { height:34px; padding:0 12px; width:240px; border-radius:6px; border:0; background:var(--surface, #fff); box-shadow:inset 0 0 0 1px var(--separator, rgba(20,22,16,.09)); font-family:var(--font, 'Instrument Sans', system-ui, sans-serif); font-size:15px; color:var(--label, #1B1D17); } .ds-input::placeholder { color:var(--decor, #9BA093); } .ds-input:focus-visible { outline:2px solid var(--accent, #5A7800); outline-offset:-1px; }"
+      "css": ".ds-input { height:34px; padding:0 12px; width:240px; border-radius:6px; border:0; background:var(--surface, #fff); box-shadow:inset 0 0 0 1px var(--separator, rgba(20,22,16,.09)); font-family:var(--font, Verdana, system-ui, sans-serif); font-size:15px; color:var(--label, #1B1D17); } .ds-input::placeholder { color:var(--decor, #9BA093); } .ds-input:focus-visible { outline:2px solid var(--accent, #225433); outline-offset:-1px; }"
     },
     {
       "name": "Sidebar Navigation",
@@ -275,7 +275,7 @@
       "refersTo": "nav-link",
       "description": "Text-only nav; no icon set.",
       "html": "<nav class=\"ds-nav\"><a class=\"ds-nav__link ds-nav__link--active\" href=\"#\">Timer</a><a class=\"ds-nav__link\" href=\"#\">Timesheet</a><a class=\"ds-nav__link\" href=\"#\">Calendar</a><a class=\"ds-nav__link\" href=\"#\">Reports</a><a class=\"ds-nav__link\" href=\"#\">Projects</a></nav>",
-      "css": ".ds-nav { display:flex; flex-direction:column; gap:2px; width:204px; padding:14px; background:color-mix(in srgb, var(--label, #1B1D17) 3%, var(--canvas, #FBFBF8)); font-family:var(--font, 'Instrument Sans', system-ui, sans-serif); } .ds-nav__link { display:flex; align-items:center; height:44px; padding:0 12px; border-radius:8px; font-size:15px; color:var(--label, #1B1D17); text-decoration:none; transition:background 160ms ease-out, color 160ms ease-out; } .ds-nav__link:hover { background:var(--accent-tint-hover, rgba(90,120,0,.07)); } .ds-nav__link--active { background:var(--accent-tint, rgba(90,120,0,.12)); color:var(--accent, #5A7800); font-weight:600; } .ds-nav__link:focus-visible { outline:2px solid var(--accent, #5A7800); outline-offset:2px; }"
+      "css": ".ds-nav { display:flex; flex-direction:column; gap:2px; width:204px; padding:14px; background:color-mix(in srgb, var(--label, #1B1D17) 3%, var(--canvas, #FAFAF7)); font-family:var(--font, Verdana, system-ui, sans-serif); } .ds-nav__link { display:flex; align-items:center; height:44px; padding:0 12px; border-radius:8px; font-size:15px; color:var(--label, #1B1D17); text-decoration:none; transition:background 160ms ease-out, color 160ms ease-out; } .ds-nav__link:hover { background:var(--accent-tint-hover, rgba(34,84,51,.07)); } .ds-nav__link--active { background:var(--accent-tint, rgba(34,84,51,.12)); color:var(--accent, #225433); font-weight:600; } .ds-nav__link:focus-visible { outline:2px solid var(--accent, #225433); outline-offset:2px; }"
     },
     {
       "name": "Chip",
@@ -283,7 +283,7 @@
       "refersTo": "chip",
       "description": "Static uppercase label; warn variant for missing time.",
       "html": "<span class=\"ds-chip\">Running</span> <span class=\"ds-chip ds-chip--warn\">2 days missing</span>",
-      "css": ".ds-chip { display:inline-flex; align-items:center; height:20px; padding:0 8px; border-radius:999px; background:var(--accent-tint, rgba(90,120,0,.12)); color:var(--accent, #5A7800); font-family:var(--font, 'Instrument Sans', system-ui, sans-serif); font-size:11px; line-height:1; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; white-space:nowrap; } .ds-chip--warn { background:color-mix(in srgb, var(--warn, #8A5A00) 14%, transparent); color:var(--warn, #8A5A00); }"
+      "css": ".ds-chip { display:inline-flex; align-items:center; height:20px; padding:0 8px; border-radius:999px; background:var(--accent-tint, rgba(34,84,51,.12)); color:var(--accent, #225433); font-family:var(--font, Verdana, system-ui, sans-serif); font-size:11px; line-height:1; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; white-space:nowrap; } .ds-chip--warn { background:color-mix(in srgb, var(--warn, #8A5A00) 14%, transparent); color:var(--warn, #8A5A00); }"
     },
     {
       "name": "List Card",
@@ -291,7 +291,7 @@
       "refersTo": "list-card",
       "description": "The time entry as a list row: dot, what the user typed, the number. Separators inset to the text origin.",
       "html": "<div class=\"ds-card\"><div class=\"ds-row\"><span class=\"ds-dot\" style=\"--pc:#0080BD\"></span><span><b class=\"ds-row__t\">API review</b><span class=\"ds-row__s\">Platform · Code review</span></span><span class=\"ds-row__v\">1:45</span></div><div class=\"ds-row\"><span class=\"ds-dot\" style=\"--pc:#CC4F00\"></span><span><b class=\"ds-row__t\">Standup</b><span class=\"ds-row__s\">Internal · Meetings</span></span><span class=\"ds-row__v\">0:15</span></div></div>",
-      "css": ".ds-card { background:var(--surface, #fff); border-radius:14px; padding:2px 18px; font-family:var(--font, 'Instrument Sans', system-ui, sans-serif); font-variant-numeric:tabular-nums; } .ds-row { position:relative; display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:14px; padding:10px 0; } .ds-row + .ds-row::before { content:''; position:absolute; top:0; left:23px; right:0; border-top:1px solid var(--separator, rgba(20,22,16,.09)); } .ds-dot { width:9px; height:9px; border-radius:50%; background:var(--pc); } .ds-row__t { display:block; font-size:17px; line-height:22px; font-weight:600; color:var(--label, #1B1D17); } .ds-row__s { display:block; font-size:15px; line-height:20px; color:var(--label-secondary, #676B60); } .ds-row__v { font-size:17px; font-weight:600; color:var(--label, #1B1D17); }"
+      "css": ".ds-card { background:var(--surface, #fff); border-radius:14px; padding:2px 18px; font-family:var(--font, Verdana, system-ui, sans-serif); font-variant-numeric:tabular-nums; } .ds-row { position:relative; display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:14px; padding:10px 0; } .ds-row + .ds-row::before { content:''; position:absolute; top:0; left:23px; right:0; border-top:1px solid var(--separator, rgba(20,22,16,.09)); } .ds-dot { width:9px; height:9px; border-radius:50%; background:var(--pc); } .ds-row__t { display:block; font-size:17px; line-height:22px; font-weight:600; color:var(--label, #1B1D17); } .ds-row__s { display:block; font-size:15px; line-height:20px; color:var(--label-secondary, #676B60); } .ds-row__v { font-size:17px; font-weight:600; color:var(--label, #1B1D17); }"
     },
     {
       "name": "Day Bar",
@@ -307,14 +307,14 @@
       "refersTo": "toast",
       "description": "Dark in both themes; its action uses the fixed toast accent, never the theme accent.",
       "html": "<div class=\"ds-toast\"><span class=\"ds-toast__dot\"></span><span>Deleted “Standup”.</span><button class=\"ds-toast__action\">Undo</button></div>",
-      "css": ".ds-toast { display:inline-flex; align-items:center; gap:12px; height:52px; padding:0 20px; border-radius:14px; background:color-mix(in srgb, var(--toast-bg, #1E221C) 90%, transparent); color:var(--on-toast, #EFF2EA); font-family:var(--font, \"Instrument Sans\", system-ui, sans-serif); font-size:16px; } .ds-toast__dot { width:8px; height:8px; border-radius:50%; background:var(--toast-accent, #A9CB4B); } .ds-toast__action { background:none; border:0; font:inherit; font-weight:600; color:var(--toast-accent, #A9CB4B); cursor:pointer; } .ds-toast__action:focus-visible { outline:2px solid var(--toast-accent, #A9CB4B); outline-offset:2px; }"
+      "css": ".ds-toast { display:inline-flex; align-items:center; gap:12px; height:52px; padding:0 20px; border-radius:14px; background:color-mix(in srgb, var(--toast-bg, #1E221C) 90%, transparent); color:var(--on-toast, #EFF2EA); font-family:var(--font, Verdana, system-ui, sans-serif); font-size:16px; } .ds-toast__dot { width:8px; height:8px; border-radius:50%; background:var(--toast-accent, #B5BF00); } .ds-toast__action { background:none; border:0; font:inherit; font-weight:600; color:var(--toast-accent, #B5BF00); cursor:pointer; } .ds-toast__action:focus-visible { outline:2px solid var(--toast-accent, #B5BF00); outline-offset:2px; }"
     }
   ],
   "narrative": {
     "northStar": "The Honest Ledger",
-    "overview": "TimeFlow is a record, and the design behaves like one. It is quiet, exact and has no decoration. Colour carries meaning or it isn't there. Numbers sit in tabular columns that never jitter. Missing time is drawn at the same scale as logged time, so a gap can't hide. The system comes from the 2026-09 \"first-party\" redesign: content first, one unmistakable primary action per screen, a real type hierarchy on an 8pt grid, one accent, and depth from material rather than shadow. It uses no Apple fonts, icons or layouts. The discipline is borrowed, the look is not.\n\nThe density is calm rather than sparse. A screen shows the day as a shape before it shows it as numbers: a bar, a ring, a block on a grid. One sentence explains the shape instead of a KPI strip repeating it. The palette is warm paper and ink with a single darkened Everence green that means \"you can act here\". Every other colour on screen is a project's own colour, used on that project's marks only.",
+    "overview": "TimeFlow is a record, and the design behaves like one. It is quiet, exact and has no decoration. Colour carries meaning or it isn't there. Numbers sit in tabular columns that never jitter. Missing time is drawn at the same scale as logged time, so a gap can't hide. The system comes from the 2026-09 \"first-party\" redesign: content first, one unmistakable primary action per screen, a real type hierarchy on an 8pt grid, one accent, and depth from material rather than shadow. It uses no Apple fonts, icons or layouts. The discipline is borrowed, the look is not.\n\nThe density is calm rather than sparse. A screen shows the day as a shape before it shows it as numbers: a bar, a ring, a block on a grid. One sentence explains the shape instead of a KPI strip repeating it. The palette is warm paper and ink with a single Everence Forest green that means \"you can act here\". Every other colour on screen is a project's own colour, used on that project's marks only.",
     "keyCharacteristics": [
-      "One typeface (Instrument Sans, self-hosted), ten type steps, tabular figures everywhere.",
+      "One typeface (Verdana, the Everence brand's digital face), ten type steps, tabular figures everywhere.",
       "Two readable text colours per theme; a third grey exists only for non-text marks.",
       "One accent, used for actions. Project colours are data and appear only on that project's marks.",
       "Flat content on a warm canvas; material and a single hairline only for what floats or dismisses.",

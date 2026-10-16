@@ -426,3 +426,39 @@ sheet, not Start, not the CSV export. So the brief's line told people their
 billing fields were filled when the export wrote them blank. The note now says
 the values are not filled in from the project and asks for them per entry.
 Prefilling them was considered and not chosen for now, so the fix is the words.
+
+**The app follows the Everence brand guide where the brief departed from it.**
+The brief was written without the guide to hand, and a review against it found
+four things the guide rules out. The rest of the system is unchanged.
+
+- *Typeface.* The guide names Frutiger as the primary face and Verdana as its
+  alternate for digital applications. Instrument Sans is neither, so the app
+  sets Verdana and the self-hosted woff2 is gone. Every Windows and Mac desktop
+  already has Verdana, so nothing has to stay under the inline limit (#116),
+  and still no request leaves the tenant. The ten steps and their tracking are
+  kept. Verdana has no 600, so those steps render bold, and it sets wider: the
+  timer's description field now has its minimum width in `ch`, not px.
+- *Accent.* `#5A7800` was the brand green darkened by hand. The guide marks
+  Forest, Grass, Navy and Royal as the colours to prioritise on the web. Grass
+  is the nearest green and reads at 4.4:1 on the canvas, just short of AA, so
+  light takes Forest (`#225433`, 8.4:1). Forest disappears on the dark canvas
+  (2.2:1), so dark takes Lime (`#B5BF00`, 9.4:1), which keeps the brief's
+  "lightest thing on screen" role. The toast's accent follows, and Lemon
+  (`#F3AE00`) replaces the hand-picked amber wherever it reads (dark `--warn`
+  and the toast). Light `--warn` and both `--danger` values stay darkened.
+  The palette has no red, and Pumpkin and Lemon don't clear AA on the light
+  canvas as they come.
+- *Canvas.* `#FBFBF8` becomes the guide's Warm Gray 1, `#FAFAF7`.
+- *Brandmark.* The guide forbids unauthorised lock-ups of the symbol and
+  wordmark, and any text added to the brandmark. The cropped emblem beside a
+  "Timeflow" word was both. The sidebar now carries the whole stacked brandmark
+  at 112px wide. Light mode uses the positive artwork. Dark mode uses the
+  reversed artwork with a white wordmark, which the guide approves on
+  backgrounds of 80% black or darker. The brief's reason for dropping the
+  wordmark doesn't survive that. "TimeFlow" is a separate line below the mark,
+  one "E" height clear of it. `everence-mark.png` is deleted.
+  `everence-logo-stacked-reversed.png` was made by turning the charcoal
+  wordmark pixels white, which is what the guide's reversed version shows.
+  Both stacked files, and `everence-logo.png` (the Power Apps tile), still lack
+  the registered mark (®) the guide requires. They should be replaced with
+  approved artwork from Marketing.

@@ -20,7 +20,8 @@ import { minutesOfDay, clockAt } from "./utils/dates";
 
 import type { TimeEntry } from "./types";
 import type { TimerDraft } from "./components/TimerPage";
-import markUrl from "./everence-mark.png";
+import logoUrl from "./everence-logo-stacked.png";
+import logoReversedUrl from "./everence-logo-stacked-reversed.png";
 
 /**
  * Five items, six for managers. Text, not icons: there is no icon set in this
@@ -217,10 +218,12 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void; userName: 
     <div className="app">
       <aside className="sidebar">
         <div className="sidebar__brand">
-          {/* The mark only. The full logo's charcoal wordmark does not survive
-              dark mode, so the word is set in the app's own typeface. */}
-          <img src={markUrl} alt="" className="sidebar__mark" />
-          <span className="sidebar__wordmark">Timeflow</span>
+          {/* The whole brandmark, never the symbol beside our own word: the
+              brand guide forbids both a new lock-up and added text. Dark mode
+              gets the guide's reversed version rather than no wordmark. */}
+          <img src={logoUrl} alt="Everence" className="sidebar__logo sidebar__logo--positive" />
+          <img src={logoReversedUrl} alt="Everence" className="sidebar__logo sidebar__logo--reversed" />
+          <div className="sidebar__app-name">TimeFlow</div>
         </div>
         <nav className="sidebar__nav">
           {navItems.map(({ key, label }) => (
@@ -380,7 +383,7 @@ const IsolationAlarm: React.FC = () => {
   const toast = useToast();
   const [explained, setExplained] = useState(false);
   const details =
-    "Timeflow read time entries belonging to other users. Dataverse row-level security for " +
+    "TimeFlow read time entries belonging to other users. Dataverse row-level security for " +
     "ever_timeentries is misconfigured — see the README's \"Dataverse Security Configuration\" " +
     "section. The app filters reads server-side with eq-userid; client-side filtering is not " +
     "the security boundary.";

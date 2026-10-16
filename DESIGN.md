@@ -2,11 +2,11 @@
 name: TimeFlow
 description: The Everence billable-time record — a quiet, exact ledger of the working day.
 colors:
-  field-green: "#5A7800"
-  field-green-tint: "rgba(90,120,0,.12)"
-  field-green-tint-hover: "rgba(90,120,0,.07)"
+  field-green: "#225433"
+  field-green-tint: "rgba(34,84,51,.12)"
+  field-green-tint-hover: "rgba(34,84,51,.07)"
   on-field-green: "#FFFFFF"
-  paper-white: "#FBFBF8"
+  paper-white: "#FAFAF7"
   sheet-white: "#FFFFFF"
   material: "rgba(255,255,255,.72)"
   material-sheet: "rgba(255,255,255,.96)"
@@ -17,7 +17,7 @@ colors:
   dim-display: "#8A9083"
   rust-danger: "#A33E00"
   ochre-warn: "#8A5A00"
-  night-field-green: "#A9CB4B"
+  night-field-green: "#B5BF00"
   night-on-field-green: "#12150F"
   charcoal-night: "#0F110E"
   night-surface: "#191C17"
@@ -26,11 +26,11 @@ colors:
   night-decor: "#767C6E"
   night-dim-display: "#6A7065"
   night-danger: "#F0925F"
-  night-warn: "#F0B34A"
+  night-warn: "#F3AE00"
   toast-bg: "#1E221C"
   on-toast: "#EFF2EA"
-  toast-accent: "#A9CB4B"
-  toast-warn: "#F0B34A"
+  toast-accent: "#B5BF00"
+  toast-warn: "#F3AE00"
   project-green: "#719500"
   project-lime: "#B5BF00"
   project-robin: "#4DC5E2"
@@ -44,59 +44,59 @@ colors:
   project-charcoal: "#4B5457"
 typography:
   timer:
-    fontFamily: "Instrument Sans, system-ui, -apple-system, sans-serif"
+    fontFamily: "Verdana, Geneva, DejaVu Sans, sans-serif"
     fontSize: "96px"
     fontWeight: 400
     lineHeight: "92px"
     letterSpacing: "-0.038em"
     fontFeature: "tnum"
   display:
-    fontFamily: "Instrument Sans, system-ui, -apple-system, sans-serif"
+    fontFamily: "Verdana, Geneva, DejaVu Sans, sans-serif"
     fontSize: "56px"
     fontWeight: 600
     lineHeight: "58px"
     letterSpacing: "-0.03em"
   large-title:
-    fontFamily: "Instrument Sans, system-ui, -apple-system, sans-serif"
+    fontFamily: "Verdana, Geneva, DejaVu Sans, sans-serif"
     fontSize: "34px"
     fontWeight: 600
     lineHeight: "40px"
     letterSpacing: "-0.025em"
   title1:
-    fontFamily: "Instrument Sans, system-ui, -apple-system, sans-serif"
+    fontFamily: "Verdana, Geneva, DejaVu Sans, sans-serif"
     fontSize: "28px"
     fontWeight: 600
     lineHeight: "34px"
     letterSpacing: "-0.02em"
   title2:
-    fontFamily: "Instrument Sans, system-ui, -apple-system, sans-serif"
+    fontFamily: "Verdana, Geneva, DejaVu Sans, sans-serif"
     fontSize: "22px"
     fontWeight: 600
     lineHeight: "28px"
     letterSpacing: "-0.015em"
   headline:
-    fontFamily: "Instrument Sans, system-ui, -apple-system, sans-serif"
+    fontFamily: "Verdana, Geneva, DejaVu Sans, sans-serif"
     fontSize: "17px"
     fontWeight: 600
     lineHeight: "22px"
   body:
-    fontFamily: "Instrument Sans, system-ui, -apple-system, sans-serif"
+    fontFamily: "Verdana, Geneva, DejaVu Sans, sans-serif"
     fontSize: "17px"
     fontWeight: 400
     lineHeight: "24px"
     fontFeature: "tnum"
   subhead:
-    fontFamily: "Instrument Sans, system-ui, -apple-system, sans-serif"
+    fontFamily: "Verdana, Geneva, DejaVu Sans, sans-serif"
     fontSize: "15px"
     fontWeight: 400
     lineHeight: "20px"
   footnote:
-    fontFamily: "Instrument Sans, system-ui, -apple-system, sans-serif"
+    fontFamily: "Verdana, Geneva, DejaVu Sans, sans-serif"
     fontSize: "13px"
     fontWeight: 400
     lineHeight: "18px"
   group-label:
-    fontFamily: "Instrument Sans, system-ui, -apple-system, sans-serif"
+    fontFamily: "Verdana, Geneva, DejaVu Sans, sans-serif"
     fontSize: "12px"
     fontWeight: 600
     lineHeight: "16px"
@@ -198,7 +198,7 @@ discipline is borrowed, the look is not.
 The density is calm rather than sparse. A screen shows the day as a shape
 before it shows it as numbers: a bar, a ring, a block on a grid. One sentence
 explains the shape instead of a KPI strip repeating it. The palette is warm
-paper and ink with a single darkened Everence green that means "you can act
+paper and ink with a single Everence Forest green that means "you can act
 here". Every other colour on screen is a project's own colour, used on that
 project's marks only.
 
@@ -207,7 +207,7 @@ shadows on content, icon-set navigation, and any "tertiary" text colour that
 can't be read.
 
 **Key Characteristics:**
-- One typeface (Instrument Sans, self-hosted), ten type steps, tabular figures everywhere.
+- One typeface (Verdana, the Everence brand's digital face), ten type steps, tabular figures everywhere.
 - Two readable text colours per theme; a third grey exists only for non-text marks.
 - One accent, used for actions. Project colours are data and appear only on that project's marks.
 - Flat content on a warm canvas; material and a single hairline only for what floats or dismisses.
@@ -216,26 +216,26 @@ can't be read.
 
 ## Colors
 
-Warm paper and near-black ink, one darkened Everence green for action, and an
+Warm paper and near-black ink, Everence Forest for action, and an
 eleven-colour brand palette reserved for projects.
 
 ### Primary
-- **Everence Field Green** (#5A7800 light / #A9CB4B dark): means "you can act here" and nothing else. Used for the primary pill (once per screen), the active nav item, the focus ring, the running-timer eyebrow and pulse, and actionable values. In light mode it is the Everence green darkened to 4.9:1 on canvas. In dark mode it flips to the lightest mark on screen, and text on it turns dark (#12150F).
+- **Everence Field Green** (Forest #225433 light / Lime #B5BF00 dark): means "you can act here" and nothing else. Used for the primary pill (once per screen), the active nav item, the focus ring, the running-timer eyebrow and pulse, and actionable values. In light mode it is Everence Forest, one of the four colours the brand guide prioritises for web accessibility, at 8.4:1 on canvas. In dark mode it flips to Everence Lime, the lightest mark on screen, and text on it turns dark (#12150F).
 - **Field Green Tint** (accent at 12% light / 16% dark): secondary pills, selected nav, chips, text selection, drag selection. The 7% / 9% hover tint is the app's universal hover wash.
 
 ### Secondary
-- **Rust** (#A33E00 light / #F0925F dark): destructive text and the data-isolation alarm. Destructive actions never get a fill.
-- **Ochre** (#8A5A00 light / #F0B34A dark): untracked-gap hatching, missing-day flags, warn chips. Ochre means "time is missing here".
+- **Rust** (#A33E00 light / #F0925F dark): destructive text and the data-isolation alarm. Destructive actions never get a fill. Rust and light Ochre are Pumpkin and Lemon darkened to clear AA; the brand palette has no red, and neither hue reads on the light canvas as it comes.
+- **Ochre** (#8A5A00 light / Everence Lemon #F3AE00 dark): untracked-gap hatching, missing-day flags, warn chips. Ochre means "time is missing here".
 
 ### Tertiary: the project palette
 - **Everence brand colours** (Green #719500, Lime #B5BF00, Robin #4DC5E2, Blue #0080BD, Pumpkin #CC4F00, Forest #225433, Grass #358450, Navy #003346, Royal #00739F, Lemon #F3AE00, Charcoal #4B5457): the only colours a project can be painted in. The picker excludes hues already taken. In dark mode each is lifted 44% toward the ink colour (`--pc-lift`) so the deep brand colours stay visible on a dark canvas.
 
 ### Neutral
-- **Paper White** (#FBFBF8): the light window canvas, a warm off-white.
+- **Paper White** (#FAFAF7): the light window canvas, Everence Warm Gray 1.
 - **Sheet White** (#FFFFFF): grouped list cards and inputs, one step up from the canvas.
 - **Charcoal Night** (#0F110E) / **Night Surface** (#191C17): the dark canvas and card.
 - **Ink** (#1B1D17 / #EFF2EA): all primary text.
-- **Ink Secondary** (#676B60 / #A2A89A): every secondary line in the app, at 5.3:1 and 7.8:1.
+- **Ink Secondary** (#676B60 / #A2A89A): every secondary line in the app, at 5.2:1 and 7.8:1.
 - **Decor Sage** (#9BA093 / #767C6E): **non-text only**. Dots, bar tracks, empty fills, placeholders, scrollbar thumbs.
 - **Dim Display** (#8A9083 / #6A7065): the 96px idle clock, and nothing else.
 - **Hairline** (ink at 9% / 11%): separators and the one inset ring on floating material.
@@ -249,14 +249,16 @@ eleven-colour brand palette reserved for projects.
 
 ## Typography
 
-**Display Font:** Instrument Sans (with system-ui, -apple-system, sans-serif)
-**Body Font:** Instrument Sans, the same family
+**Display Font:** Verdana (with Geneva, DejaVu Sans, sans-serif)
+**Body Font:** Verdana, the same family
 **Label/Mono Font:** none separate; tabular figures come from `font-variant-numeric: tabular-nums` set once on `body`.
 
-**Character:** a single variable grotesk used at ten fixed steps. Tight negative
+**Character:** the Everence brand guide's alternate for digital use, since its
+primary face, Frutiger, isn't on most machines. Ten fixed steps, tight negative
 tracking on the large sizes, neutral at reading sizes, and one tracked uppercase
-label for group headings. It is self-hosted (latin subset, woff2) so no request
-leaves the tenant.
+label for group headings. Verdana is installed on every Windows and Mac desktop,
+so nothing is bundled and no request leaves the tenant. It has a regular and a
+bold only, so 600 renders as bold.
 
 ### Hierarchy
 - **Timer** (400, 96px / 92px, −0.038em): the running clock, one per app.
@@ -358,7 +360,7 @@ One shape: the pill.
 ### Navigation
 - **Style:** text only, with no icon set. 44px rows at 8px radius, 15px Ink text, on a sidebar tinted 3% toward ink with a hairline right edge.
 - **States:** hover adds the 7% accent wash. Active uses Field Green Tint fill with Field Green text at 600.
-- **Brand:** the Everence emblem at 22px plus the "TimeFlow" wordmark in Instrument Sans. The full logo's wordmark doesn't survive dark mode.
+- **Brand:** the stacked Everence brandmark, whole, at 112px wide: the positive artwork in light and the reversed (white wordmark) artwork in dark. "TimeFlow" sits below it as its own line, one "E" height (24px) clear of the mark. The symbol never appears alone or beside other words, which the brand guide forbids as an unauthorised lock-up.
 
 ### Segmented Control
 A filter that shows its own alternatives: a 30px pill track at 6% ink, 26px
