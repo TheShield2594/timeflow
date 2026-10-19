@@ -457,8 +457,7 @@ four things the guide rules out. The rest of the system is unchanged.
   backgrounds of 80% black or darker. The brief's reason for dropping the
   wordmark doesn't survive that. "TimeFlow" is a separate line below the mark,
   one "E" height clear of it. `everence-mark.png` is deleted.
-  `everence-logo-stacked-reversed.png` was made by turning the charcoal
-  wordmark pixels white, which is what the guide's reversed version shows.
-  Both stacked files, and `everence-logo.png` (the Power Apps tile), still lack
-  the registered mark (®) the guide requires. They should be replaced with
-  approved artwork from Marketing.
+  Both stacked files come from `everence-logo.png`, the approved artwork:
+  the positive one trimmed to the mark, and the reversed one with its
+  charcoal wordmark turned white, which is what the guide's reversed version
+  shows.
