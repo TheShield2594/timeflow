@@ -21,6 +21,15 @@ against user-visible behaviour, as described in
 
 ## Unreleased
 
+### Changed
+
+- The app now follows the Everence brand guide. Type is set in Verdana, the
+  guide's face for digital use, instead of Instrument Sans. The accent is
+  Everence Forest in light mode and Lime in dark. The canvas is the brand's
+  Warm Gray 1. The sidebar shows the whole Everence brandmark, reversed in
+  dark mode, with "TimeFlow" as its own line beneath it, rather than the
+  cropped emblem beside our own wordmark.
+
 ### Fixed
 
 - The entry sheet no longer claims the ratio and Jira ticket are "inherited"

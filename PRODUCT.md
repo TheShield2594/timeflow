@@ -84,8 +84,15 @@ Outlook meetings shown as ghost blocks.
 
 ## Brand Commitments
 
-- Name: **TimeFlow**, an internal Everence app. Assets: `src/everence-logo.png`
-  and `src/everence-mark.png`.
+- Name: **TimeFlow**, an internal Everence app. Assets: the stacked brandmark
+  in `src/everence-logo-stacked.png` (positive) and
+  `src/everence-logo-stacked-reversed.png` (dark mode), and
+  `src/everence-logo.png` as the Power Apps tile. `everence-logo.png` is the
+  approved artwork; the stacked files are trimmed from it, and the reversed
+  one only turns its charcoal wordmark white.
+- The Everence brand guide governs: the brandmark is never cropped, recoloured
+  or set beside other words; type is Verdana, the guide's digital alternate to
+  Frutiger; the accent is Everence Forest (Lime in dark).
 - The Everence green brand palette (`--ev-*`) is kept, but only as the
   **project** palette.
 - Voice: plain and specific. The app says what happened and what to do next, in

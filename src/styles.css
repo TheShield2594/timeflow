@@ -22,24 +22,19 @@
       only colours a reader ever reads; --decor is for marks that carry no
       information, and styles.contrast.test.ts fails the build if a rule
       puts a font-size on it. --dim-display is the one deliberate
-      exception, at 3.2:1, and only at the 96px idle clock.
+      exception, at 3.1:1, and only at the 96px idle clock.
    ===================================================================== */
 
 /* =====================================================================
-   TYPEFACE — Instrument Sans (self-hosted variable font, latin subset)
-   Bundled locally rather than pulled from a font CDN so no user request
-   metadata leaves the tenant and the app keeps its typeface in the
-   locked-down Dataverse hosts it runs inside.
+   TYPEFACE — Verdana
+   The Everence brand guide names Frutiger as the primary face and Verdana
+   as its alternate for digital applications, because Frutiger is not on
+   most machines. Verdana is on every Windows and Mac desktop this app is
+   opened from, so nothing is bundled: no font file to keep under the
+   inline limit, and no request leaves the tenant. Verdana ships a regular
+   and a bold, so every 600 in this file renders as its bold. Geneva and
+   DejaVu Sans are the nearest metrics on the machines that lack it.
    ===================================================================== */
-@font-face {
-  font-family: "Instrument Sans";
-  font-style: normal;
-  font-weight: 400 700;
-  font-display: swap;
-  src: url("./assets/fonts/instrument-sans-latin-var.woff2") format("woff2");
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
 /* =====================================================================
    EVERENCE BRAND PALETTE
    Kept in full as the reference it always was, but its role is now
@@ -72,7 +67,7 @@
 :root {
   color-scheme: light; /* native pickers, selects and scrollbars follow the theme */
 
-  --canvas:          #FBFBF8;
+  --canvas:          #FAFAF7;  /* Everence Warm Gray 1 */
   --surface:         #FFFFFF;
   --material:        rgba(255,255,255,.72);
   /* A sheet is read *through*, not glanced at: it carries typed values over
@@ -83,15 +78,21 @@
   --material-sheet:  rgba(255,255,255,.96);
   --separator:       rgba(20,22,16,.09);
 
-  --label:           #1B1D17;  /* 16.4:1 on canvas */
-  --label-secondary: #676B60;  /* 5.3:1 on canvas — every secondary line in the app */
+  --label:           #1B1D17;  /* 16.3:1 on canvas */
+  --label-secondary: #676B60;  /* 5.2:1 on canvas — every secondary line in the app */
   --decor:           #9BA093;  /* NON-TEXT ONLY: dots, bar tracks, empty-bar fills */
-  --dim-display:     #8A9083;  /* 3.2:1 — the idle clock at 96px, nothing else */
+  --dim-display:     #8A9083;  /* 3.1:1 — the idle clock at 96px, nothing else */
 
-  --accent:          #5A7800;  /* 4.9:1 on canvas — Everence green, darkened */
-  --accent-tint:     rgba(90,120,0,.12);
-  --accent-tint-hover: rgba(90,120,0,.07);
-  --on-accent:       #FFFFFF;  /* 5.1:1 the other way round */
+  /* Forest is one of the four colours the brand guide prioritises for web
+     accessibility. Its Green and Grass are the obvious picks and both fall
+     short on this canvas (3.4:1 and 4.4:1), so the darker green carries it. */
+  --accent:          #225433;  /* 8.4:1 on canvas — Everence Forest */
+  --accent-tint:     rgba(34,84,51,.12);
+  --accent-tint-hover: rgba(34,84,51,.07);
+  --on-accent:       #FFFFFF;  /* 8.8:1 the other way round */
+  /* The palette has no red, and its Pumpkin and Lemon read at 4.3:1 and
+     1.9:1 here, so both status colours are those two hues darkened until
+     they clear AA. Dark mode can take Lemon as it comes. */
   --danger:          #A33E00;
   --warn:            #8A5A00;
 
@@ -104,16 +105,17 @@
   --pc-lift-with: #FFFFFF;
 
   /* The toast is dark in both themes, so it can't borrow the theme's accent:
-     light's #5A7800 sits at about 2.3:1 on it, which made Undo, the one
-     thing a toast asks you to press, the least readable text on screen.
+     light's darkened green once sat at about 2.3:1 on it, which made Undo,
+     the one thing a toast asks you to press, the least readable text on
+     screen, and Forest would be worse.
      These are the dark theme's values, fixed, and the dark block doesn't
      redefine them. --toast-bg is the fill before its 10% show-through. */
   --toast-bg:     #1E221C;
   --on-toast:     #EFF2EA;
-  --toast-accent: #A9CB4B;
-  --toast-warn:   #F0B34A;
+  --toast-accent: #B5BF00;
+  --toast-warn:   #F3AE00;
 
-  --font: "Instrument Sans", system-ui, -apple-system, sans-serif;
+  --font: Verdana, Geneva, "DejaVu Sans", sans-serif;
 
   --sidebar-w:      232px;
   --radius-control: 6px;
@@ -143,12 +145,14 @@
   --decor:           #767C6E;
   --dim-display:     #6A7065;  /* 3.7:1 on canvas — same job, same 96px-only rule */
 
-  --accent:          #A9CB4B;
-  --accent-tint:     rgba(169,203,75,.16);
-  --accent-tint-hover: rgba(169,203,75,.09);
+  /* Forest is a black hole on this canvas (2.2:1), so dark takes the
+     palette's lightest green instead: Everence Lime, 9.4:1. */
+  --accent:          #B5BF00;
+  --accent-tint:     rgba(181,191,0,.16);
+  --accent-tint-hover: rgba(181,191,0,.09);
   --on-accent:       #12150F;
   --danger:          #F0925F;
-  --warn:            #F0B34A;
+  --warn:            #F3AE00;  /* Everence Lemon */
 
   --pc-lift:      44%;
   --pc-lift-with: #EFF2EA;
@@ -693,11 +697,19 @@ button.day-bar__seg--gap:hover { background: color-mix(in srgb, var(--warn) 30%,
   border-right: 1px solid var(--separator);
   overflow-y: auto;
 }
-.sidebar__brand { display: flex; align-items: center; gap: 9px; padding: 0 10px 26px; }
-/* The full logo's charcoal wordmark does not survive dark mode, so only
-   the emblem is used and the wordmark is set in the app's own typeface. */
-.sidebar__mark { width: 22px; height: 22px; display: block; flex: none; }
-.sidebar__wordmark { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--label); }
+/* The stacked brandmark, whole, as the brand guide supplies it: positive on
+   the light sidebar, reversed (white wordmark) on the dark one, which is
+   darker than the 80% black the guide asks of a reversed background. At
+   112px wide the "E" of the wordmark is 19px tall, and the guide's clear
+   space is one "E" on every side — so the 24px above (the sidebar's own
+   padding), beside, and below before the app name, which is its own line
+   in the app's type rather than part of the lock-up. */
+.sidebar__brand { padding: 0 10px 26px; }
+.sidebar__logo { display: block; width: 112px; height: auto; }
+.sidebar__logo--reversed { display: none; }
+:root[data-theme="dark"] .sidebar__logo--positive { display: none; }
+:root[data-theme="dark"] .sidebar__logo--reversed { display: block; }
+.sidebar__app-name { margin-top: 24px; font-size: 15px; font-weight: 600; color: var(--label); }
 
 .sidebar__nav { display: flex; flex-direction: column; gap: 2px; }
 .sidebar__link {
@@ -799,8 +811,10 @@ input.timer-hero__desc::placeholder { color: var(--label-secondary); }
    sits next to. Start is never disabled — with nothing picked it focuses
    this chip and flashes the hint instead. */
 .timer-hero__idle-row { display: flex; align-items: center; gap: 24px; margin-top: 22px; flex-wrap: wrap; }
+/* min-width in ch rather than px so the placeholder fits whatever the face:
+   200px held it in a narrow sans and clipped it in Verdana. */
 .timer-hero__desc-input {
-  flex: 1; min-width: 200px; max-width: 420px; height: 44px; padding: 0;
+  flex: 1; min-width: 24ch; max-width: 420px; height: 44px; padding: 0;
   background: transparent; border: 0; font-size: 17px; color: var(--label);
 }
 .timer-hero__desc-input::placeholder { color: var(--label-secondary); }
