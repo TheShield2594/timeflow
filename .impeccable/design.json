@@ -9,14 +9,14 @@
         "displayName": "Everence Field Green",
         "canonical": "#225433",
         "tonalRamp": [
-          "#1c2600",
-          "#2f3f00",
-          "#435800",
+          "#0b1b10",
+          "#122c1b",
+          "#193e25",
           "#225433",
-          "#789a1f",
-          "#97b84a",
-          "#bdd488",
-          "#e3eecb"
+          "#427553",
+          "#699879",
+          "#9dbea8",
+          "#d5e4da"
         ]
       },
       "night-field-green": {
