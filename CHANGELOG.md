@@ -5,21 +5,55 @@ Notable changes to TimeFlow. Format loosely follows
 against user-visible behaviour, as described in
 [CONTRIBUTING](CONTRIBUTING.md#releases-and-tagging).
 
-> **1.0.0 is cut but not yet tagged.** The `1.0.0` section below is the
-> release; anything under `Unreleased` above it landed after the cut and ships
-> in the next one. `package.json` has read `1.0.0` since the repo was created
-> and now agrees with this file. The tag is what says which build is in production, so it is
-> cut at deploy time, against the commit that was actually shipped: push to
-> Dev, export the managed solution, import and smoke-test, then
-> `git tag -a v1.0.0 -m "Deployed to prod <date>" && git push origin v1.0.0` — see
-> [the runbook](docs/RUNBOOK.md#2-deploy). Until that tag exists there is still
-> no way to answer "what is prod running?", which is
-> [#112](https://github.com/TheShield2594/timeflow/issues/112); every deploy
-> after this one gets its own tag.
+> **1.0.0 is the first tagged release** and is the build Prod runs. Every
+> deploy after it gets its own tag, cut once Prod's import and UAT pass — see
+> [CONTRIBUTING](CONTRIBUTING.md#releases-and-tagging).
 
 ---
 
 ## Unreleased
+
+---
+
+## 1.0.0 — 2026-10-20
+
+### Added
+
+- Timer with keyboard shortcut, persistence across refresh, and multi-tab sync.
+- Timesheet: day-grouped entries, search, project filter, manual entry, delete
+  with undo.
+- Week calendar: 24-hour grid with overlap layout, drag to create, resize and
+  reschedule (Shift+arrows by keyboard), the running session drawn live, and
+  untracked gaps surfaced as one-click log targets.
+- The week's shape under the timer: a ring of hours tracked against an editable
+  weekly target, a day-by-day bar, one sentence saying whether the target is
+  still reachable with the days left, and a one-click restart of the last thing
+  worked on.
+- Reports: this week / last week / month / quarter, each with the period's
+  total against the period before it, a bar chart with the average drawn
+  across it, a **Where it went** project breakdown whose percentages are
+  allocated to sum to 100, and **Top tasks**. A period with nothing in it
+  offers the narrowest one that does have data rather than dead-ending.
+- Projects and tasks management with archive/restore and delete-with-undo.
+- CSV export with billing-style rounding, Jira ticket and ratio columns.
+- Manager **Team** view built on Dataverse hierarchy security, with its own CSV
+  export.
+- Outlook meeting overlay with log-from-meeting, three-state visibility and
+  per-subject muting.
+- Focus mode (Pomodoro) layered on the timer, with a daily block count.
+- Idle detection and a 12-hour auto-stop safety net (client-side — see the
+  README).
+- Light and dark themes; reduced-motion support.
+- Dataverse backend via the `@microsoft/power-apps` SDK, with a localStorage
+  mock for local development.
+- Production telemetry: error-boundary catches, both data-isolation canaries,
+  truncated Dataverse loads and a failed bootstrap task load now reach a sink
+  (Application Insights or any JSON webhook) instead of dying in the affected
+  user's console. Optional — unconfigured, the app behaves exactly as before
+  ([#111](https://github.com/TheShield2594/timeflow/issues/111)).
+- An offline banner. Nothing is disabled: a save attempted during an outage
+  still goes through the retry path
+  ([#97](https://github.com/TheShield2594/timeflow/issues/97)).
 
 ### Changed
 
@@ -29,6 +63,27 @@ against user-visible behaviour, as described in
   Warm Gray 1. The sidebar shows the whole Everence brandmark, reversed in
   dark mode, with "TimeFlow" as its own line beneath it, rather than the
   cropped emblem beside our own wordmark.
+- **The 2026-09 redesign.** The app was rebuilt on one design system — one
+  typeface, one accent, an 8pt grid, ten type steps, two text colours per
+  theme, and no shadow on content. Three of its rules are asserted by
+  `src/styles.contrast.test.ts` and fail the build rather than a review. The
+  brief and every deviation from it are in
+  [docs/design/2026-09-redesign-handoff.md](docs/design/2026-09-redesign-handoff.md).
+- Three things went with it, each replaced by something that says the same
+  thing once. The **Overview** page: its content is the lower half of the timer
+  screen. The three-card **KPI strip** and the day-streak counter beside it:
+  the week rail answers the only question the strip was ever asked — am I going
+  to make it — and a streak gamifies compliance in a billing app, where the
+  target is a plan and not a rule somebody is marked against. And the **Project
+  × Period matrix** ([#150](https://github.com/TheShield2594/timeflow/issues/150)),
+  taking Reports' all-time range with it; the four presets above are what
+  Reports offers now.
+- Dates read month-first and clocks read 12-hour — `8 September` and `17:30`
+  are not what a US-based company reads
+  ([#152](https://github.com/TheShield2594/timeflow/issues/152)). The 24-hour
+  form survives only as the value `<input type="time">` takes.
+- Pages read their data from a context rather than from props, which is what
+  let the entry sheet grow a `Date` row and the calendar keep its geometry.
 
 ### Fixed
 
@@ -84,75 +139,6 @@ against user-visible behaviour, as described in
   long name squeezed the badge until its label wrapped and the second line
   fell out of the pill into Monday's bar. The name gives way now — it is the
   one of the two that can lose characters and still be read.
-
----
-
-## 1.0.0 — 2026-09-09
-
-### Added
-
-- Timer with keyboard shortcut, persistence across refresh, and multi-tab sync.
-- Timesheet: day-grouped entries, search, project filter, manual entry, delete
-  with undo.
-- Week calendar: 24-hour grid with overlap layout, drag to create, resize and
-  reschedule (Shift+arrows by keyboard), the running session drawn live, and
-  untracked gaps surfaced as one-click log targets.
-- The week's shape under the timer: a ring of hours tracked against an editable
-  weekly target, a day-by-day bar, one sentence saying whether the target is
-  still reachable with the days left, and a one-click restart of the last thing
-  worked on.
-- Reports: this week / last week / month / quarter, each with the period's
-  total against the period before it, a bar chart with the average drawn
-  across it, a **Where it went** project breakdown whose percentages are
-  allocated to sum to 100, and **Top tasks**. A period with nothing in it
-  offers the narrowest one that does have data rather than dead-ending.
-- Projects and tasks management with archive/restore and delete-with-undo.
-- CSV export with billing-style rounding, Jira ticket and ratio columns.
-- Manager **Team** view built on Dataverse hierarchy security, with its own CSV
-  export.
-- Outlook meeting overlay with log-from-meeting, three-state visibility and
-  per-subject muting.
-- Focus mode (Pomodoro) layered on the timer, with a daily block count.
-- Idle detection and a 12-hour auto-stop safety net (client-side — see the
-  README).
-- Light and dark themes; reduced-motion support.
-- Dataverse backend via the `@microsoft/power-apps` SDK, with a localStorage
-  mock for local development.
-- Production telemetry: error-boundary catches, both data-isolation canaries,
-  truncated Dataverse loads and a failed bootstrap task load now reach a sink
-  (Application Insights or any JSON webhook) instead of dying in the affected
-  user's console. Optional — unconfigured, the app behaves exactly as before
-  ([#111](https://github.com/TheShield2594/timeflow/issues/111)).
-- An offline banner. Nothing is disabled: a save attempted during an outage
-  still goes through the retry path
-  ([#97](https://github.com/TheShield2594/timeflow/issues/97)).
-
-### Changed
-
-- **The 2026-09 redesign.** The app was rebuilt on one design system — one
-  typeface, one accent, an 8pt grid, ten type steps, two text colours per
-  theme, and no shadow on content. Three of its rules are asserted by
-  `src/styles.contrast.test.ts` and fail the build rather than a review. The
-  brief and every deviation from it are in
-  [docs/design/2026-09-redesign-handoff.md](docs/design/2026-09-redesign-handoff.md).
-- Three things went with it, each replaced by something that says the same
-  thing once. The **Overview** page: its content is the lower half of the timer
-  screen. The three-card **KPI strip** and the day-streak counter beside it:
-  the week rail answers the only question the strip was ever asked — am I going
-  to make it — and a streak gamifies compliance in a billing app, where the
-  target is a plan and not a rule somebody is marked against. And the **Project
-  × Period matrix** ([#150](https://github.com/TheShield2594/timeflow/issues/150)),
-  taking Reports' all-time range with it; the four presets above are what
-  Reports offers now.
-- Dates read month-first and clocks read 12-hour — `8 September` and `17:30`
-  are not what a US-based company reads
-  ([#152](https://github.com/TheShield2594/timeflow/issues/152)). The 24-hour
-  form survives only as the value `<input type="time">` takes.
-- Pages read their data from a context rather than from props, which is what
-  let the entry sheet grow a `Date` row and the calendar keep its geometry.
-
-### Fixed
-
 Findings from the [2026-08-12 application review](docs/reviews/2026-08-12-multi-agent-review.md):
 
 - Calendar drag/resize/nudge no longer corrupts durations on DST days — they
