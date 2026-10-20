@@ -448,7 +448,6 @@ Details and caveats:
 ### Step 4 — Build and push to Dev
 ```bash
 npm run build
-pac env who      # must be Dev — power.config.json currently names Prod
 pac code push
 ```
 

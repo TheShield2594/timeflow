@@ -35,13 +35,6 @@ made in the Prod maker portal, or a `pac code push` aimed at Prod, lands as an
 unmanaged layer on top of the managed one, and that layer then wins over every
 later import. Releases would appear to install and change nothing.
 
-> **`power.config.json` names the Prod environment and app.** A push from a
-> fresh clone is therefore aimed at Prod, which is exactly the unmanaged layer
-> above. Until the committed file points at Dev, check before every push that
-> both `pac env who` and the file's `environmentId` name Dev, and fix whichever
-> doesn't. Prod's app arrives by import; the repo only ever needs to know Dev's
-> ids.
-
 ---
 
 ## 2. Deploy
@@ -55,7 +48,6 @@ imported twice — the zip that passed QA is the zip that goes to Prod.
 git checkout main && git pull
 npm ci
 npm run lint && npm run typecheck && npm test && npm run build
-pac env who                  # Dev — and power.config.json's environmentId too
 pac code push
 ```
 
@@ -65,12 +57,9 @@ refuses to import a managed solution over a newer one. Keep its first three
 parts equal to `package.json` (`1.2.0` → `1.2.0.0`), and raise the fourth for
 a re-export of the same release.
 
-**3. Export it as managed** (Solutions → TimeFlow → Export → Managed, or
-`pac solution export --name <unique name> --managed --path ./TimeFlow_1_2_0_0_managed.zip`
-with `pac` authenticated to Dev).
+**3. Export it as managed** (Solutions → TimeFlow → Export → Managed).
 
-**4. Import into QA** (admin center or `make.powerapps.com` → QA → Solutions →
-Import, or `pac solution import --path <zip>`). Take the default **Upgrade**
+**4. Import into QA** (`make.powerapps.com` → QA → Solutions → Import). Take the default **Upgrade**
 action. Map both connection references to QA's connections when the wizard asks.
 
 **5. Verify QA**: the smoke test below, then
@@ -134,7 +123,6 @@ git fetch --tags
 git checkout v1.1.0          # the tag that was in prod before the bad deploy
 npm ci                       # the lockfile is part of the release
 npm run build
-pac env who                  # Dev, as in §2
 pac code push
 ```
 
@@ -641,8 +629,6 @@ Honest list, so nobody discovers these mid-incident:
   ticked for this environment.
 - **No schema rollback, by design of managed solutions** ([§3.2](#32-dataverse-schema)).
   Columns only ever get added; a removed one takes its data with it.
-- **`power.config.json` points at Prod**, so the repo's default push target is
-  the one environment that must never be pushed to ([§1](#1-what-prod-is)).
 - **Promotion is manual.** Export and both imports are done by hand, so the
   "same zip to QA and Prod" rule and the zip on the GitHub release are only as
   reliable as whoever runs the deploy.
