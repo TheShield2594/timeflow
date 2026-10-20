@@ -109,8 +109,12 @@ git push origin v1.2.0
 
 ## 3. Rollback
 
-The app, the schema and the role travel in one solution, so they roll back
-together. The data does not roll back at all ([§3.3](#33-data)).
+Managed solutions only move forward, so nothing rolls back by reinstalling an
+older version. The app's code can be put back, shipped under a higher revision
+([§3.1](#31-app-code)). Columns a bad release added stay ([§3.2](#32-dataverse-schema)),
+and the role stays as Dev has it — revert a role change in Dev before
+exporting, or it ships again. The data does not roll back at all
+([§3.3](#33-data)).
 
 ### 3.1 App code
 

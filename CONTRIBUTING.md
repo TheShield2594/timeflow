@@ -138,15 +138,16 @@ possible — [rollback](docs/RUNBOOK.md#3-rollback) works by rebuilding a tag.
    the tag and the manifest agree).
 2. Move the `## Unreleased` items in [`CHANGELOG.md`](CHANGELOG.md) under a new
    version heading with today's date.
-3. Commit: `Release vX.Y.Z`.
-4. Tag and push:
-   ```bash
-   git tag -a vX.Y.Z -m "Release vX.Y.Z"
-   git push origin main --follow-tags
-   ```
-5. Deploy and verify per [the runbook](docs/RUNBOOK.md#2-deploy): Dev, then
+3. Commit `Release vX.Y.Z` and push it to `main`.
+4. Deploy and verify per [the runbook](docs/RUNBOOK.md#2-deploy): Dev, then
    QA, then Prod, with the UAT checklist after each import.
-6. Create the GitHub release from the tag, pasting the CHANGELOG section, and
+5. Only once Prod's import and UAT have passed, tag the commit that shipped:
+   ```bash
+   git tag -a vX.Y.Z -m "Deployed to prod YYYY-MM-DD"
+   git push origin vX.Y.Z
+   ```
+   A tag cut before the deploy names a release that may never reach Prod.
+6. Create the GitHub release from that tag, pasting the CHANGELOG section, and
    attach the managed solution zip that went to Prod. It is the only record of
    exactly what Prod's schema and role were at that version.
 
