@@ -17,23 +17,32 @@ path below ends in Dataverse, not in this repo.
 
 ## 1. What "prod" is
 
+Three environments — **Dev**, **QA**, **Prod** — and one managed solution that
+carries everything except the rows:
+
 | Piece | Where it lives | Changed by |
 |---|---|---|
-| App bundle (`dist/`) | The Power Apps Code App in the target environment | `npm run build && pac code push` |
-| Dataverse tables + columns | The target environment's database | Manual table edits today; a managed solution once [#54](https://github.com/TheShield2594/timeflow/issues/54) lands |
-| Security roles / ownership scope | The target environment | Admin, by hand (see [§6](#6-admin-setup-checklist)) |
-| Connection references (Dataverse, Office 365 Outlook) | `power.config.json`, bound per environment | `pac code add-data-source`, then a push |
+| App bundle (`dist/`) | The Code App, a component of the TimeFlow solution | `pac code push` **into Dev only**, then the solution carries it ([§2](#2-deploy)) |
+| Dataverse tables + columns | The TimeFlow solution | Edited in Dev; promoted by importing the managed solution |
+| Security role (TimeFlow User) | The TimeFlow solution | Edited in Dev; promoted with it. Re-verified after every import ([§2](#2-deploy)) |
+| Connection references (Dataverse, Office 365 Outlook) | The TimeFlow solution; bound to a connection per environment at import time | Mapped in the import wizard |
+| Role *assignments*, Manager field, hierarchy security, DLP | Each environment, outside the solution | Admin, by hand ([§6](#6-admin-setup-checklist), [§7](#7-joiners-movers-and-leavers)) |
 | User preferences (target hours, rounding, theme, focus settings) | Each user's browser `localStorage` | Not backed up; not restorable — see [§4](#4-backup-and-restore) |
 
-`power.config.json` currently names one `environmentId` and one `appId`. There
-is no dev/QA/prod split yet — that is exactly what #54 is for. Until it lands,
-"promote to prod" and "deploy" are the same operation against the same
-environment, and **the deploy is not reversible by re-running a pipeline** —
-you have to rebuild the previous version yourself, as below.
+Dev holds the solution **unmanaged** — it is the only place anything is
+edited. QA and Prod hold it **managed** and are never edited directly: a change
+made in the Prod maker portal, or a `pac code push` aimed at Prod, lands as an
+unmanaged layer on top of the managed one, and that layer then wins over every
+later import. Releases would appear to install and change nothing.
 
 ---
 
 ## 2. Deploy
+
+Every release moves Dev → QA → Prod as one managed solution, exported once and
+imported twice — the zip that passed QA is the zip that goes to Prod.
+
+**1. Build and push to Dev.**
 
 ```bash
 git checkout main && git pull
@@ -42,9 +51,34 @@ npm run lint && npm run typecheck && npm test && npm run build
 pac code push
 ```
 
-Then record what shipped — see [Releases](../CONTRIBUTING.md#releases-and-tagging).
-Every deploy gets a tag, so that "what is prod running?" has an answer that
-doesn't depend on anyone's memory:
+**2. Bump the solution version in Dev** (maker portal → Solutions → TimeFlow →
+Settings). It must be higher than the version installed in Prod — Dataverse
+refuses to import a managed solution over a newer one. Keep its first three
+parts equal to `package.json` (`1.2.0` → `1.2.0.0`), and raise the fourth for
+a re-export of the same release.
+
+**3. Export it as managed** (Solutions → TimeFlow → Export → Managed).
+
+**4. Import into QA** (`make.powerapps.com` → QA → Solutions → Import). Take the default **Upgrade**
+action. Map both connection references to QA's connections when the wizard asks.
+
+**5. Verify QA**: the smoke test below, then
+[the data-isolation UAT checklist](UAT-DATA-ISOLATION.md) with two real
+accounts. Both, every time — an import carries the security role, and can
+carry one that replaces the role you verified last time, while every smoke-test
+step still passes over an Organization-owned table because the app's own
+filters hide it ([#91](https://github.com/TheShield2594/timeflow/issues/91)).
+
+**6. Import the same zip into Prod**, map the connection references, and
+repeat step 5 against Prod. File both filled-in UAT checklists with the
+release.
+
+**7. Record what shipped** — see
+[Releases](../CONTRIBUTING.md#releases-and-tagging). Every deploy gets a tag,
+and the managed zip is attached to that tag's GitHub release. The zip is the
+record of exactly what Prod's schema and role were at that version, and what a
+fresh or sandbox environment is built from ([§4](#4-backup-and-restore)); it is
+not a rollback button — managed solutions only move forward ([§3](#3-rollback)).
 
 ```bash
 git tag -a v1.2.0 -m "Deployed to prod 2026-08-13"
@@ -71,25 +105,22 @@ git push origin v1.2.0
    Since the 2026-09 redesign it is a persistent full-width banner rather than
    a toast, so it cannot be missed and cannot be dismissed.
 
-**After a solution import** (not needed for a code-only `pac code push`), the
-smoke test is not enough: run
-[the data-isolation UAT checklist](UAT-DATA-ISOLATION.md) with two real accounts
-and file the filled-in copy with the deploy record. An import can carry a
-security role that replaces the verified one, and every check above still passes
-while the table is Organization-owned — the app's own filters hide it
-([#91](https://github.com/TheShield2594/timeflow/issues/91)).
-
 ---
 
 ## 3. Rollback
 
-A deploy has up to three independent halves, and they roll back separately.
-Work down this list; most incidents only need the first.
+Managed solutions only move forward, so nothing rolls back by reinstalling an
+older version. The app's code can be put back, shipped under a higher revision
+([§3.1](#31-app-code)). Columns a bad release added stay ([§3.2](#32-dataverse-schema)),
+and the role stays as Dev has it — revert a role change in Dev before
+exporting, or it ships again. The data does not roll back at all
+([§3.3](#33-data)).
 
 ### 3.1 App code
 
-There is no "redeploy previous build" button. Rebuild the previous release from
-its tag and push that:
+**Rollback is forward.** A managed solution cannot be downgraded — importing
+an older version over a newer one is refused — so "go back to v1.1.0" means
+shipping v1.1.0's code under a version number higher than the bad one:
 
 ```bash
 git fetch --tags
@@ -99,26 +130,34 @@ npm run build
 pac code push
 ```
 
+Then bump the Dev solution's **revision** past the bad release (bad
+`1.2.0.0` → `1.2.0.1`), export managed, and import into Prod per §2 steps 3–6.
+QA can be skipped in an incident, the UAT checklist against Prod cannot.
+
+If the bad release also changed the schema, Dev's solution still carries those
+changes after the code push — see §3.2 before exporting.
+
 Verify with the smoke test in §2, then note the rollback in `CHANGELOG.md` and
 open an issue for the fix-forward. Leave the reverted tag in place — never
 re-point a tag that has been in prod.
 
 ### 3.2 Dataverse schema
 
-Once [#54](https://github.com/TheShield2594/timeflow/issues/54) ships, schema
-rollback is: import the previous managed-solution version over the current one
-in the target environment (Power Platform admin center → Solutions → Import),
-then redeploy the matching `dist` per §3.1. The two must move together — an old
-bundle against new columns is fine, a new bundle against missing columns is not.
+**An upgrade import deletes whatever the new version no longer contains.**
+Remove a column from the Dev solution, export, import into Prod, and Prod drops
+the column — and every value in it. There is no prompt and no undo short of an
+environment restore ([§4](#4-backup-and-restore)). Two rules follow:
 
-**Until #54 lands there is no schema rollback.** Table and column changes are
-made by hand in the maker portal and are not versioned anywhere. Two rules
-follow from that:
+- Never remove or rename a column that a shipped build reads, and never remove
+  one that holds data you'd want back. Add columns; don't take them away.
+- A schema rollback is therefore not "re-import the old solution". Leave the
+  added columns in place — an old bundle against extra columns is fine, a new
+  bundle against missing columns is not — and roll back only the code, per
+  §3.1.
 
-- Never remove or rename a column that a shipped build reads. Add columns;
-  don't take them away.
-- Screenshot or export the table's column list before any schema change, so
-  "what did it look like before?" is answerable.
+The managed zips attached to each GitHub release are the history of what the
+schema and role looked like at each version; unpack one with
+`pac solution unpack` to read it.
 
 ### 3.3 Data
 
@@ -137,7 +176,7 @@ corrected — see [§4](#4-backup-and-restore) and [§5.2](#52-entries-are-missi
 | Data | Backed up? |
 |---|---|
 | `ever_timeentries`, `ever_projects`, `ever_workitems` rows | Yes — by Dataverse's environment backups, not by anything in this repo |
-| Table schema, security roles | Only as part of a whole-environment backup (and, once #54 lands, as a solution artifact in source control) |
+| Table schema, security role, the app | In every managed solution zip attached to a GitHub release ([§2](#2-deploy) step 7), and in Dev's unmanaged solution. A release whose zip wasn't attached can only be rebuilt from its tag. |
 | Per-user `localStorage` preferences | **No.** Target hours, export rounding, focus settings, the Outlook overlay toggle, muted subjects and "already logged" checkmarks are per-device and unrecoverable. Losing them is cosmetic — the time entries are the record. |
 
 ### Before you need it — confirm these once, then re-confirm yearly
@@ -444,8 +483,12 @@ both operations. Do not redo those steps. What remains per environment:
 
 ### Row security (do this before any real data lands, and after every import)
 
-- [ ] `ever_timeentries` ownership is **User or Team**; role grants Basic
-      (user-scope) Create/Read/Write/Delete.
+- [ ] `ever_timeentries` ownership is **User or Team**; the TimeFlow User role
+      grants Basic (user-scope) Create/Read/Write/Delete. Both arrive with the
+      solution — check them anyway, since that is the point.
+- [ ] The TimeFlow User role is assigned to every user of the app. Role
+      *assignments* are environment data, not solution components: an import
+      never adds or removes one.
 - [ ] `ever_projects` and `ever_workitems` are Organization-owned with Basic
       privileges — shared data, deliberately.
 - [ ] **[Two-account UAT sign-off](UAT-DATA-ISOLATION.md)** filled in and filed
@@ -453,7 +496,7 @@ both operations. Do not redo those steps. What remains per environment:
       isolation toast, Team shows only direct reports, and an unfiltered
       connector call from devtools returns only the caller's own rows
       ([#91](https://github.com/TheShield2594/timeflow/issues/91)). This is the
-      release gate — the three settings above are what you'd *expect* to be
+      release gate — the settings above are what you'd *expect* to be
       true; the checklist is what proves it.
 
 ### Telemetry
@@ -588,7 +631,11 @@ Honest list, so nobody discovers these mid-incident:
   neither environment variable set it is console-only and first line is back to
   depending on the user reading their own console. Confirm §6 § Telemetry is
   ticked for this environment.
-- **No schema rollback** until [#54](https://github.com/TheShield2594/timeflow/issues/54).
+- **No schema rollback, by design of managed solutions** ([§3.2](#32-dataverse-schema)).
+  Columns only ever get added; a removed one takes its data with it.
+- **Promotion is manual.** Export and both imports are done by hand, so the
+  "same zip to QA and Prod" rule and the zip on the GitHub release are only as
+  reliable as whoever runs the deploy.
 - **Backup retention and auditing are unverified** — the checkboxes in §4 have
   never been filled in.
 - **No tested restore.** The sandbox-restore path in §4 is the documented

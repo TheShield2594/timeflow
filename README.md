@@ -154,7 +154,14 @@ problem — is in [docs/RUNBOOK.md](docs/RUNBOOK.md).
 pac auth create --url https://YOUR_ORG.crm.dynamics.com
 ```
 
-### Step 2 — Create Dataverse tables
+### Step 2 — Dataverse tables
+
+The tables, the **TimeFlow User** security role and both connection references
+ship in the TimeFlow managed solution, so QA and Prod get them by import, never
+by hand ([#54](https://github.com/TheShield2594/timeflow/issues/54); procedure in
+[runbook §2](docs/RUNBOOK.md#2-deploy)). What follows is the schema that
+solution must contain — the reference for reviewing a change in Dev, not a
+checklist for building an environment.
 
 The app expects these tables (logical names singular, entity-set names get the
 `-es` pluralization, e.g. `ever_projects` → `ever_projectses`):
@@ -218,7 +225,7 @@ before sign-in resolves (see `useTheme`).
 
 #### Dataverse Security Configuration
 
-Correct table-level security role configuration is required to keep each user's time entries private.
+Correct table-level security role configuration is required to keep each user's time entries private. The **TimeFlow User** role in the solution carries it; assigning that role to each user is done per environment, since assignments are not solution components.
 
 | Table | Ownership scope | Required privileges |
 |---|---|---|
@@ -418,8 +425,9 @@ operations, so step 1 below does *not* need doing again:
    same data group as Microsoft Dataverse, or the platform will refuse to run
    the app with both connectors. This is the most common "worked in dev,
    blocked in prod" failure.
-3. `npm run build && pac code push`. Users get a one-time consent prompt for
-   the new connection on next launch.
+3. Ship a release ([runbook §2](docs/RUNBOOK.md#2-deploy)) and map the
+   Outlook connection reference when importing. Users get a one-time consent
+   prompt for the new connection on next launch.
 
 Steps 2 and 3 are what actually remain — tracked in
 [#130](https://github.com/TheShield2594/timeflow/issues/130), with the full
@@ -437,11 +445,15 @@ Details and caveats:
 - In local dev (`npm run dev`), deterministic mock meetings are served so the
   overlay is demoable without Microsoft 365.
 
-### Step 4 — Build and push
+### Step 4 — Build and push to Dev
 ```bash
 npm run build
 pac code push
 ```
+
+Only ever push to Dev. QA and Prod hold the app as part of the managed
+solution, and a push there adds an unmanaged layer that masks every later
+import — see [runbook §1–2](docs/RUNBOOK.md#1-what-prod-is).
 
 ### Step 5 — Run in Power Apps
 ```bash

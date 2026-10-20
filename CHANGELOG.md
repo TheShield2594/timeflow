@@ -9,9 +9,9 @@ against user-visible behaviour, as described in
 > release; anything under `Unreleased` above it landed after the cut and ships
 > in the next one. `package.json` has read `1.0.0` since the repo was created
 > and now agrees with this file. The tag is what says which build is in production, so it is
-> cut at deploy time, against the commit that was actually pushed:
-> `pac code push`, smoke-test, then `git tag -a v1.0.0 -m "Deployed to prod
-> <date>" && git push origin v1.0.0` — see
+> cut at deploy time, against the commit that was actually shipped: push to
+> Dev, export the managed solution, import and smoke-test, then
+> `git tag -a v1.0.0 -m "Deployed to prod <date>" && git push origin v1.0.0` — see
 > [the runbook](docs/RUNBOOK.md#2-deploy). Until that tag exists there is still
 > no way to answer "what is prod running?", which is
 > [#112](https://github.com/TheShield2594/timeflow/issues/112); every deploy

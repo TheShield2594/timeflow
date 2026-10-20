@@ -116,8 +116,11 @@ markdown file.
 
 ## Releases and tagging
 
-There is one environment and no CD pipeline, so a "release" is: a tag, a
-CHANGELOG entry, and a `pac code push`. The tag is the only thing that makes
+There are three environments — Dev, QA, Prod — and no CD pipeline. The app,
+tables and security role travel together in one managed solution, so a
+"release" is: a tag, a CHANGELOG entry, a `pac code push` into Dev, and one
+managed export imported into QA and then Prod, with the zip attached to the
+GitHub release. The tag is the only thing that makes
 *"what is prod running?"* answerable, and the only thing that makes rollback
 possible — [rollback](docs/RUNBOOK.md#3-rollback) works by rebuilding a tag.
 
@@ -135,14 +138,18 @@ possible — [rollback](docs/RUNBOOK.md#3-rollback) works by rebuilding a tag.
    the tag and the manifest agree).
 2. Move the `## Unreleased` items in [`CHANGELOG.md`](CHANGELOG.md) under a new
    version heading with today's date.
-3. Commit: `Release vX.Y.Z`.
-4. Tag and push:
+3. Commit `Release vX.Y.Z` and push it to `main`.
+4. Deploy and verify per [the runbook](docs/RUNBOOK.md#2-deploy): Dev, then
+   QA, then Prod, with the UAT checklist after each import.
+5. Only once Prod's import and UAT have passed, tag the commit that shipped:
    ```bash
-   git tag -a vX.Y.Z -m "Release vX.Y.Z"
-   git push origin main --follow-tags
+   git tag -a vX.Y.Z -m "Deployed to prod YYYY-MM-DD"
+   git push origin vX.Y.Z
    ```
-5. Deploy and smoke-test per [the runbook](docs/RUNBOOK.md#2-deploy).
-6. Create the GitHub release from the tag, pasting the CHANGELOG section.
+   A tag cut before the deploy names a release that may never reach Prod.
+6. Create the GitHub release from that tag, pasting the CHANGELOG section, and
+   attach the managed solution zip that went to Prod. It is the only record of
+   exactly what Prod's schema and role were at that version.
 
 **Every deploy gets a tag**, including a hotfix and including a rollback. A
 deploy nobody tagged is a deploy nobody can reverse. Never move a tag that has
