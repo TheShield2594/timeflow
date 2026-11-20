@@ -262,7 +262,18 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
     return true;
   }, [beginSession, toast]);
 
-  const stopAt = useCallback(async (endIso: string) => {
+  /**
+   * The stop whose save is in flight, if any.
+   *
+   * `pendingStopAt` is set before the save is awaited, so the hero shows
+   * "Retry save" — and Ctrl + . routes to it — while the first attempt is
+   * still on the wire. With no draft row to PATCH, each of those calls was
+   * its own create: two identical billable entries from one stop. A second
+   * caller now joins the first attempt instead of starting another.
+   */
+  const stopping = useRef<Promise<TimeEntry | undefined> | null>(null);
+
+  const saveStop = useCallback(async (endIso: string) => {
     // The ref, not the render snapshot: a draft create (or a description edit)
     // resolving in this same tick updates the ref synchronously but not the
     // closed-over state, and stopping against a snapshot with no draftEntryId
@@ -324,6 +335,15 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       throw err;
     }
   }, [onStop, persistTimer, applyTimer, toast]);
+
+  const stopAt = useCallback((endIso: string) => {
+    if (stopping.current) return stopping.current;
+    const attempt = saveStop(endIso);
+    stopping.current = attempt;
+    const release = () => { if (stopping.current === attempt) stopping.current = null; };
+    attempt.then(release, release);
+    return attempt;
+  }, [saveStop]);
 
   const stop = useCallback(() => stopAt(new Date().toISOString()), [stopAt]);
 

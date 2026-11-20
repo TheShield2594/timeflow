@@ -192,6 +192,31 @@ describe("TimesheetPage untracked gaps", () => {
     expect(within(gapRow).getByRole("button", { name: "Fill it" })).toBeTruthy();
   });
 
+  it("opens a blank sheet on the gap when 'Fill it' is pressed inside an edit", async () => {
+    // The sheet seeds its form once. Unkeyed, the swap to "create" kept the
+    // edited entry's description and times, and Save filed a copy of it.
+    const date = daysAgo(1);
+    const createEntry = vi.fn().mockResolvedValue({});
+    renderWithData(<TimesheetPage workingHours={TEST_WORKING_HOURS} />, {
+      entries: [entry({ id: "a", date, description: "Standup", startTime: `${date}T08:00:00`, endTime: `${date}T10:00:00`, durationMinutes: 120 })],
+      projects,
+      createEntry,
+    });
+    fireEvent.click(screen.getByRole("radio", { name: "Custom" }));
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: daysAgo(40) } });
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: today } });
+
+    fireEvent.click(screen.getByText("Standup"));
+    const sheet = screen.getByRole("dialog");
+    expect((within(sheet).getByLabelText("Description") as HTMLInputElement).value).toBe("Standup");
+
+    fireEvent.click(within(sheet).getByRole("button", { name: "Fill it" }));
+
+    const filled = screen.getByRole("dialog");
+    expect((within(filled).getByLabelText("Description") as HTMLInputElement).value).toBe("");
+    expect((within(filled).getByLabelText("End time") as HTMLInputElement).value).toBe("18:00");
+  });
+
   it("computes gaps from the whole day, not from what the search left showing", () => {
     // Two back-to-back entries fill 09:00–11:00. Searching for one of them
     // hides the other, but the hour it covers is still tracked — a gap

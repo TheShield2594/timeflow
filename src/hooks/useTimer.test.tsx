@@ -133,6 +133,33 @@ describe("useTimer", () => {
     );
   });
 
+  it("saves once when a second stop arrives while the first is still in flight", async () => {
+    // No draft row (its create failed at Start), so the stop is a create —
+    // and "Retry save" is on screen before that create has answered. Each
+    // extra press used to be its own create: duplicate billable entries.
+    vi.mocked(svc.createDraftTimerEntry).mockRejectedValueOnce(new Error("offline"));
+    let land!: (e: TimeEntry) => void;
+    vi.mocked(svc.createTimeEntry).mockReturnValue(new Promise<TimeEntry>((r) => { land = r; }));
+    const onStop = vi.fn();
+    const { result } = renderHook(() => useTimer(onStop));
+
+    await act(async () => { result.current.start("proj-1", null, "Working"); });
+
+    let first!: Promise<unknown>;
+    let second!: Promise<unknown>;
+    act(() => {
+      first = result.current.stop();
+      second = result.current.stopAt(new Date().toISOString());
+    });
+    await act(async () => {
+      land({ id: "entry-1" } as TimeEntry);
+      await Promise.all([first, second]);
+    });
+
+    expect(svc.createTimeEntry).toHaveBeenCalledTimes(1);
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
   it("leaves the timer running and prompts a retry if saving the stop fails", async () => {
     vi.mocked(svc.updateTimeEntry).mockRejectedValue(new Error("offline"));
     const onStop = vi.fn();

@@ -636,6 +636,21 @@ describe("CalendarPage untracked gaps (P2-15)", () => {
     expect(gapButtons()[1].getAttribute("aria-label")).toContain("1h 30m");
   });
 
+  it("searches the user's own working hours, not the default day", () => {
+    // An early shift, 06:00–14:00. On the default window this day reads
+    // 08:00→09:00 and 10:00→now; the Timer and Timesheet would say otherwise.
+    const ds = freezeAt(17);
+    renderWithData(
+      <CalendarPage workingHours={{ startMin: 6 * 60, endMin: 14 * 60, gapMustExceedMinutes: 15 }} />,
+      { entries: [logged(ds, "morning", "09:00", "10:00", 60)], projects: [project] },
+    );
+
+    expect(gapButtons().map((b) => b.getAttribute("aria-label"))).toEqual([
+      expect.stringContaining("6:00 AM – 9:00 AM"),
+      expect.stringContaining("10:00 AM – 2:00 PM"),
+    ]);
+  });
+
   it("shows the gap's length on the block", () => {
     const ds = freezeAt(17);
     renderCalendarWith([

@@ -37,6 +37,11 @@ events and never run two features against each other.
 
 ## 1. Fix first — wrong numbers, lost time, a dead control
 
+> **All six fixed on 2026-11-20**, each with a regression test, and re-run in
+> the browser afterwards. The descriptions below are the defects as found.
+> The held-chord half of 1.4 has no unit test — there is no test harness for
+> `App.tsx` — and was verified in the browser only.
+
 ### 1.1 "Split at midnight" while editing deletes the first half — Reproduced
 
 `EntrySheet.tsx:288-308` saves a split as two `onSave` calls. In create mode

@@ -352,6 +352,11 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
 
       {sheet && (
         <EntrySheet
+          // EntrySheet seeds its form from `initial` once. "Fill it" inside
+          // the sheet swaps an edit for a create without unmounting, and
+          // unkeyed, the form kept the edited entry's values while the mode
+          // became create — Save then wrote a copy of the entry.
+          key={`${sheet.id ?? "new"}:${sheet.draft.date}:${sheet.draft.startTime}`}
           mode={sheet.mode}
           initial={sheet.draft}
           entryId={sheet.id}
@@ -361,6 +366,7 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
           workingHours={workingHours}
           nowMinutes={nowMinutes}
           onSave={(data) => (sheet.id ? editEntry(sheet.id, data) : createEntry(data))}
+          onCreateRemainder={createEntry}
           onDelete={sheet.id ? () => { deleteEntry(sheet.id!); setSheet(null); } : undefined}
           onClose={() => setSheet(null)}
           onLoadTasksForProject={loadTasksForProject}
