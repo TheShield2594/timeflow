@@ -76,8 +76,7 @@ export const ProjectsPage: React.FC = () => {
   const [sort, setSort] = useState<Sort>("hours");
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  /** The expanded project whose whole task list is unfolded. Keyed by id
-   *  rather than a flag, so opening another project starts folded again. */
+  /** The expanded project whose whole task list is unfolded. */
   const [allTasksFor, setAllTasksFor] = useState<string | null>(null);
   const [visible, setVisible] = useState(PAGE_SIZE);
   const [draft, setDraft] = useState<FormDraft | null>(null);
@@ -160,6 +159,9 @@ export const ProjectsPage: React.FC = () => {
   const totalTasks = tasks.filter((t) => t.isActive).length;
 
   const toggle = (projectId: string) => {
+    // Every open or close starts folded — including reopening the project
+    // that was unfolded, after visiting another one.
+    setAllTasksFor(null);
     setExpandedId((current) => {
       if (current === projectId) return null;
       loadTasksForProject(projectId);

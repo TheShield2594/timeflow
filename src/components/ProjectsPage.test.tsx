@@ -207,4 +207,16 @@ describe("ProjectsPage long task lists (#190)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete Task 8" }));
     expect(deleteTask).toHaveBeenCalledWith(many[7]);
   });
+
+  it("folds again when the project is reopened after visiting another", () => {
+    renderPage({ tasks: many });
+    fireEvent.click(screen.getByRole("button", { name: /Alpha/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Show 3 more tasks" }));
+    fireEvent.click(screen.getByRole("button", { name: /Beta/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Alpha/ }));
+
+    expect(screen.queryByText("Task 8")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show 3 more tasks" }));
+    expect(screen.getByText("Task 8")).toBeTruthy();
+  });
 });

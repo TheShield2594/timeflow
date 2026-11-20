@@ -1066,7 +1066,9 @@ input.timer-hero__desc::placeholder { color: var(--label-secondary); }
     repeating-linear-gradient(135deg, color-mix(in srgb, var(--decor) 18%, transparent) 0 5px, transparent 5px 10px),
     var(--canvas);
 }
-.cal-ghost--logged { opacity: 0.5; }
+/* Faded content, not a faded block: the canvas has to stay opaque for the
+   same reason it is there at all. */
+.cal-ghost--logged > * { opacity: 0.5; }
 .cal-ghost__log { display: block; width: 100%; text-align: left; }
 .cal-ghost__name { display: block; font-size: 13px; line-height: 17px; font-weight: 600; color: var(--label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* One line, always. Wrapped ("11:00 / AM – 12:00 PM") it pushed Log and Hide

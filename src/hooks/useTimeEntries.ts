@@ -49,6 +49,10 @@ function nextDay(date: string): string { return addDaysStr(date, 1); }
 /** Union of two spans known to overlap or abut. */
 function widen(covered: Covered | null, want: Covered): Covered {
   if (!covered) return want;
+  // Disjoint and not abutting: the days between were never read, so the hull
+  // would certify a hole. Hold only what was just read. (A date rollover of
+  // 90+ days in a long-suspended tab moves the baseline clear of what's held.)
+  if (want.from > nextDay(covered.to) || want.to < prevDay(covered.from)) return want;
   return {
     from: want.from < covered.from ? want.from : covered.from,
     to: want.to > covered.to ? want.to : covered.to,
@@ -179,6 +183,13 @@ export function useTimeEntries(from?: string, to?: string) {
     if (spans.length === 0) {
       // Everything asked for is already in memory — the narrowing case, and
       // the return trip from a wide preset. No request, no spinner.
+      //
+      // It also supersedes any read still in flight. A refresh of a narrower
+      // window, landing after this, would replace what's held with less than
+      // the page now needs, and nothing would re-ask: the page would sit on
+      // "loading" until the range next changed.
+      seqRef.current++;
+      setIsFetching(false);
       setLoading(false);
       setLoadFailed(false);
       return;

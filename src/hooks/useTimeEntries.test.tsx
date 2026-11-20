@@ -426,4 +426,38 @@ describe("useTimeEntries range widening (#115)", () => {
     expect(result.current.loadFailed).toBe(false);
     expect(result.current.covered).toEqual({ from: "2026-01-01", to: "2026-03-31" });
   });
+
+  it("doesn't certify the unread days between a held span and a disjoint new one", async () => {
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([]));
+    const { result, rerender } = renderHook(
+      ({ from, to }) => useTimeEntries(from, to),
+      { initialProps: { from: "2026-01-01", to: "2026-01-31" } },
+    );
+    await waitFor(() => expect(result.current.covered).toEqual({ from: "2026-01-01", to: "2026-01-31" }));
+
+    rerender({ from: "2026-06-01", to: "2026-06-30" });
+    await waitFor(() => expect(result.current.covered).toEqual({ from: "2026-06-01", to: "2026-06-30" }));
+  });
+
+  it("drops a refresh still in flight once the window is served from memory", async () => {
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([]));
+    const { result, rerender } = renderHook(
+      ({ from, to }) => useTimeEntries(from, to),
+      { initialProps: { from: "2026-01-01", to: "2026-12-31" } },
+    );
+    await waitFor(() => expect(result.current.covered).toEqual({ from: "2026-01-01", to: "2026-12-31" }));
+
+    // Narrow (served from memory), then refresh — a read of the narrow window
+    // that is still out when the page widens back inside what's held.
+    rerender({ from: "2026-03-01", to: "2026-03-31" });
+    let resolveRefresh!: (v: ReturnType<typeof paged<TimeEntry>>) => void;
+    vi.mocked(svc.getTimeEntries).mockReturnValueOnce(new Promise((r) => { resolveRefresh = r; }));
+    let refreshing!: Promise<void>;
+    act(() => { refreshing = result.current.refresh(); });
+    rerender({ from: "2026-01-01", to: "2026-06-30" });
+
+    await act(async () => { resolveRefresh(paged([])); await refreshing; });
+    expect(result.current.covered).toEqual({ from: "2026-01-01", to: "2026-12-31" });
+    expect(result.current.isFetching).toBe(false);
+  });
 });
