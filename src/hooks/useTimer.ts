@@ -262,7 +262,29 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
     return true;
   }, [beginSession, toast]);
 
-  const stopAt = useCallback(async (endIso: string) => {
+  /**
+   * The stop whose save is in flight, if any.
+   *
+   * `pendingStopAt` is set before the save is awaited, so the hero shows
+   * "Retry save" — and Ctrl + . routes to it — while the first attempt is
+   * still on the wire. With no draft row to PATCH, each of those calls was
+   * its own create: two identical billable entries from one stop. A second
+   * caller now joins the first attempt instead of starting another.
+   *
+   * Scoped to the session and the end time it is saving. Another tab can
+   * install a new session while this one's save is on the wire, and a stop
+   * for *that* must not be handed this one's result. A request for a
+   * different end — the idle prompt's Trim, while a plain stop is in flight —
+   * is not the same stop either: it waits its turn, then finds the session
+   * either saved (and says so) or still pending (and saves its own end).
+   */
+  const stopping = useRef<{
+    session: string | null;
+    endIso: string;
+    attempt: Promise<TimeEntry | undefined>;
+  } | null>(null);
+
+  const saveStop = useCallback(async (endIso: string) => {
     // The ref, not the render snapshot: a draft create (or a description edit)
     // resolving in this same tick updates the ref synchronously but not the
     // closed-over state, and stopping against a snapshot with no draftEntryId
@@ -315,8 +337,12 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       } else {
         entry = await svc.createTimeEntry(completed);
       }
-      applyTimer(RESET_TIMER);
-      persistTimer(null);
+      // Only if this is still the session on screen: a newer one, arrived
+      // from another tab while the save was in flight, is not ours to clear.
+      if (timerRef.current.startTime === activeTimer.startTime) {
+        applyTimer(RESET_TIMER);
+        persistTimer(null);
+      }
       onStop(entry);
       return entry;
     } catch (err) {
@@ -324,6 +350,19 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       throw err;
     }
   }, [onStop, persistTimer, applyTimer, toast]);
+
+  const stopAt = useCallback((endIso: string) => {
+    const session = timerRef.current.startTime;
+    const inFlight = stopping.current?.session === session ? stopping.current : null;
+    if (inFlight?.endIso === endIso) return inFlight.attempt;
+    const run = () => saveStop(endIso);
+    const attempt = inFlight ? inFlight.attempt.then(run, run) : run();
+    const mine = { session, endIso, attempt };
+    stopping.current = mine;
+    const release = () => { if (stopping.current === mine) stopping.current = null; };
+    attempt.then(release, release);
+    return attempt;
+  }, [saveStop]);
 
   const stop = useCallback(() => stopAt(new Date().toISOString()), [stopAt]);
 

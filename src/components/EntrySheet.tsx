@@ -62,6 +62,17 @@ interface Props {
   entryId?: string;
   onSave: (data: EntrySaveData) => Promise<unknown>;
   /**
+   * Writes the after-midnight half of an overnight split, which is always a
+   * *new* record.
+   *
+   * Separate from onSave, and required, because in edit and stop mode onSave
+   * means "update this entry": sending both halves through it wrote the
+   * second over the first, so splitting 8 PM–2 AM left only 12 AM–2 AM and
+   * four hours fell out of the record under a "Saved" toast. A sheet that
+   * creates passes the same function twice; one that edits cannot.
+   */
+  onCreateRemainder: (data: EntrySaveData) => Promise<unknown>;
+  /**
    * Fired once the entry is *completely* saved, just before onClose.
    *
    * Distinct from onSave because the overnight-split path calls onSave twice,
@@ -94,7 +105,7 @@ const TITLE: Record<SheetMode, string> = {
 
 export const EntrySheet: React.FC<Props> = ({
   mode, title, initial, projects, tasks, entriesOnDate, workingHours, nowMinutes, entryId,
-  onSave, onSaved, onDelete, onClose, onLoadTasksForProject, onAddTask, onFillGap,
+  onSave, onCreateRemainder, onSaved, onDelete, onClose, onLoadTasksForProject, onAddTask, onFillGap,
 }) => {
   const [draft, setDraft] = useState<EntryDraft>(initial);
   const [saving, setSaving] = useState(false);
@@ -293,7 +304,12 @@ export const EntrySheet: React.FC<Props> = ({
         const midnightIso = new Date(midnight).toISOString();
         // Skip the first half if a previous attempt already saved it and only
         // the second half failed — retrying must not duplicate it.
-        if (!splitFirstSaved.current) {
+        //
+        // That only holds for a create. When the sheet is editing a record
+        // the first half is an update of it, which is safe to repeat — and
+        // has to be, or a project changed between the failure and the retry
+        // would reach the new half and not the one already written.
+        if (entryId || !splitFirstSaved.current) {
           await onSave({
             ...common, date: draft.date,
             startTime: startDt.toISOString(), endTime: midnightIso,
@@ -301,7 +317,7 @@ export const EntrySheet: React.FC<Props> = ({
           });
           splitFirstSaved.current = true;
         }
-        await onSave({
+        await onCreateRemainder({
           ...common, date: nextDay,
           startTime: midnightIso, endTime: endDt.toISOString(),
           durationMinutes: Math.round((endDt.getTime() - midnight) / 60000),

@@ -622,14 +622,22 @@ export const CalendarPage: React.FC<Props> = ({ workingHours }) => {
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
 
   const collectGaps = useCallback((target: Map<string, Gap[]>, date: string, upTo: number | undefined, atMinutes: number) => {
-    findUntrackedGaps({ entries, date, nowMinutes: atMinutes, upperBoundMin: upTo }).forEach((gap) => {
+    // The user's own window, as on the Timer and Timesheet. Left to the
+    // defaults, this page searched 08:00–18:00 for everyone and disagreed
+    // with the other two about the same day for anyone on another shift.
+    findUntrackedGaps({
+      entries, date, nowMinutes: atMinutes, upperBoundMin: upTo,
+      workDayStartMin: workingHours.startMin,
+      workDayEndMin: workingHours.endMin,
+      gapMustExceedMinutes: workingHours.gapMustExceedMinutes,
+    }).forEach((gap) => {
       const row = Math.max(0, Math.min(Math.floor(gap.startMin / 30), TOTAL_SLOTS - 1));
       const key = `${date}-${row}`;
       const list = target.get(key);
       if (list) list.push(gap);
       else target.set(key, [gap]);
     });
-  }, [entries]);
+  }, [entries, workingHours]);
 
   // A finished day can't grow a new gap, so the six of them are memoized on
   // the data alone. Only today's trailing gap has to keep pace with the clock,
@@ -834,6 +842,7 @@ export const CalendarPage: React.FC<Props> = ({ workingHours }) => {
           workingHours={workingHours}
           nowMinutes={nowMinutes}
           onSave={handleModalSave}
+          onCreateRemainder={onCreateEntry}
           onSaved={handleModalSaved}
           onDelete={modal.editingId ? () => { onDelete(modal.editingId!); setModal(null); } : undefined}
           onClose={closeModal}
@@ -951,6 +960,9 @@ export const CalendarPage: React.FC<Props> = ({ workingHours }) => {
           date: ds,
           nowMinutes: ds === today ? nowMinutes : MINUTES_PER_DAY,
           upperBoundMin: ds === today ? nowMinutes : undefined,
+          workDayStartMin: workingHours.startMin,
+          workDayEndMin: workingHours.endMin,
+          gapMustExceedMinutes: workingHours.gapMustExceedMinutes,
         });
         return (
           <div className="cal-mobile-list">

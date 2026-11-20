@@ -319,9 +319,13 @@ export function useEntryMove({ gridRef, weekDays, weekBounds, projectById, onEdi
       return { left: rect?.left ?? 0, right: rect?.right ?? 0 };
     }), [weekDays]);
 
-  /** Elapsed length of an entry, floored at the minimum a drag can produce. */
-  const durationOf = (entry: TimeEntry) =>
-    Math.max(minutesBetween(entry.startTime, entry.endTime!), MIN_RESIZE_DURATION_MIN);
+  /**
+   * Elapsed length of an entry, exactly. Not floored at the resize minimum:
+   * that floor is a rule about what a *resize* may produce, and applied here
+   * it turned a 4-minute entry into a 15-minute one the moment it was moved.
+   * The preview has its own pixel floor, so a short block stays grabbable.
+   */
+  const durationOf = (entry: TimeEntry) => minutesBetween(entry.startTime, entry.endTime!);
 
   const onStart = useCallback((e: React.PointerEvent, entry: TimeEntry) => {
     suppressClickRef.current = false;

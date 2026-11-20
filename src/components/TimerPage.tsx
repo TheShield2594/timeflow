@@ -427,6 +427,7 @@ export const TimerPage: React.FC<Props> = ({
           workingHours={workingHours}
           nowMinutes={nowMinutes}
           onSave={handleSheetSave}
+          onCreateRemainder={handleSheetSave}
           onClose={() => setSheet(null)}
           onLoadTasksForProject={loadTasksForProject}
           onAddTask={addTask}

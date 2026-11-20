@@ -43,6 +43,8 @@ function renderSheet(over: Partial<React.ComponentProps<typeof EntrySheet>> = {}
       workingHours={DEFAULT_WORKING_HOURS}
       nowMinutes={18 * 60}
       onSave={onSave}
+      // A creating sheet hands the same function to both, as the pages do.
+      onCreateRemainder={over.onSave ?? onSave}
       onClose={onClose}
       {...over}
     />
@@ -126,6 +128,53 @@ describe("EntrySheet overnight spans", () => {
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(3));
     // The third call is the *second* half again, not the first.
     expect(onSave.mock.calls[2][0]).toMatchObject({ date: "2026-09-09" });
+  });
+});
+
+describe("EntrySheet overnight split while editing", () => {
+  it("updates the entry to the first half and creates the second", async () => {
+    // Both halves used to go through onSave, which in edit mode is "update
+    // this entry" — the second overwrote the first and the hours before
+    // midnight left the record.
+    const onCreateRemainder = vi.fn().mockResolvedValue({});
+    const { onSave } = renderSheet({
+      mode: "edit", initial: draftForEntry(saved), entryId: saved.id, onCreateRemainder,
+    });
+    fireEvent.change(screen.getByLabelText("End time"), { target: { value: "02:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Split at midnight" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onCreateRemainder).toHaveBeenCalledTimes(1));
+    expect(onSave).toHaveBeenCalledTimes(1);
+    // 3:05 PM to midnight stays on the entry; midnight to 2 AM is new.
+    expect(onSave.mock.calls[0][0]).toMatchObject({ date: DATE, durationMinutes: 8 * 60 + 55 });
+    expect(onCreateRemainder.mock.calls[0][0]).toMatchObject({ date: "2026-09-09", durationMinutes: 2 * 60 });
+  });
+});
+
+describe("EntrySheet overnight split retry while editing", () => {
+  it("re-saves the first half, so a field changed before the retry reaches both", async () => {
+    // Skipping the already-saved half is right for a create, where repeating
+    // it would duplicate the entry. For an edit it is an update of the same
+    // record, and skipping it left the two halves on different projects.
+    const onCreateRemainder = vi.fn()
+      .mockRejectedValueOnce(new Error("network"))
+      .mockResolvedValue({});
+    const { onSave } = renderSheet({
+      mode: "edit", initial: draftForEntry(saved), entryId: saved.id, onCreateRemainder,
+    });
+    fireEvent.change(screen.getByLabelText("End time"), { target: { value: "02:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Split at midnight" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onCreateRemainder).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Corrected" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onCreateRemainder).toHaveBeenCalledTimes(2));
+
+    expect(onSave).toHaveBeenCalledTimes(2);
+    expect(onSave.mock.calls[1][0]).toMatchObject({ date: DATE, description: "Corrected" });
+    expect(onCreateRemainder.mock.calls[1][0]).toMatchObject({ date: "2026-09-09", description: "Corrected" });
   });
 });
 

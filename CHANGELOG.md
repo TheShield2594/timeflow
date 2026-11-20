@@ -13,6 +13,26 @@ against user-visible behaviour, as described in
 
 ## Unreleased
 
+### Fixed
+
+Six defects from the [2026-11-20 review](docs/reviews/2026-11-20-full-review.md),
+each of which lost time, changed a duration, or left a control dead:
+
+- Splitting an overnight entry at midnight while *editing* it (or from the stop
+  sheet) kept only the after-midnight half. The first half now stays on the
+  entry and the second is created beside it.
+- "Fill it" inside the Timesheet's edit sheet reopened the form still holding
+  the edited entry, so Save filed a duplicate. It opens blank on the gap.
+- Moving a calendar entry shorter than 15 minutes, by drag or Shift + arrows,
+  lengthened it to 15. A move keeps the entry's real length.
+- Holding Ctrl/Cmd + . started and stopped the timer on every key repeat,
+  filing a 0-minute entry each time; and a second stop arriving while the
+  first was still saving could create the entry twice.
+- Gaps on the timer screen's day bar ignored mouse clicks (the keyboard
+  worked).
+- The Calendar searched 8 AM–6 PM for untracked gaps regardless of the user's
+  working hours, disagreeing with the Timer and Timesheet.
+
 ---
 
 ## 1.0.0 — 2026-10-20

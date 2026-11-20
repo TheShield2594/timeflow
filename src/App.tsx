@@ -190,6 +190,9 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void; userName: 
       // reachable via Shift, so rejecting it there made the shortcut dead.
       if (e.key !== "." || !(e.ctrlKey || e.metaKey) || e.altKey) return;
       e.preventDefault();
+      // One press, one toggle. Without this a chord held past the OS repeat
+      // delay alternated start and stop and filed a 0-minute entry per pair.
+      if (e.repeat) return;
       // A failed stop retries with the *original* stop timestamp, exactly
       // like the Retry button — never with "now", which would silently grow
       // the entry.
@@ -304,6 +307,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void; userName: 
           workingHours={workingHours}
           nowMinutes={nowMinutes}
           onSave={(data) => editEntry(stopSheetEntry.id, data)}
+          onCreateRemainder={createEntry}
           onSaved={() => closeStopSheet(stopSheetEntry)}
           onDelete={() => { deleteEntry(stopSheetEntry.id); setStopSheetEntry(null); }}
           onClose={() => closeStopSheet(stopSheetEntry)}
@@ -330,6 +334,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void; userName: 
           workingHours={workingHours}
           nowMinutes={nowMinutes}
           onSave={(data) => (entrySheet.id ? editEntry(entrySheet.id, data) : createEntry(data))}
+          onCreateRemainder={createEntry}
           onClose={() => setEntrySheet(null)}
           onLoadTasksForProject={loadTasksForProject}
           onAddTask={addTask}

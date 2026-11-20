@@ -133,6 +133,58 @@ describe("useTimer", () => {
     );
   });
 
+  it("saves once when a second stop arrives while the first is still in flight", async () => {
+    // No draft row (its create failed at Start), so the stop is a create —
+    // and "Retry save" is on screen before that create has answered. Each
+    // extra press used to be its own create: duplicate billable entries.
+    vi.mocked(svc.createDraftTimerEntry).mockRejectedValueOnce(new Error("offline"));
+    let land!: (e: TimeEntry) => void;
+    vi.mocked(svc.createTimeEntry).mockReturnValue(new Promise<TimeEntry>((r) => { land = r; }));
+    const onStop = vi.fn();
+    const { result } = renderHook(() => useTimer(onStop));
+
+    await act(async () => { result.current.start("proj-1", null, "Working"); });
+
+    let first!: Promise<unknown>;
+    let second!: Promise<unknown>;
+    act(() => {
+      // The same end, as Retry and the shortcut send: `pendingStopAt`.
+      first = result.current.stopAt("2026-09-08T17:00:00.000Z");
+      second = result.current.stopAt("2026-09-08T17:00:00.000Z");
+    });
+    await act(async () => {
+      land({ id: "entry-1" } as TimeEntry);
+      await Promise.all([first, second]);
+    });
+
+    expect(svc.createTimeEntry).toHaveBeenCalledTimes(1);
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it("doesn't hand a stop for a different end time the in-flight stop's result", async () => {
+    // The idle prompt's Trim, pressed while a plain stop is saving, asks for
+    // an earlier end. Joined to the first attempt it would report the entry
+    // as trimmed when it was saved at the later time. It waits instead, and
+    // finding the session already saved, says there was nothing to stop.
+    vi.mocked(svc.createDraftTimerEntry).mockRejectedValueOnce(new Error("offline"));
+    let land!: (e: TimeEntry) => void;
+    vi.mocked(svc.createTimeEntry).mockReturnValue(new Promise<TimeEntry>((r) => { land = r; }));
+    const { result } = renderHook(() => useTimer(vi.fn()));
+    await act(async () => { result.current.start("proj-1", null, "Working"); });
+
+    let plain!: Promise<unknown>;
+    let trim!: Promise<unknown>;
+    act(() => {
+      plain = result.current.stopAt("2026-09-08T17:00:00.000Z");
+      trim = result.current.stopAt("2026-09-08T16:30:00.000Z");
+    });
+    await act(async () => { land({ id: "entry-1" } as TimeEntry); await plain; });
+
+    await expect(plain).resolves.toEqual({ id: "entry-1" });
+    await expect(trim).resolves.toBeUndefined();
+    expect(svc.createTimeEntry).toHaveBeenCalledTimes(1);
+  });
+
   it("leaves the timer running and prompts a retry if saving the stop fails", async () => {
     vi.mocked(svc.updateTimeEntry).mockRejectedValue(new Error("offline"));
     const onStop = vi.fn();

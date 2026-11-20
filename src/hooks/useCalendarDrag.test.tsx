@@ -307,6 +307,21 @@ describe("useEntryMove", () => {
     expect(result.current.refocusIdRef.current).toBe("e1");
   });
 
+  it("moves a short entry without lengthening it", () => {
+    // The resize minimum used to be applied to moves too, so a 4-minute timer
+    // entry became a 15-minute one the first time it was nudged.
+    const { result, onEdit } = setup();
+    const short = entry({ endTime: new Date("2026-07-29T09:04:00").toISOString(), durationMinutes: 4 });
+
+    act(() => { result.current.nudge(short, 15, 0); });
+
+    expect(onEdit).toHaveBeenCalledWith("e1", expect.objectContaining({
+      startTime: new Date("2026-07-29T09:15:00").toISOString(),
+      endTime: new Date("2026-07-29T09:19:00").toISOString(),
+      durationMinutes: 4,
+    }));
+  });
+
   it("won't nudge an entry off the week on screen", () => {
     const { result, onEdit } = setup();
     // Monday is the first column; a step back would leave the visible week.

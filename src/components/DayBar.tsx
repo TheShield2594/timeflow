@@ -95,6 +95,11 @@ export const DayBarTrack: React.FC<TrackProps> = ({
                 style={flex}
                 title={`${s.label} — click to fill it in`}
                 aria-label={`Log the untracked time from ${clockAt(s.startMin)} to ${clockAt(s.endMin)}`}
+                // The track captures the pointer on pointerdown to start a
+                // drag, and a captured pointer's click is dispatched to the
+                // track, never to this button. Stopping it here is what makes
+                // the gap clickable with a mouse at all.
+                onPointerDown={(e) => e.stopPropagation()}
                 onClick={() => onFillGap(s.startMin, s.endMin)}
               />
             );
