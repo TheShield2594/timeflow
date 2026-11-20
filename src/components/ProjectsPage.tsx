@@ -31,6 +31,11 @@ const PALETTE: { hex: string; name: string }[] = [
 ];
 
 const PAGE_SIZE = 5;
+/**
+ * Tasks listed before the rest fold behind "Show N more". A fold, not a cap:
+ * this page is the only place a task is managed, so one that can't be reached
+ * here can't be deleted anywhere (#190).
+ */
 const TASKS_SHOWN = 5;
 
 type Scope = "active" | "archived";
@@ -71,6 +76,9 @@ export const ProjectsPage: React.FC = () => {
   const [sort, setSort] = useState<Sort>("hours");
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  /** The expanded project whose whole task list is unfolded. Keyed by id
+   *  rather than a flag, so opening another project starts folded again. */
+  const [allTasksFor, setAllTasksFor] = useState<string | null>(null);
   const [visible, setVisible] = useState(PAGE_SIZE);
   const [draft, setDraft] = useState<FormDraft | null>(null);
   const [newTaskFor, setNewTaskFor] = useState<string | null>(null);
@@ -310,7 +318,7 @@ export const ProjectsPage: React.FC = () => {
 
                   {expanded && (
                     <div className="projects__tasks">
-                      {projectTasks.slice(0, TASKS_SHOWN).map((task) => (
+                      {(allTasksFor === project.id ? projectTasks : projectTasks.slice(0, TASKS_SHOWN)).map((task) => (
                         <div key={task.id} className="projects__task">
                           <span className="projects__task-name">{task.name}</span>
                           <span className="projects__task-hours">{formatMinutes(minutesByTask.get(task.id) ?? 0)}</span>
@@ -327,6 +335,15 @@ export const ProjectsPage: React.FC = () => {
                           </button>
                         </div>
                       ))}
+                      {projectTasks.length > TASKS_SHOWN && allTasksFor !== project.id && (
+                        <button
+                          type="button"
+                          className="projects__task-more projects__task-more--action"
+                          onClick={() => setAllTasksFor(project.id)}
+                        >
+                          Show {projectTasks.length - TASKS_SHOWN} more {projectTasks.length - TASKS_SHOWN === 1 ? "task" : "tasks"}
+                        </button>
+                      )}
                       {newTaskFor === project.id ? (
                         <div className="projects__task">
                           <input
@@ -351,11 +368,6 @@ export const ProjectsPage: React.FC = () => {
                         >
                           New task
                         </button>
-                      )}
-                      {projectTasks.length > TASKS_SHOWN && (
-                        <div className="projects__task-more">
-                          {projectTasks.length - TASKS_SHOWN} more tasks
-                        </div>
                       )}
                       <div className="projects__task-more" style={{ display: "flex", gap: 16 }}>
                         <button

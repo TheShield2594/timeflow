@@ -1186,6 +1186,7 @@ input.timer-hero__desc::placeholder { color: var(--label-secondary); }
 .projects__task:hover .projects__task-remove, .projects__task-remove:focus-visible { opacity: 1; }
 .projects__task-add { display: flex; align-items: center; gap: 10px; padding: 9px 0; font-size: 15px; font-weight: 600; color: var(--accent); border-top: 1px solid color-mix(in srgb, var(--separator) 55%, transparent); min-height: 38px; }
 .projects__task-more { padding: 9px 0; font-size: 15px; color: var(--label-secondary); }
+.projects__task-more--action { display: block; width: 100%; text-align: left; font-weight: 600; color: var(--accent); min-height: 38px; }
 
 .projects__more { display: block; width: 100%; text-align: center; margin-top: 16px; font-size: 15px; font-weight: 600; color: var(--accent); }
 .projects__foot-note { margin-top: 22px; font-size: 15px; line-height: 20px; color: var(--label-secondary); }

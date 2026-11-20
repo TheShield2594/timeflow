@@ -187,3 +187,24 @@ describe("ProjectsPage empty state", () => {
     expect(screen.getByRole("button", { name: "Create a project" })).toBeTruthy();
   });
 });
+
+describe("ProjectsPage long task lists (#190)", () => {
+  const many: Task[] = Array.from({ length: 8 }, (_, i) => ({
+    id: `m${i}`, projectId: "p1", name: `Task ${i + 1}`, isActive: true,
+  }));
+
+  it("folds tasks past the fifth behind a button that reveals them", () => {
+    const deleteTask = vi.fn(async () => {});
+    renderPage({ tasks: many, deleteTask });
+    fireEvent.click(screen.getByRole("button", { name: /Alpha/ }));
+    expect(screen.queryByText("Task 8")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show 3 more tasks" }));
+    expect(screen.getByText("Task 8")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /more task/ })).toBeNull();
+
+    // Reachable is the point: the last task can be removed from here.
+    fireEvent.click(screen.getByRole("button", { name: "Delete Task 8" }));
+    expect(deleteTask).toHaveBeenCalledWith(many[7]);
+  });
+});
