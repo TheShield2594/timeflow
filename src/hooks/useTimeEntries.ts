@@ -86,6 +86,22 @@ export function useTimeEntries(from?: string, to?: string) {
 
   const seqRef = useRef(0);
   const coveredRef = useRef<Covered | null>(null);
+  /**
+   * `coveredRef`, as state a page can read.
+   *
+   * The ref is what `load` reasons with; this is what a page renders against.
+   * "The window I asked for" and "the window that is actually in memory" are
+   * different things for the length of a fetch, and permanently after a failed
+   * or short one — and a total summed in that gap is a wrong number with
+   * nothing on screen to say so (#187).
+   */
+  const [covered, setCoveredState] = useState<Covered | null>(null);
+  const setCovered = useCallback((next: Covered | null) => {
+    coveredRef.current = next;
+    setCoveredState(next);
+  }, []);
+  /** The latest read failed or came back short. Cleared when the next starts. */
+  const [loadFailed, setLoadFailed] = useState(false);
 
   /**
    * Check a batch of rows for entries belonging to somebody else.
@@ -164,11 +180,13 @@ export function useTimeEntries(from?: string, to?: string) {
       // Everything asked for is already in memory — the narrowing case, and
       // the return trip from a wide preset. No request, no spinner.
       setLoading(false);
+      setLoadFailed(false);
       return;
     }
 
     const seq = ++seqRef.current;
     setIsFetching(true);
+    setLoadFailed(false);
     try {
       const results = await Promise.all(
         spans.map((span) => svc.getTimeEntries(span ? { from: span.from, to: span.to } : {}))
@@ -180,7 +198,7 @@ export function useTimeEntries(from?: string, to?: string) {
       // are keyed by id, so a row that moved out of its old span still
       // resolves to one entry rather than two.
       setEntries((prev) => (replace ? fetched : mergeById(prev, fetched)));
-      coveredRef.current = !want ? null : force ? want : widen(coveredRef.current, want);
+      setCovered(!want ? null : force ? want : widen(coveredRef.current, want));
       // Handed back by the read rather than pushed through a module-global
       // handler the app wired up on mount — that global was last-writer-wins
       // and wasn't guaranteed to be set during bootstrap, which is exactly
@@ -191,13 +209,15 @@ export function useTimeEntries(from?: string, to?: string) {
         // A short read means the covered span has holes in it, so it can't be
         // used to skip later reads. Claiming coverage we don't have is how a
         // missing entry would become permanently missing for the session.
-        coveredRef.current = null;
+        setCovered(null);
+        setLoadFailed(true);
       }
       assertOwnRows(fetched);
     } catch (err) {
       if (seq !== seqRef.current) return;
       // Same reasoning: a failed span leaves a hole, so nothing is covered.
-      if (!force) coveredRef.current = null;
+      if (!force) setCovered(null);
+      setLoadFailed(true);
       toast(`Could not load entries: ${errMsg(err)}`, "error");
     } finally {
       if (seq === seqRef.current) {
@@ -205,7 +225,7 @@ export function useTimeEntries(from?: string, to?: string) {
         setIsFetching(false);
       }
     }
-  }, [from, to, toast, assertOwnRows]);
+  }, [from, to, toast, assertOwnRows, setCovered]);
 
   /** Re-read the current window from the server, discarding what's held. */
   const refresh = useCallback(() => load(true), [load]);
@@ -292,5 +312,5 @@ export function useTimeEntries(from?: string, to?: string) {
     }
   }, [toast]);
 
-  return { entries, loading, isFetching, isolationBreach, refresh, deleteEntry, createEntry, editEntry };
+  return { entries, loading, isFetching, covered, loadFailed, isolationBreach, refresh, deleteEntry, createEntry, editEntry };
 }

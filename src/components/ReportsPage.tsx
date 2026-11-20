@@ -4,6 +4,7 @@ import { formatMinutes } from "../hooks";
 import { useData } from "../contexts/DataContext";
 import { useRangeRequest } from "../contexts/DataRangeContext";
 import { useToday } from "../hooks/useToday";
+import { useRangeStatus } from "../hooks/useRangeStatus";
 import {
   bucketKeysFor, buildChartData, buildProjectBreakdown, buildTaskBreakdown,
   countActiveDays, filterEntriesForRange, findNarrowestRangeWithData,
@@ -46,7 +47,7 @@ function shortLabel(key: string, bucket: Bucket): string {
  * conclusion from is the one that has ended.
  */
 export const ReportsPage: React.FC = () => {
-  const { entries, projects, tasks } = useData();
+  const { entries, projects, tasks, refreshEntries } = useData();
   const today = useToday();
   const [range, setRange] = useState<RangeState>({ preset: "lastWeek", customFrom: "", customTo: "" });
   const [rounding, setRounding] = useExportRounding();
@@ -56,6 +57,14 @@ export const ReportsPage: React.FC = () => {
   // Both spans are held open: the delta is a claim about the earlier one, so
   // it has to be loaded, not guessed from whatever happens to be in memory.
   useRangeRequest("reports", prior.from, to);
+  // ...and asked for is not loaded. Every figure below is a sum, and a sum
+  // over a half-fetched window is short by an amount nothing on screen gives
+  // away — Quarter's prior period reaches ~180 days back, well past the
+  // 90-day baseline, so the delta used to be wrong for the whole of that
+  // fetch, and for good if it failed (#187). The two spans are checked apart
+  // so the period on screen doesn't wait on the one it's compared with.
+  const status = useRangeStatus(from, to);
+  const priorStatus = useRangeStatus(prior.from, prior.to);
 
   const filtered = useMemo(() => filterEntriesForRange(entries, from, to), [entries, from, to]);
   const priorFiltered = useMemo(
@@ -123,7 +132,21 @@ export const ReportsPage: React.FC = () => {
 
       <div className="t-group-label t-secondary" style={{ marginTop: 28 }}>{rangeLabel(from, to)}</div>
 
-      {isEmpty || trackedDays < 3 ? (
+      {status === "loading" ? (
+        <div className="empty" role="status">
+          <p className="empty__title t-body">Loading this period…</p>
+        </div>
+      ) : status === "failed" ? (
+        <div className="empty" role="alert">
+          <div className="empty__title t-title2">This period didn&rsquo;t finish loading</div>
+          <p className="empty__body t-body">
+            Totals from part of a period would be short with nothing to show it, so none are shown.
+          </p>
+          <button type="button" className="empty__action" onClick={() => { void refreshEntries(); }}>
+            Try again
+          </button>
+        </div>
+      ) : isEmpty || trackedDays < 3 ? (
         <div className="empty">
           <div className="empty__title t-title2">
             {isEmpty
@@ -158,9 +181,13 @@ export const ReportsPage: React.FC = () => {
           <div className="reports__headline">
             <span className="reports__total t-display">{formatMinutes(totalMinutes)}</span>
             <span className="reports__delta">
-              {delta === 0
-                ? "level with the period before"
-                : `${delta > 0 ? "+" : "−"}${formatMinutes(Math.abs(delta))} on the period before`}
+              {priorStatus === "loading"
+                ? "loading the period before…"
+                : priorStatus === "failed"
+                  ? "the period before didn’t load"
+                  : delta === 0
+                    ? "level with the period before"
+                    : `${delta > 0 ? "+" : "−"}${formatMinutes(Math.abs(delta))} on the period before`}
             </span>
           </div>
 
@@ -254,7 +281,9 @@ export const ReportsPage: React.FC = () => {
         <Pill
           tone="primary"
           onClick={() => exportToCSV(filtered, projects, tasks, buildExportFilename(from, to), rounding)}
-          disabled={isEmpty}
+          // A partial file looks exactly like a complete one once it's
+          // somewhere else, so nothing is written until the period is held.
+          disabled={isEmpty || status !== "ready"}
         >
           Export CSV
         </Pill>

@@ -21,6 +21,9 @@ export function makeDataApi(overrides: Partial<DataApi> = {}): DataApi {
     tasks: [],
     loading: false,
     rangeLoading: false,
+    // Fixed data is all the data there is: every range is held.
+    loadedRange: { from: "0000-01-01", to: "9999-12-31" },
+    rangeLoadFailed: false,
     isolationBreach: false,
     createEntry: (async () => ({}) as TimeEntry),
     editEntry: (async () => ({}) as TimeEntry),

@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import type { TimeEntry } from "../types";
 import { useData } from "../contexts/DataContext";
-import { useDataRange } from "../contexts/DataRangeContext";
+import { holdsRange } from "./useRangeStatus";
 
 /**
  * Entries on a local YYYY-MM-DD date — or null when that date sits outside the
@@ -13,13 +13,15 @@ import { useDataRange } from "../contexts/DataRangeContext";
  * invented eight hours of untracked time. The sheet's date field (#151) is
  * what made that reachable: before it, every day a sheet drew was one the page
  * had already fetched.
+ *
+ * "Loaded" means held, not requested. The requested window widens the moment
+ * a page asks, a fetch later; if that fetch fails or is cut short it never
+ * arrives at all. Reading the request here drew those days as empty (#187).
  */
 export function useEntriesOnDate(): (date: string) => TimeEntry[] | null {
-  const { entries } = useData();
-  const { from, to } = useDataRange();
-  // Both bounds are YYYY-MM-DD, whose lexicographic order is chronological.
+  const { entries, loadedRange } = useData();
   return useCallback(
-    (date: string) => (date >= from && date <= to ? entries.filter((e) => e.date === date) : null),
-    [entries, from, to]
+    (date: string) => (holdsRange(loadedRange, date, date) ? entries.filter((e) => e.date === date) : null),
+    [entries, loadedRange]
   );
 }

@@ -405,4 +405,25 @@ describe("useTimeEntries range widening (#115)", () => {
 
     await waitFor(() => expect(svc.getTimeEntries).toHaveBeenCalledTimes(2));
   });
+  it("reports what it holds, not what it was asked for (#187)", async () => {
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([inRange("2026-03-15", "march")]));
+    const { result, rerender } = renderHook(
+      ({ from, to }) => useTimeEntries(from, to),
+      { initialProps: { from: "2026-03-01", to: "2026-03-31" } },
+    );
+    await waitFor(() => expect(result.current.covered).toEqual({ from: "2026-03-01", to: "2026-03-31" }));
+    expect(result.current.loadFailed).toBe(false);
+
+    // The widening read fails: the request moved, the holding didn't.
+    vi.mocked(svc.getTimeEntries).mockRejectedValue(new Error("network down"));
+    rerender({ from: "2026-01-01", to: "2026-03-31" });
+    await waitFor(() => expect(result.current.loadFailed).toBe(true));
+    expect(result.current.covered).toBeNull();
+
+    // The next read that succeeds clears it.
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([]));
+    await act(async () => { await result.current.refresh(); });
+    expect(result.current.loadFailed).toBe(false);
+    expect(result.current.covered).toEqual({ from: "2026-01-01", to: "2026-03-31" });
+  });
 });

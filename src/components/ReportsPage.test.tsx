@@ -189,3 +189,48 @@ describe("ReportsPage export controls", () => {
     expect(localStorage.getItem("tt_export_rounding")).toBe("up15");
   });
 });
+
+describe("ReportsPage range not yet held (#187)", () => {
+  // The prior week is 7 days before last week's start; hold everything from
+  // last week on, but not the week before it.
+  const priorStart = addDaysStr(lastWeekStart, -7);
+  const lastWeekOnly = { from: lastWeekStart, to: "9999-12-31" };
+
+  it("holds the delta, rather than computing it from a half-loaded prior period", () => {
+    renderWithData(<ReportsPage />, {
+      entries: [...threeDays(60), entry(priorStart, 600)],
+      projects, tasks, loadedRange: lastWeekOnly, rangeLoading: true,
+    });
+    expect(screen.getByText("3h")).toBeTruthy();
+    expect(screen.getByText("loading the period before…")).toBeTruthy();
+    expect(screen.queryByText(/on the period before/)).toBeNull();
+  });
+
+  it("says the prior period didn't load when its read failed", () => {
+    renderWithData(<ReportsPage />, {
+      entries: threeDays(60), projects, tasks, loadedRange: lastWeekOnly, rangeLoadFailed: true,
+    });
+    expect(screen.getByText("the period before didn’t load")).toBeTruthy();
+  });
+
+  it("shows no totals and writes no CSV while the period itself is loading", () => {
+    renderWithData(<ReportsPage />, {
+      entries: threeDays(60), projects, tasks, loadedRange: null, rangeLoading: true,
+    });
+    expect(screen.getByText("Loading this period…")).toBeTruthy();
+    expect(screen.queryByText("3h")).toBeNull();
+    expect(screen.queryByText("Nothing tracked in this period")).toBeNull();
+    expect(screen.getByRole("button", { name: "Export CSV" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("offers a retry, and no partial totals, when the period's read failed", () => {
+    const refreshEntries = vi.fn(async () => {});
+    renderWithData(<ReportsPage />, {
+      entries: threeDays(60), projects, tasks, loadedRange: null, rangeLoadFailed: true, refreshEntries,
+    });
+    expect(screen.queryByText("3h")).toBeNull();
+    expect(screen.getByRole("button", { name: "Export CSV" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(refreshEntries).toHaveBeenCalledTimes(1);
+  });
+});
