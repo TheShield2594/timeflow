@@ -1052,16 +1052,26 @@ input.timer-hero__desc::placeholder { color: var(--label-secondary); }
 .cal-entry__handle--bottom { bottom: 0; }
 
 /* Outlook meetings are read-only, so they are drawn as something that is
-   not yours: hatched, with a dashed edge. */
+   not yours: hatched, with a dashed edge.
+
+   The hatch sits on an opaque canvas. A ghost is drawn over any untracked
+   gap it overlaps (see .cal-gap), and with transparent stripes the gap's
+   "+ 2h untracked" showed through between them, on top of the meeting's own
+   name — neither could be read (#189). */
 .cal-ghost {
   position: absolute; left: 4px; right: 4px; z-index: 1;
   border-radius: var(--radius-block); border-left: 2.5px dashed var(--decor);
   padding: 6px 9px; overflow: hidden; pointer-events: auto; min-height: 0;
-  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--decor) 18%, transparent) 0 5px, transparent 5px 10px);
+  background:
+    repeating-linear-gradient(135deg, color-mix(in srgb, var(--decor) 18%, transparent) 0 5px, transparent 5px 10px),
+    var(--canvas);
 }
 .cal-ghost--logged { opacity: 0.5; }
-.cal-ghost__name { font-size: 13px; line-height: 17px; font-weight: 600; color: var(--label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cal-ghost__time { font-size: 12px; line-height: 16px; color: var(--label-secondary); }
+.cal-ghost__log { display: block; width: 100%; text-align: left; }
+.cal-ghost__name { display: block; font-size: 13px; line-height: 17px; font-weight: 600; color: var(--label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* One line, always. Wrapped ("11:00 / AM – 12:00 PM") it pushed Log and Hide
+   below the bottom of a one-hour block, where overflow clipped them. */
+.cal-ghost__time { display: block; font-size: 12px; line-height: 16px; color: var(--label-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cal-ghost__actions { display: flex; gap: 8px; margin-top: 2px; }
 .cal-ghost__cta, .cal-ghost__log { font-size: 12px; font-weight: 600; color: var(--accent); min-height: 0; }
 .cal-ghost__mute { font-size: 12px; color: var(--label-secondary); min-height: 0; }
