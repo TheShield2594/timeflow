@@ -439,7 +439,7 @@ describe("useTimeEntries range widening (#115)", () => {
     await waitFor(() => expect(result.current.covered).toEqual({ from: "2026-06-01", to: "2026-06-30" }));
   });
 
-  it("drops a refresh still in flight once the window is served from memory", async () => {
+  it("re-issues a refresh still in flight over the window the page now wants", async () => {
     vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([]));
     const { result, rerender } = renderHook(
       ({ from, to }) => useTimeEntries(from, to),
@@ -456,8 +456,33 @@ describe("useTimeEntries range widening (#115)", () => {
     act(() => { refreshing = result.current.refresh(); });
     rerender({ from: "2026-01-01", to: "2026-06-30" });
 
+    // The stale narrow read lands last and must not shrink what's held below
+    // the page's window, nor leave it "loading".
     await act(async () => { resolveRefresh(paged([])); await refreshing; });
-    expect(result.current.covered).toEqual({ from: "2026-01-01", to: "2026-12-31" });
-    expect(result.current.isFetching).toBe(false);
+    await waitFor(() => expect(result.current.isFetching).toBe(false));
+    expect(svc.getTimeEntries).toHaveBeenLastCalledWith({ from: "2026-01-01", to: "2026-06-30" });
+    expect(result.current.covered).toEqual({ from: "2026-01-01", to: "2026-06-30" });
+  });
+
+  it("still reconciles an id-less create when its refresh is superseded", async () => {
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([]));
+    const { result, rerender } = renderHook(
+      ({ from, to }) => useTimeEntries(from, to),
+      { initialProps: { from: "2026-01-01", to: "2026-12-31" } },
+    );
+    await waitFor(() => expect(result.current.covered).toEqual({ from: "2026-01-01", to: "2026-12-31" }));
+
+    // The save lands but its body loses the id, so createEntry refreshes —
+    // and that refresh is still out when the page's range moves.
+    vi.mocked(svc.createTimeEntry).mockResolvedValue(inRange("2026-03-15", ""));
+    vi.mocked(svc.getTimeEntries).mockReturnValueOnce(new Promise(() => {}));
+    await act(async () => {
+      await result.current.createEntry({ projectId: "proj-1", startTime: "2026-03-15T09:00:00Z", date: "2026-03-15" });
+    });
+
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([inRange("2026-03-15", "real-1")]));
+    rerender({ from: "2026-03-01", to: "2026-03-31" });
+
+    await waitFor(() => expect(result.current.entries.map((e) => e.id)).toEqual(["real-1"]));
   });
 });

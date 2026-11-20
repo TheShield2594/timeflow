@@ -89,6 +89,8 @@ export function useTimeEntries(from?: string, to?: string) {
   useEffect(() => { entriesRef.current = entries; }, [entries]);
 
   const seqRef = useRef(0);
+  /** The read currently out, if any: whether it was a forced refresh. */
+  const inFlightRef = useRef<{ force: boolean } | null>(null);
   const coveredRef = useRef<Covered | null>(null);
   /**
    * `coveredRef`, as state a page can read.
@@ -177,25 +179,35 @@ export function useTimeEntries(from?: string, to?: string) {
     // Unbounded call: the service picks its own default window, so there is
     // no span arithmetic to do and nothing to record as covered.
     const want: Covered | null = from && to ? { from, to } : null;
-    const spans = !want || force
+    let spans = !want || force
       ? [want]
       : uncoveredSpans(coveredRef.current, want);
     if (spans.length === 0) {
       // Everything asked for is already in memory — the narrowing case, and
       // the return trip from a wide preset. No request, no spinner.
       //
-      // It also supersedes any read still in flight. A refresh of a narrower
-      // window, landing after this, would replace what's held with less than
-      // the page now needs, and nothing would re-ask: the page would sit on
-      // "loading" until the range next changed.
-      seqRef.current++;
-      setIsFetching(false);
-      setLoading(false);
-      setLoadFailed(false);
-      return;
+      // A read still in flight can't be left to land, though. A refresh of a
+      // narrower window would replace what's held with less than the page now
+      // needs, and nothing would re-ask: the page would sit on "loading".
+      if (!inFlightRef.current?.force) {
+        // Nothing out, or only a delta read this request no longer needs.
+        seqRef.current++;
+        inFlightRef.current = null;
+        setIsFetching(false);
+        setLoading(false);
+        setLoadFailed(false);
+        return;
+      }
+      // But a refresh can't simply be dropped either: it is how a create
+      // whose response lost its id gets its real row (see createEntry).
+      // Re-issue it over the window the page wants now, which supersedes the
+      // old one and still reconciles.
+      force = true;
+      spans = [want];
     }
 
     const seq = ++seqRef.current;
+    inFlightRef.current = { force };
     setIsFetching(true);
     setLoadFailed(false);
     try {
@@ -232,6 +244,7 @@ export function useTimeEntries(from?: string, to?: string) {
       toast(`Could not load entries: ${errMsg(err)}`, "error");
     } finally {
       if (seq === seqRef.current) {
+        inFlightRef.current = null;
         setLoading(false);
         setIsFetching(false);
       }
