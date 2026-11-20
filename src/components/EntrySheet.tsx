@@ -304,7 +304,12 @@ export const EntrySheet: React.FC<Props> = ({
         const midnightIso = new Date(midnight).toISOString();
         // Skip the first half if a previous attempt already saved it and only
         // the second half failed — retrying must not duplicate it.
-        if (!splitFirstSaved.current) {
+        //
+        // That only holds for a create. When the sheet is editing a record
+        // the first half is an update of it, which is safe to repeat — and
+        // has to be, or a project changed between the failure and the retry
+        // would reach the new half and not the one already written.
+        if (entryId || !splitFirstSaved.current) {
           await onSave({
             ...common, date: draft.date,
             startTime: startDt.toISOString(), endTime: midnightIso,

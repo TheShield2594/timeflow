@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { TimeEntry } from "../types";
 import { formatMinutes } from "../hooks";
 import { useData } from "../contexts/DataContext";
@@ -59,6 +59,8 @@ interface SheetState {
   mode: "create" | "edit";
   draft: EntryDraft;
   id?: string;
+  /** Distinct per open — see `openSheet`. */
+  nonce: number;
 }
 
 /** One line of a day group: something that was tracked, or something that
@@ -80,6 +82,14 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
   const entriesOnDate = useEntriesOnDate();
   const today = useToday();
   const [sheet, setSheet] = useState<SheetState | null>(null);
+  // EntrySheet seeds its form from `initial` once, so a sheet that replaces
+  // another has to remount to show its own draft. "Fill it" inside the sheet
+  // does exactly that swap, and unkeyed, the form kept the previous entry's
+  // values while the mode became create — Save then filed a copy of it. A
+  // counter rather than a key built from the draft: two drafts can share a
+  // date and start time and still be different sheets.
+  const sheetNonce = useRef(0);
+  const openSheet = (next: Omit<SheetState, "nonce">) => setSheet({ ...next, nonce: ++sheetNonce.current });
   const [search, setSearch] = useState("");
   const [visibleDays, setVisibleDays] = useState(INITIAL_VISIBLE_DAYS);
   const [range, setRange] = useState<RangeState>({ preset: "thisWeek", customFrom: "", customTo: "" });
@@ -265,7 +275,7 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
             <button
               type="button"
               className="empty__action"
-              onClick={() => setSheet({ mode: "create", draft: defaultDraft(today, workingHours) })}
+              onClick={() => openSheet({ mode: "create", draft: defaultDraft(today, workingHours) })}
             >
               Log past time
             </button>
@@ -291,7 +301,7 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
                         </span>
                         <Pill
                           size="tiny"
-                          onClick={() => setSheet({ mode: "create", draft: draftForSpan(day.date, gap.startMin, gap.endMin) })}
+                          onClick={() => openSheet({ mode: "create", draft: draftForSpan(day.date, gap.startMin, gap.endMin) })}
                         >
                           Fill it
                         </Pill>
@@ -318,7 +328,7 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
                       meta={running
                         ? `from ${clockAt(minutesOfDay(entry.startTime))}`
                         : `${clockAt(minutesOfDay(entry.startTime))} – ${clockAt(minutesOfDay(entry.endTime!))}`}
-                      onClick={running ? undefined : () => setSheet({ mode: "edit", draft: draftForEntry(entry), id: entry.id })}
+                      onClick={running ? undefined : () => openSheet({ mode: "edit", draft: draftForEntry(entry), id: entry.id })}
                       ariaLabel={`Edit ${entry.description || subtitleFor(entry)}`}
                     />
                   );
@@ -344,7 +354,7 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
       >
         <div style={{ display: "flex", gap: 12 }}>
           <Pill onClick={handleExport} disabled={filtered.length === 0}>Export CSV</Pill>
-          <Pill tone="primary" onClick={() => setSheet({ mode: "create", draft: defaultDraft(today, workingHours) })}>
+          <Pill tone="primary" onClick={() => openSheet({ mode: "create", draft: defaultDraft(today, workingHours) })}>
             Log time
           </Pill>
         </div>
@@ -352,11 +362,7 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
 
       {sheet && (
         <EntrySheet
-          // EntrySheet seeds its form from `initial` once. "Fill it" inside
-          // the sheet swaps an edit for a create without unmounting, and
-          // unkeyed, the form kept the edited entry's values while the mode
-          // became create — Save then wrote a copy of the entry.
-          key={`${sheet.id ?? "new"}:${sheet.draft.date}:${sheet.draft.startTime}`}
+          key={sheet.nonce}
           mode={sheet.mode}
           initial={sheet.draft}
           entryId={sheet.id}
@@ -368,11 +374,13 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
           onSave={(data) => (sheet.id ? editEntry(sheet.id, data) : createEntry(data))}
           onCreateRemainder={createEntry}
           onDelete={sheet.id ? () => { deleteEntry(sheet.id!); setSheet(null); } : undefined}
-          onClose={() => setSheet(null)}
+          // A save still in flight when "Fill it" replaced this sheet closes
+          // *this* one when it lands, not whichever is open by then.
+          onClose={() => setSheet((current) => (current === sheet ? null : current))}
           onLoadTasksForProject={loadTasksForProject}
           onAddTask={addTask}
           onFillGap={(date, startMin, endMin) =>
-            setSheet({ mode: "create", draft: draftForSpan(date, startMin, endMin) })}
+            openSheet({ mode: "create", draft: draftForSpan(date, startMin, endMin) })}
         />
       )}
     </>

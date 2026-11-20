@@ -148,8 +148,9 @@ describe("useTimer", () => {
     let first!: Promise<unknown>;
     let second!: Promise<unknown>;
     act(() => {
-      first = result.current.stop();
-      second = result.current.stopAt(new Date().toISOString());
+      // The same end, as Retry and the shortcut send: `pendingStopAt`.
+      first = result.current.stopAt("2026-09-08T17:00:00.000Z");
+      second = result.current.stopAt("2026-09-08T17:00:00.000Z");
     });
     await act(async () => {
       land({ id: "entry-1" } as TimeEntry);
@@ -158,6 +159,30 @@ describe("useTimer", () => {
 
     expect(svc.createTimeEntry).toHaveBeenCalledTimes(1);
     expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it("doesn't hand a stop for a different end time the in-flight stop's result", async () => {
+    // The idle prompt's Trim, pressed while a plain stop is saving, asks for
+    // an earlier end. Joined to the first attempt it would report the entry
+    // as trimmed when it was saved at the later time. It waits instead, and
+    // finding the session already saved, says there was nothing to stop.
+    vi.mocked(svc.createDraftTimerEntry).mockRejectedValueOnce(new Error("offline"));
+    let land!: (e: TimeEntry) => void;
+    vi.mocked(svc.createTimeEntry).mockReturnValue(new Promise<TimeEntry>((r) => { land = r; }));
+    const { result } = renderHook(() => useTimer(vi.fn()));
+    await act(async () => { result.current.start("proj-1", null, "Working"); });
+
+    let plain!: Promise<unknown>;
+    let trim!: Promise<unknown>;
+    act(() => {
+      plain = result.current.stopAt("2026-09-08T17:00:00.000Z");
+      trim = result.current.stopAt("2026-09-08T16:30:00.000Z");
+    });
+    await act(async () => { land({ id: "entry-1" } as TimeEntry); await plain; });
+
+    await expect(plain).resolves.toEqual({ id: "entry-1" });
+    await expect(trim).resolves.toBeUndefined();
+    expect(svc.createTimeEntry).toHaveBeenCalledTimes(1);
   });
 
   it("leaves the timer running and prompts a retry if saving the stop fails", async () => {

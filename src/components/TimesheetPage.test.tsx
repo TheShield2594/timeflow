@@ -217,6 +217,30 @@ describe("TimesheetPage untracked gaps", () => {
     expect((within(filled).getByLabelText("End time") as HTMLInputElement).value).toBe("18:00");
   });
 
+  it("remounts for a gap that shares the open sheet's date and start", () => {
+    // Open the 10 AM–6 PM gap, move its start to noon, and the sheet offers
+    // the 10 AM–noon it just uncovered: the same date and the same start as
+    // the draft it opened on. A key built from those two didn't change, and
+    // the form went on showing noon–6 PM.
+    const date = daysAgo(1);
+    renderWithData(<TimesheetPage workingHours={TEST_WORKING_HOURS} />, {
+      entries: [entry({ id: "a", date, description: "Standup", startTime: `${date}T08:00:00`, endTime: `${date}T10:00:00`, durationMinutes: 120 })],
+      projects,
+    });
+    fireEvent.click(screen.getByRole("radio", { name: "Custom" }));
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: daysAgo(40) } });
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: today } });
+
+    fireEvent.click(within(groupFor(date)).getByRole("button", { name: "Fill it" }));
+    const first = screen.getByRole("dialog");
+    fireEvent.change(within(first).getByLabelText("Time"), { target: { value: "12:00" } });
+    fireEvent.click(within(first).getByRole("button", { name: "Fill it" }));
+
+    const second = screen.getByRole("dialog");
+    expect((within(second).getByLabelText("Time") as HTMLInputElement).value).toBe("10:00");
+    expect((within(second).getByLabelText("End time") as HTMLInputElement).value).toBe("12:00");
+  });
+
   it("computes gaps from the whole day, not from what the search left showing", () => {
     // Two back-to-back entries fill 09:00–11:00. Searching for one of them
     // hides the other, but the hour it covers is still tracked — a gap
