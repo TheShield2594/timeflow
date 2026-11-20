@@ -15,8 +15,9 @@ Each finding carries how far it was taken:
 - **Reported** — one reader's finding from the code, not independently
   confirmed. Treat as a lead.
 
-Nothing here has an issue number yet. Per CONTRIBUTING, file the ones worth
-doing as issues and cite those in commits, not the section numbers below.
+Section 1 was fixed the same day. Everything else is filed — see
+[Where each finding went](#where-each-finding-went) at the foot. Commits cite
+those issue numbers, not the section numbers here.
 
 ---
 
@@ -228,3 +229,46 @@ Ordered by value against effort. Each was checked against the README's
   rule means it isn't tracked.
 - **Three open issues** (#7, #156, #161), all build-side; none conflicts with
   anything above.
+
+---
+
+## Where each finding went
+
+| Finding | Issue |
+|---|---|
+| §1.1–1.6 | Fixed 2026-11-20, no issue |
+| §2.1 timer past midnight | #185 |
+| §2.2 running-row duration | #186 |
+| §2.3 Reports before its range loads | #187 |
+| §2.4 0m entries | #188 |
+| §2.5 Outlook / gap text collision | #189 |
+| §2.6 tasks past the fifth | #190 |
+| §2.7 stacked sheets, shortcut behind sheets | #191 |
+| §2.8 idle Trim before start | #192 |
+| §2.9 orphaned draft → 12h entry | #193 |
+| §2.10 project sheet guards | #194 |
+| §2.11 new task on blur | #195 |
+| §2.12 "404" substring | #196 |
+| §2.13 stale shared tasks | #197 |
+| §2.14 CSV hours vs minutes | #198 |
+| §3 Dropdown value not announced | #199 |
+| §3 contrast: calendar titles, placeholder labels | #200 |
+| §3 layout and copy polish | #201 |
+| §3 design-system drift | #202 |
+| §4.1 running timer everywhere | #203 |
+| §4.2–4.3 continue, recents | #204 |
+| §4.4 undo for moves and edits | #205 |
+| §4.5 overlap notice | #206 |
+| §4.6 shortcuts | #207 |
+| §4.7 same as yesterday | #208 |
+| §4.8 Reports range and filter | #209 |
+| §4.9 dead ends | #210 |
+| §4.10 Team CSV owner id | #211 |
+| §4 Jira links | #212 |
+| §4 server-side safety net, Dataverse bounds | #213 |
+| §5 browser smoke test, coverage holes | #214 |
+| §5 power-apps SDK update | #215 |
+
+Not filed: D-2 (licence) is already tracked in DECISIONS.md and needs a date
+there rather than an issue; Teams/email reminders are a product decision, noted
+in #213.
