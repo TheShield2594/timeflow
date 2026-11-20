@@ -6,7 +6,7 @@ import { useRangeRequest } from "../contexts/DataRangeContext";
 import { useToday } from "../hooks/useToday";
 import { useEntriesOnDate } from "../hooks/useEntriesOnDate";
 import type { WorkingHours } from "../hooks/useWorkingHours";
-import { MINUTES_PER_DAY, addDaysStr, clockAt, friendlyDate, minutesOfDay } from "../utils/dates";
+import { MINUTES_PER_DAY, addDaysStr, clockAt, friendlyDate, minutesBetween, minutesOfDay } from "../utils/dates";
 import { byId, indexById } from "../utils/entityIndex";
 import { findUntrackedGaps, missedWorkdayGap, type Gap } from "../utils/gaps";
 import { RANGE_LABEL, rangeLabel, resolveRange, type RangePreset, type RangeState } from "../utils/ranges";
@@ -31,7 +31,7 @@ function totalPhrase(preset: RangePreset, from: string, to: string): string {
 }
 
 /**
- * Minutes since local midnight, re-read once a minute.
+ * The clock, re-read every thirty seconds.
  *
  * The running row's duration and the trailing untracked gap are both measured
  * against "now", and reading the clock once at render froze them until some
@@ -40,10 +40,10 @@ function totalPhrase(preset: RangePreset, from: string, to: string): string {
  * tick — and it is deliberately not a second, which would re-render the whole
  * list sixty times a minute for a digit that doesn't change (#95).
  */
-function useNowMinutes(): number {
-  const [now, setNow] = useState(() => minutesOfDay(new Date().toISOString()));
+function useNow(): number {
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const handle = setInterval(() => setNow(minutesOfDay(new Date().toISOString())), 30_000);
+    const handle = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(handle);
   }, []);
   return now;
@@ -99,7 +99,10 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
 
   const projectById = useMemo(() => indexById(projects), [projects]);
   const taskById = useMemo(() => indexById(tasks), [tasks]);
-  const nowMinutes = useNowMinutes();
+  const nowMs = useNow();
+  // Clock position, for placing gaps on today's line — a position, not a
+  // duration, so minutes-of-day is the right unit here.
+  const nowMinutes = useMemo(() => minutesOfDay(new Date(nowMs).toISOString()), [nowMs]);
 
   useEffect(() => { setVisibleDays(INITIAL_VISIBLE_DAYS); }, [from, to, search]);
 
@@ -321,8 +324,11 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
                         </>
                       }
                       subtitle={entry.description ? subtitleFor(entry) : undefined}
+                      // From instants, never `now − start` as two minutes-of-day:
+                      // that read 0m for a timer started before midnight and an
+                      // hour out across a DST change (#186, the #87 class).
                       value={running
-                        ? formatMinutes(Math.max(0, nowMinutes - minutesOfDay(entry.startTime)))
+                        ? formatMinutes(Math.max(0, minutesBetween(entry.startTime, new Date(nowMs))))
                         : formatMinutes(entry.durationMinutes ?? 0)}
                       valueAccent={running}
                       meta={running

@@ -405,4 +405,84 @@ describe("useTimeEntries range widening (#115)", () => {
 
     await waitFor(() => expect(svc.getTimeEntries).toHaveBeenCalledTimes(2));
   });
+  it("reports what it holds, not what it was asked for (#187)", async () => {
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([inRange("2026-03-15", "march")]));
+    const { result, rerender } = renderHook(
+      ({ from, to }) => useTimeEntries(from, to),
+      { initialProps: { from: "2026-03-01", to: "2026-03-31" } },
+    );
+    await waitFor(() => expect(result.current.covered).toEqual({ from: "2026-03-01", to: "2026-03-31" }));
+    expect(result.current.loadFailed).toBe(false);
+
+    // The widening read fails: the request moved, the holding didn't.
+    vi.mocked(svc.getTimeEntries).mockRejectedValue(new Error("network down"));
+    rerender({ from: "2026-01-01", to: "2026-03-31" });
+    await waitFor(() => expect(result.current.loadFailed).toBe(true));
+    expect(result.current.covered).toBeNull();
+
+    // The next read that succeeds clears it.
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([]));
+    await act(async () => { await result.current.refresh(); });
+    expect(result.current.loadFailed).toBe(false);
+    expect(result.current.covered).toEqual({ from: "2026-01-01", to: "2026-03-31" });
+  });
+
+  it("doesn't certify the unread days between a held span and a disjoint new one", async () => {
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([]));
+    const { result, rerender } = renderHook(
+      ({ from, to }) => useTimeEntries(from, to),
+      { initialProps: { from: "2026-01-01", to: "2026-01-31" } },
+    );
+    await waitFor(() => expect(result.current.covered).toEqual({ from: "2026-01-01", to: "2026-01-31" }));
+
+    rerender({ from: "2026-06-01", to: "2026-06-30" });
+    await waitFor(() => expect(result.current.covered).toEqual({ from: "2026-06-01", to: "2026-06-30" }));
+  });
+
+  it("re-issues a refresh still in flight over the window the page now wants", async () => {
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([]));
+    const { result, rerender } = renderHook(
+      ({ from, to }) => useTimeEntries(from, to),
+      { initialProps: { from: "2026-01-01", to: "2026-12-31" } },
+    );
+    await waitFor(() => expect(result.current.covered).toEqual({ from: "2026-01-01", to: "2026-12-31" }));
+
+    // Narrow (served from memory), then refresh — a read of the narrow window
+    // that is still out when the page widens back inside what's held.
+    rerender({ from: "2026-03-01", to: "2026-03-31" });
+    let resolveRefresh!: (v: ReturnType<typeof paged<TimeEntry>>) => void;
+    vi.mocked(svc.getTimeEntries).mockReturnValueOnce(new Promise((r) => { resolveRefresh = r; }));
+    let refreshing!: Promise<void>;
+    act(() => { refreshing = result.current.refresh(); });
+    rerender({ from: "2026-01-01", to: "2026-06-30" });
+
+    // The stale narrow read lands last and must not shrink what's held below
+    // the page's window, nor leave it "loading".
+    await act(async () => { resolveRefresh(paged([])); await refreshing; });
+    await waitFor(() => expect(result.current.isFetching).toBe(false));
+    expect(svc.getTimeEntries).toHaveBeenLastCalledWith({ from: "2026-01-01", to: "2026-06-30" });
+    expect(result.current.covered).toEqual({ from: "2026-01-01", to: "2026-06-30" });
+  });
+
+  it("still reconciles an id-less create when its refresh is superseded", async () => {
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([]));
+    const { result, rerender } = renderHook(
+      ({ from, to }) => useTimeEntries(from, to),
+      { initialProps: { from: "2026-01-01", to: "2026-12-31" } },
+    );
+    await waitFor(() => expect(result.current.covered).toEqual({ from: "2026-01-01", to: "2026-12-31" }));
+
+    // The save lands but its body loses the id, so createEntry refreshes —
+    // and that refresh is still out when the page's range moves.
+    vi.mocked(svc.createTimeEntry).mockResolvedValue(inRange("2026-03-15", ""));
+    vi.mocked(svc.getTimeEntries).mockReturnValueOnce(new Promise(() => {}));
+    await act(async () => {
+      await result.current.createEntry({ projectId: "proj-1", startTime: "2026-03-15T09:00:00Z", date: "2026-03-15" });
+    });
+
+    vi.mocked(svc.getTimeEntries).mockResolvedValue(paged([inRange("2026-03-15", "real-1")]));
+    rerender({ from: "2026-03-01", to: "2026-03-31" });
+
+    await waitFor(() => expect(result.current.entries.map((e) => e.id)).toEqual(["real-1"]));
+  });
 });

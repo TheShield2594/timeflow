@@ -320,3 +320,31 @@ describe("TimesheetPage export", () => {
     expect(vi.mocked(exportToCSV).mock.calls[0][4]).toBe("up15");
   });
 });
+
+describe("TimesheetPage running row (#186)", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  const running = (date: string, startTime: string): TimeEntry =>
+    entry({ id: "run", date, startTime, endTime: undefined, durationMinutes: undefined });
+
+  it("counts a timer started before midnight from when it started, not from 0", () => {
+    // Tuesday 00:45; the timer has run since 23:30 on Monday.
+    vi.useFakeTimers({ now: new Date("2026-03-10T00:45:00"), shouldAdvanceTime: true });
+    renderWithData(
+      <TimesheetPage workingHours={TEST_WORKING_HOURS} />,
+      { entries: [running("2026-03-09", new Date("2026-03-09T23:30:00").toISOString())], projects },
+    );
+    expect(screen.getAllByText("1h 15m").length).toBeGreaterThan(0);
+  });
+
+  it("reads elapsed time across the spring-forward hour, not clock difference", () => {
+    // New York, 8 March 2026: 01:00 → 04:00 on the clock is two real hours.
+    vi.useFakeTimers({ now: new Date("2026-03-08T04:00:00"), shouldAdvanceTime: true });
+    renderWithData(
+      <TimesheetPage workingHours={TEST_WORKING_HOURS} />,
+      { entries: [running("2026-03-08", new Date("2026-03-08T01:00:00").toISOString())], projects },
+    );
+    expect(screen.getAllByText("2h").length).toBeGreaterThan(0);
+    expect(screen.queryByText("3h")).toBeNull();
+  });
+});

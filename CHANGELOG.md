@@ -32,6 +32,16 @@ each of which lost time, changed a duration, or left a control dead:
   worked).
 - The Calendar searched 8 AM–6 PM for untracked gaps regardless of the user's
   working hours, disagreeing with the Timer and Timesheet.
+- Reports summed its totals, its comparison with the period before, and its
+  CSV export from whatever had loaded so far — permanently short if the load
+  failed. It now waits for the period to load, says so if it didn't, and
+  offers Try again (#187).
+- The Timesheet's running row showed 0m for a timer started before midnight,
+  and was an hour out on a DST day (#186).
+- An Outlook meeting on the Calendar was unreadable where it overlapped an
+  untracked gap, and its *Log* / *Hide* controls could be clipped (#189).
+- Projects listed only a project's first five tasks, with no way to reach the
+  rest. "Show N more tasks" now reveals them (#190).
 
 ---
 

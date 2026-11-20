@@ -49,6 +49,10 @@ function nextDay(date: string): string { return addDaysStr(date, 1); }
 /** Union of two spans known to overlap or abut. */
 function widen(covered: Covered | null, want: Covered): Covered {
   if (!covered) return want;
+  // Disjoint and not abutting: the days between were never read, so the hull
+  // would certify a hole. Hold only what was just read. (A date rollover of
+  // 90+ days in a long-suspended tab moves the baseline clear of what's held.)
+  if (want.from > nextDay(covered.to) || want.to < prevDay(covered.from)) return want;
   return {
     from: want.from < covered.from ? want.from : covered.from,
     to: want.to > covered.to ? want.to : covered.to,
@@ -85,7 +89,25 @@ export function useTimeEntries(from?: string, to?: string) {
   useEffect(() => { entriesRef.current = entries; }, [entries]);
 
   const seqRef = useRef(0);
+  /** The read currently out, if any: whether it was a forced refresh. */
+  const inFlightRef = useRef<{ force: boolean } | null>(null);
   const coveredRef = useRef<Covered | null>(null);
+  /**
+   * `coveredRef`, as state a page can read.
+   *
+   * The ref is what `load` reasons with; this is what a page renders against.
+   * "The window I asked for" and "the window that is actually in memory" are
+   * different things for the length of a fetch, and permanently after a failed
+   * or short one — and a total summed in that gap is a wrong number with
+   * nothing on screen to say so (#187).
+   */
+  const [covered, setCoveredState] = useState<Covered | null>(null);
+  const setCovered = useCallback((next: Covered | null) => {
+    coveredRef.current = next;
+    setCoveredState(next);
+  }, []);
+  /** The latest read failed or came back short. Cleared when the next starts. */
+  const [loadFailed, setLoadFailed] = useState(false);
 
   /**
    * Check a batch of rows for entries belonging to somebody else.
@@ -157,18 +179,37 @@ export function useTimeEntries(from?: string, to?: string) {
     // Unbounded call: the service picks its own default window, so there is
     // no span arithmetic to do and nothing to record as covered.
     const want: Covered | null = from && to ? { from, to } : null;
-    const spans = !want || force
+    let spans = !want || force
       ? [want]
       : uncoveredSpans(coveredRef.current, want);
     if (spans.length === 0) {
       // Everything asked for is already in memory — the narrowing case, and
       // the return trip from a wide preset. No request, no spinner.
-      setLoading(false);
-      return;
+      //
+      // A read still in flight can't be left to land, though. A refresh of a
+      // narrower window would replace what's held with less than the page now
+      // needs, and nothing would re-ask: the page would sit on "loading".
+      if (!inFlightRef.current?.force) {
+        // Nothing out, or only a delta read this request no longer needs.
+        seqRef.current++;
+        inFlightRef.current = null;
+        setIsFetching(false);
+        setLoading(false);
+        setLoadFailed(false);
+        return;
+      }
+      // But a refresh can't simply be dropped either: it is how a create
+      // whose response lost its id gets its real row (see createEntry).
+      // Re-issue it over the window the page wants now, which supersedes the
+      // old one and still reconciles.
+      force = true;
+      spans = [want];
     }
 
     const seq = ++seqRef.current;
+    inFlightRef.current = { force };
     setIsFetching(true);
+    setLoadFailed(false);
     try {
       const results = await Promise.all(
         spans.map((span) => svc.getTimeEntries(span ? { from: span.from, to: span.to } : {}))
@@ -180,7 +221,7 @@ export function useTimeEntries(from?: string, to?: string) {
       // are keyed by id, so a row that moved out of its old span still
       // resolves to one entry rather than two.
       setEntries((prev) => (replace ? fetched : mergeById(prev, fetched)));
-      coveredRef.current = !want ? null : force ? want : widen(coveredRef.current, want);
+      setCovered(!want ? null : force ? want : widen(coveredRef.current, want));
       // Handed back by the read rather than pushed through a module-global
       // handler the app wired up on mount — that global was last-writer-wins
       // and wasn't guaranteed to be set during bootstrap, which is exactly
@@ -191,21 +232,24 @@ export function useTimeEntries(from?: string, to?: string) {
         // A short read means the covered span has holes in it, so it can't be
         // used to skip later reads. Claiming coverage we don't have is how a
         // missing entry would become permanently missing for the session.
-        coveredRef.current = null;
+        setCovered(null);
+        setLoadFailed(true);
       }
       assertOwnRows(fetched);
     } catch (err) {
       if (seq !== seqRef.current) return;
       // Same reasoning: a failed span leaves a hole, so nothing is covered.
-      if (!force) coveredRef.current = null;
+      if (!force) setCovered(null);
+      setLoadFailed(true);
       toast(`Could not load entries: ${errMsg(err)}`, "error");
     } finally {
       if (seq === seqRef.current) {
+        inFlightRef.current = null;
         setLoading(false);
         setIsFetching(false);
       }
     }
-  }, [from, to, toast, assertOwnRows]);
+  }, [from, to, toast, assertOwnRows, setCovered]);
 
   /** Re-read the current window from the server, discarding what's held. */
   const refresh = useCallback(() => load(true), [load]);
@@ -292,5 +336,5 @@ export function useTimeEntries(from?: string, to?: string) {
     }
   }, [toast]);
 
-  return { entries, loading, isFetching, isolationBreach, refresh, deleteEntry, createEntry, editEntry };
+  return { entries, loading, isFetching, covered, loadFailed, isolationBreach, refresh, deleteEntry, createEntry, editEntry };
 }

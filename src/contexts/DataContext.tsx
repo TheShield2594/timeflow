@@ -33,6 +33,14 @@ export interface DataApi {
   loading: boolean;
   /** Any load, including a range widening. */
   rangeLoading: boolean;
+  /**
+   * The span of dates `entries` holds completely, or null when no span can be
+   * vouched for (nothing loaded yet, or the last read failed or was cut
+   * short). Not the same as the requested range: see `useRangeStatus`.
+   */
+  loadedRange: { from: string; to: string } | null;
+  /** The latest read failed or came back short; a toast has already said so. */
+  rangeLoadFailed: boolean;
   /** A read came back holding another user's rows: Dataverse row-level
    *  security is misconfigured. Sticky for the session, and the shell raises
    *  a persistent alarm on it. */
@@ -77,7 +85,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const { projects, addProject, editProject, archiveProject, restoreProject } = useProjects();
   const { tasks, addTask, deleteTask, restoreTask, renameTask, loadTasksForProject } = useTasks();
   const {
-    entries, loading, isFetching, isolationBreach, deleteEntry, editEntry, createEntry, refresh,
+    entries, loading, isFetching, covered, loadFailed, isolationBreach, deleteEntry, editEntry, createEntry, refresh,
   } = useTimeEntries(from, to);
 
   const undoable = useUndoableMutations({
@@ -90,12 +98,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // `loading` already covers the first paint; this is the *subsequent*
     // fetch, which pages show without unmounting their content.
     rangeLoading: isFetching && !loading,
+    loadedRange: covered,
+    rangeLoadFailed: loadFailed,
     isolationBreach,
     createEntry, editEntry, deleteEntry: undoable.deleteEntry, refreshEntries: refresh,
     addProject, editProject, archiveProject: undoable.archiveProject, restoreProject,
     addTask, deleteTask: undoable.deleteTask, renameTask, loadTasksForProject,
   }), [
-    entries, projects, tasks, loading, isFetching, isolationBreach,
+    entries, projects, tasks, loading, isFetching, covered, loadFailed, isolationBreach,
     createEntry, editEntry, refresh, undoable,
     addProject, editProject, restoreProject,
     addTask, renameTask, loadTasksForProject,
