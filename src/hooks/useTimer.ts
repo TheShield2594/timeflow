@@ -3,7 +3,7 @@ import type { NewTimeEntry, TimeEntry, TimerState } from "../types";
 import * as svc from "../services/dataverseService";
 import { getCurrentUser } from "../services/userService";
 import { useToast } from "../contexts/ToastContext";
-import { localDateStr, sameInstant } from "../utils/dates";
+import { localDateStr, sameInstant, splitAtMidnights } from "../utils/dates";
 
 const TIMER_KEY_PREFIX = "tt_active_timer:";
 
@@ -12,7 +12,14 @@ const RESET_TIMER: TimerState = {
   ratio: undefined, jiraTicket: undefined,
 };
 
-export function useTimer(onStop: (entry: TimeEntry) => void) {
+/**
+ * Called once a stop is saved, with the first row it wrote and every row.
+ * One stop is usually one row; a session that crossed midnight is one per
+ * day (#185), and a caller that confirms "the entry" needs to know that.
+ */
+export type OnTimerStop = (entry: TimeEntry, all: TimeEntry[]) => void;
+
+export function useTimer(onStop: OnTimerStop, onDiscard?: () => void) {
   const user = getCurrentUser();
   const timerKey = `${TIMER_KEY_PREFIX}${user.environmentId}:${user.id}`;
   const toast = useToast();
@@ -261,7 +268,9 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       toast("Timer is already running. Stop it first.", "error");
       return false;
     }
-    await beginSession({ ...session, isRunning: true, pendingStopAt: undefined, draftEntryId: undefined });
+    await beginSession({
+      ...session, isRunning: true, pendingStopAt: undefined, draftEntryId: undefined, splitEntryIds: undefined,
+    });
     return true;
   }, [beginSession, toast]);
 
@@ -327,9 +336,33 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
     if (!activeTimer.startTime || !activeTimer.projectId) return;
     if (!activeTimer.isRunning && !activeTimer.pendingStopAt) return;
 
-    const startMs = new Date(activeTimer.startTime).getTime();
-    const endMs = new Date(endIso).getTime();
-    const durationMinutes = Math.max(0, Math.round((endMs - startMs) / 60000));
+    const pieces = splitAtMidnights(activeTimer.startTime, endIso);
+    const totalMinutes = Math.max(0, Math.round(
+      (new Date(endIso).getTime() - new Date(activeTimer.startTime).getTime()) / 60000,
+    ));
+
+    // A session that rounds to nothing is a mis-click — Stop pressed straight
+    // after Start — not time worked. Filing it put a 0m row in the timesheet
+    // and the CSV under a "Saved 0m" toast (#188). It is discarded the way
+    // cancel() discards: the draft row goes too, or it would come back as a
+    // phantom running timer on the next reload.
+    if (totalMinutes === 0) {
+      if (timerRef.current.startTime === activeTimer.startTime) {
+        applyTimer(RESET_TIMER);
+        persistTimer(null);
+      }
+      if (activeTimer.draftEntryId) {
+        await svc.deleteTimeEntry(activeTimer.draftEntryId).catch(() => { /* best effort */ });
+      } else {
+        // No id, but the create may have landed with its response lost.
+        void sweepOrphanedDraft(activeTimer.startTime, "");
+      }
+      toast("Stopped under a minute — nothing was saved.", "info");
+      // The draft row was on the timesheet as "Running…"; onStop never runs
+      // on this path, so the caller is told separately to re-read.
+      onDiscard?.();
+      return undefined;
+    }
 
     const stoppedTimer: TimerState = { ...activeTimer, isRunning: false, pendingStopAt: endIso };
     applyTimer(stoppedTimer);
@@ -337,26 +370,43 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
 
     // No userId/userDisplayName: the service stamps ownership from the
     // resolved current user and overwrites anything passed here (#115).
-    const completed: NewTimeEntry = {
-      projectId: activeTimer.projectId,
+    const rowFor = (piece: (typeof pieces)[number]): NewTimeEntry => ({
+      projectId: activeTimer.projectId!,
       taskId: activeTimer.taskId || undefined,
       description: activeTimer.description,
-      startTime: activeTimer.startTime,
-      endTime: endIso,
-      durationMinutes,
+      startTime: piece.startTime,
+      endTime: piece.endTime,
+      durationMinutes: piece.durationMinutes,
       ratio: activeTimer.ratio,
       jiraTicket: activeTimer.jiraTicket,
-      date: localDateStr(new Date(activeTimer.startTime)),
+      date: piece.date,
+    });
+    const [first, ...rest] = pieces;
+
+    // Progress through a split, kept on the session itself (and so in
+    // storage) as each row lands: a retry, even after a reload, updates the
+    // rows already written instead of filing their days twice.
+    const recordProgress = (patch: Partial<TimerState>) => {
+      if (timerRef.current.startTime !== activeTimer.startTime) return;
+      const next: TimerState = { ...timerRef.current, ...patch };
+      applyTimer(next);
+      persistTimer(next);
     };
 
     try {
       let entry: TimeEntry;
       let created = false;
+      // The first piece goes onto the draft row. Its bounds and date are
+      // written too, not only its end: a piece can start later than the
+      // session did (see splitAtMidnights). Updating is safe to repeat, which
+      // is what makes a retry after a half-saved split safe.
       if (activeTimer.draftEntryId) {
         try {
           entry = await svc.updateTimeEntry(activeTimer.draftEntryId, {
-            endTime: endIso,
-            durationMinutes,
+            startTime: first.startTime,
+            endTime: first.endTime,
+            date: first.date,
+            durationMinutes: first.durationMinutes,
             description: activeTimer.description,
             ratio: activeTimer.ratio,
             jiraTicket: activeTimer.jiraTicket,
@@ -367,29 +417,61 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
           // tab, or by an admin). Falling back to a create keeps stop from
           // retrying an update that will 404 forever.
           if (!svc.isNotFoundError(err)) throw err;
-          entry = await svc.createTimeEntry(completed);
+          entry = await svc.createTimeEntry(rowFor(first));
           created = true;
         }
       } else {
-        entry = await svc.createTimeEntry(completed);
+        entry = await svc.createTimeEntry(rowFor(first));
         created = true;
       }
-      // Not awaited: the entry is saved, and the stop shouldn't wait on a
-      // clean-up read before saying so.
-      if (created) void sweepOrphanedDraft(activeTimer.startTime, entry.id);
+
+      const saved: TimeEntry[] = [entry];
+      // Indexed by piece, after the first. A retry for a different end (the
+      // 12h net after a failed plain stop) can cut fewer pieces, so rows past
+      // the new count are deleted below rather than left as stray time.
+      const restIds = [...(activeTimer.splitEntryIds ?? [])];
+      if (rest.length && created) recordProgress({ draftEntryId: entry.id });
+      for (let i = 0; i < rest.length; i++) {
+        const row = rowFor(rest[i]);
+        let written: TimeEntry;
+        const existing = restIds[i];
+        if (existing) {
+          try {
+            written = await svc.updateTimeEntry(existing, row);
+          } catch (err) {
+            if (!svc.isNotFoundError(err)) throw err;
+            written = await svc.createTimeEntry(row);
+          }
+        } else {
+          written = await svc.createTimeEntry(row);
+        }
+        restIds[i] = written.id;
+        saved.push(written);
+        recordProgress({ splitEntryIds: [...restIds] });
+      }
+      for (const stray of restIds.slice(rest.length)) {
+        if (stray) await svc.deleteTimeEntry(stray).catch(() => { /* best effort */ });
+      }
+
       // Only if this is still the session on screen: a newer one, arrived
       // from another tab while the save was in flight, is not ours to clear.
       if (timerRef.current.startTime === activeTimer.startTime) {
         applyTimer(RESET_TIMER);
         persistTimer(null);
       }
-      onStop(entry);
+      // After the reset, not before: the sweep spares an open row on the
+      // session still on screen, and until now that was this one — so a
+      // sweep started before the later days were saved found its own orphan
+      // "live" and left it to come back as a phantom timer. Not awaited: the
+      // entry is saved, and the stop shouldn't wait on a clean-up read.
+      if (created) void sweepOrphanedDraft(activeTimer.startTime, entry.id);
+      onStop(entry, saved);
       return entry;
     } catch (err) {
       toast("Couldn’t save the entry. Your time is kept — press Retry save.", "error");
       throw err;
     }
-  }, [onStop, persistTimer, applyTimer, toast, sweepOrphanedDraft]);
+  }, [onStop, onDiscard, persistTimer, applyTimer, toast, sweepOrphanedDraft]);
 
   const stopAt = useCallback((endIso: string) => {
     const session = timerRef.current.startTime;
@@ -418,8 +500,14 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
     const active = timerRef.current;
     const hadSession = active.isRunning || !!active.pendingStopAt || !!active.draftEntryId;
     const draftId = active.draftEntryId;
+    // Rows a half-saved split already wrote for later days belong to the
+    // session being thrown away, exactly as its draft row does.
+    const splitIds = active.splitEntryIds ?? [];
     applyTimer(RESET_TIMER);
     persistTimer(null);
+    for (const id of splitIds) {
+      if (id) await svc.deleteTimeEntry(id).catch(() => { /* best effort */ });
+    }
     // Discarding the session must also remove the draft row, or it would be
     // restored as a phantom running timer on the next reload. deleteTimeEntry
     // already retries transient failures and tolerates 404s.

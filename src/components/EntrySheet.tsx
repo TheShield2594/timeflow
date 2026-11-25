@@ -129,6 +129,7 @@ export const EntrySheet: React.FC<Props> = ({
   // may settle after the user has moved on. Opens and closes go through
   // `openTaskField` so the flag and the name can never disagree.
   const taskFieldOpen = useRef(false);
+  const addTaskButton = useRef<HTMLButtonElement>(null);
   const openTaskField = (open: boolean, name = "") => {
     taskFieldOpen.current = open;
     setAddingTask(open);
@@ -200,10 +201,10 @@ export const EntrySheet: React.FC<Props> = ({
    * Only the modes that can edit the time can produce a bad one.
    *
    * A stop sheet opens over a span the clock already decided, and `stopAt`
-   * clamps a timer started and stopped inside the same minute to zero — a
-   * mis-click away at any time. Gating Save on that left the one sheet whose
-   * entry is *already saved* unable to commit a correction to its own
-   * description.
+   * saves anything that rounds to a minute — so a 40-second session can read
+   * 10:00–10:00 in fields that only hold the minute. Gating Save on that left
+   * the one sheet whose entry is *already saved* unable to commit a correction
+   * to its own description.
    */
   const timeError = mode !== "stop" && durationMinutes !== null && durationMinutes <= 0 && overnightMode !== "ask"
     ? "End time must be after the start time."
@@ -294,14 +295,14 @@ export const EntrySheet: React.FC<Props> = ({
   const handleCreateTask = async () => {
     const name = newTaskName.trim();
     if (!name || !draft.projectId || !onAddTask) {
-      // An empty field that lost focus is somebody changing their mind, not a
-      // task waiting to be named.
+      // An empty field is somebody changing their mind, not a task waiting
+      // to be named.
       openTaskField(false);
       return;
     }
-    // Cleared *before* the await: the field commits on Enter and again on
-    // blur, and pressing Enter then clicking away sent the same name twice
-    // while the first request was still in flight.
+    // Cleared *before* the await: Enter pressed twice, or Enter and then the
+    // Add button, must not send the same name twice while the first request
+    // is still in flight.
     openTaskField(false);
     try {
       const task = await onAddTask({ projectId: draft.projectId, name, isActive: true });
@@ -484,19 +485,41 @@ export const EntrySheet: React.FC<Props> = ({
           <label className="field-row__label" htmlFor="entry-task">Task</label>
           <span className="field-row__value">
             {addingTask ? (
-              <input
-                className="field-row__input"
-                placeholder="New task name"
-                aria-label="New task name"
-                value={newTaskName}
-                onChange={(e) => setNewTaskName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") { e.preventDefault(); handleCreateTask(); }
-                  if (e.key === "Escape") { e.preventDefault(); openTaskField(false); }
-                }}
-                onBlur={handleCreateTask}
-                autoFocus
-              />
+              <>
+                <input
+                  className="field-row__input"
+                  placeholder="New task name"
+                  aria-label="New task name"
+                  value={newTaskName}
+                  onChange={(e) => setNewTaskName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { e.preventDefault(); handleCreateTask(); }
+                    if (e.key === "Escape") { e.preventDefault(); openTaskField(false); }
+                  }}
+                  onBlur={(e) => {
+                    // Leaving the field is not a commit. Tasks are shared by
+                    // everyone on the project, and blur is also what clicking
+                    // Cancel or another field does: a name typed and abandoned
+                    // was created for the whole organisation (#195). Only
+                    // Enter and Add write; moving on to Add is not leaving.
+                    if (e.relatedTarget === addTaskButton.current) return;
+                    openTaskField(false);
+                  }}
+                  autoFocus
+                />
+                <button
+                  ref={addTaskButton}
+                  type="button"
+                  className="field-row__action is-inline"
+                  // Keeps focus in the field through the click. Safari doesn't
+                  // focus a button on click, so relatedTarget alone can't tell
+                  // this from clicking away.
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={handleCreateTask}
+                >
+                  Add
+                </button>
+              </>
             ) : (
               <>
                 {/* Naming work before doing it produces bad names, so task

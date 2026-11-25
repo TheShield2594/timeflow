@@ -67,6 +67,13 @@ export interface TimerState {
   draftEntryId?: string;
   /** ISO timestamp recorded when a stop attempt fails, enabling retry (#32). */
   pendingStopAt?: string;
+  /**
+   * Rows already written for the later days of a stop that crossed midnight,
+   * by piece (the first day's row is `draftEntryId`). Set only while such a
+   * stop is half-saved, so its retry updates them instead of filing those
+   * days twice (#185).
+   */
+  splitEntryIds?: string[];
 }
 
 export interface CurrentUser {

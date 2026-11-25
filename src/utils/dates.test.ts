@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   localDateStr, localDateDaysAgo, addDaysStr, weekStartStr, friendlyDate, toTimeInput,
   clockAt, clockAtCompact, timeInputAt,
-  minutesOfDay, dateAtMinutes, isoAtMinutes, minutesBetween, dayLengthMinutes,
+  minutesOfDay, dateAtMinutes, isoAtMinutes, minutesBetween, dayLengthMinutes, splitAtMidnights,
 } from "./dates";
 
 afterEach(() => {
@@ -270,5 +270,65 @@ describe("dayLengthMinutes", () => {
 
   it("is an hour long when the clocks go back", () => {
     expect(dayLengthMinutes(FALL_BACK)).toBe(1500);
+  });
+});
+
+describe("splitAtMidnights (#185)", () => {
+  const at = (y: number, mo: number, d: number, h: number, mi = 0, s = 0) =>
+    new Date(y, mo, d, h, mi, s).toISOString();
+
+  it("leaves a span inside one day as a single piece", () => {
+    const pieces = splitAtMidnights(at(2026, 10, 22, 9), at(2026, 10, 22, 11, 30));
+    expect(pieces).toEqual([
+      { date: "2026-11-22", startTime: at(2026, 10, 22, 9), endTime: at(2026, 10, 22, 11, 30), durationMinutes: 150 },
+    ]);
+  });
+
+  it("cuts Sunday 10 PM – Monday 2 AM into two rows, one per day", () => {
+    const pieces = splitAtMidnights(at(2026, 10, 22, 22), at(2026, 10, 23, 2));
+    expect(pieces.map((p) => [p.date, p.durationMinutes])).toEqual([["2026-11-22", 120], ["2026-11-23", 120]]);
+    expect(pieces[0].endTime).toBe(at(2026, 10, 23, 0));
+    expect(pieces[1].startTime).toBe(at(2026, 10, 23, 0));
+  });
+
+  it("does not file a piece for a span that ends exactly at midnight", () => {
+    const pieces = splitAtMidnights(at(2026, 10, 22, 22), at(2026, 10, 23, 0));
+    expect(pieces.map((p) => [p.date, p.durationMinutes])).toEqual([["2026-11-22", 120]]);
+  });
+
+  it("folds a trailing piece that would round to 0m into the day before (#188)", () => {
+    const pieces = splitAtMidnights(at(2026, 10, 22, 23, 0), at(2026, 10, 23, 0, 0, 10));
+    expect(pieces.map((p) => [p.date, p.durationMinutes])).toEqual([["2026-11-22", 60]]);
+    expect(pieces[0].endTime).toBe(at(2026, 10, 23, 0, 0, 10));
+  });
+
+  it("starts at midnight, on the day the time fell, when the leading piece would round to 0m", () => {
+    // Started ten seconds before midnight: the hour belongs to the 23rd, and
+    // the row has to start on the day it is dated.
+    const pieces = splitAtMidnights(at(2026, 10, 22, 23, 59, 50), at(2026, 10, 23, 1));
+    expect(pieces).toEqual([
+      { date: "2026-11-23", startTime: at(2026, 10, 23, 0), endTime: at(2026, 10, 23, 1), durationMinutes: 60 },
+    ]);
+  });
+
+  it("keeps a span made only of slivers whole, rather than filing a 0m piece", () => {
+    const pieces = splitAtMidnights(at(2026, 10, 22, 23, 59, 50), at(2026, 10, 23, 0, 0, 20));
+    expect(pieces).toHaveLength(1);
+    expect(pieces[0].date).toBe("2026-11-22");
+  });
+
+  it("counts real elapsed time on a fall-back night (25-hour day)", () => {
+    // New York, 2026-11-01: the clocks go back at 2 AM. 10 PM Oct 31 to
+    // 3 AM Nov 1 is five wall-clock hours but six real ones after midnight's
+    // cut: 2h before, 4h after.
+    const pieces = splitAtMidnights(at(2026, 9, 31, 22), at(2026, 10, 1, 3));
+    expect(pieces.map((p) => [p.date, p.durationMinutes])).toEqual([["2026-10-31", 120], ["2026-11-01", 240]]);
+  });
+
+  it("cuts at every midnight a long span crosses", () => {
+    const pieces = splitAtMidnights(at(2026, 10, 20, 23), at(2026, 10, 22, 1));
+    expect(pieces.map((p) => [p.date, p.durationMinutes])).toEqual([
+      ["2026-11-20", 60], ["2026-11-21", 1440], ["2026-11-22", 60],
+    ]);
   });
 });

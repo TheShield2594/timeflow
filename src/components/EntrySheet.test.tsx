@@ -390,8 +390,8 @@ describe("EntrySheet task creation (#153)", () => {
     fireEvent.change(field, { target: { value: "Discovery call" } });
     fireEvent.keyDown(field, { key: "Enter" });
 
-    // Cleared before the await, which is what stops Enter-then-blur filing
-    // the same name twice while the first request is still in flight.
+    // Cleared before the await, which is what stops a second Enter (or Enter
+    // then Add) filing the same name twice while the first is in flight.
     expect(screen.queryByLabelText("New task name")).toBeNull();
 
     await waitFor(() => {
@@ -431,6 +431,56 @@ describe("EntrySheet task creation (#153)", () => {
 
     await waitFor(() => expect((screen.getByLabelText("Task") as HTMLSelectElement).value).toBe("t9"));
     expect(screen.queryByLabelText("New task name")).toBeNull();
+  });
+});
+
+describe("EntrySheet task creation commits only when asked (#195)", () => {
+  it("does not create the task when the field loses focus", () => {
+    const onAddTask = vi.fn();
+    renderSheet({ onAddTask });
+
+    fireEvent.click(screen.getByRole("button", { name: /New task/ }));
+    const field = screen.getByLabelText("New task name");
+    fireEvent.change(field, { target: { value: "Abandoned name" } });
+    // Clicking Cancel, or any other field, takes focus away first.
+    fireEvent.blur(field, { relatedTarget: screen.getByRole("button", { name: "Cancel" }) });
+
+    expect(onAddTask).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("New task name")).toBeNull();
+  });
+
+  it("creates the task from the Add button", async () => {
+    const created: Task = { id: "t9", projectId: "p1", name: "Discovery call", isActive: true };
+    const onAddTask = vi.fn().mockResolvedValue(created);
+    renderSheet({ onAddTask, tasks: [...tasks, created] });
+
+    fireEvent.click(screen.getByRole("button", { name: /New task/ }));
+    const field = screen.getByLabelText("New task name");
+    fireEvent.change(field, { target: { value: "Discovery call" } });
+    const add = screen.getByRole("button", { name: "Add" });
+    // Keyboard users tab onto Add, which blurs the field toward it.
+    fireEvent.blur(field, { relatedTarget: add });
+    fireEvent.click(add);
+
+    await waitFor(() => expect((screen.getByLabelText("Task") as HTMLSelectElement).value).toBe("t9"));
+    expect(onAddTask).toHaveBeenCalledTimes(1);
+    expect(onAddTask).toHaveBeenCalledWith({ projectId: "p1", name: "Discovery call", isActive: true });
+  });
+
+  it("keeps the field focused through a pointer press on Add", () => {
+    const onAddTask = vi.fn().mockResolvedValue({ id: "t9", projectId: "p1", name: "Call", isActive: true });
+    renderSheet({ onAddTask });
+
+    fireEvent.click(screen.getByRole("button", { name: /New task/ }));
+    fireEvent.change(screen.getByLabelText("New task name"), { target: { value: "Call" } });
+    const add = screen.getByRole("button", { name: "Add" });
+    // fireEvent returns false when the handler prevented the default — the
+    // focus move that would otherwise blur the field and close it before the
+    // click lands (Safari never focuses the button, so blur can't tell).
+    expect(fireEvent.mouseDown(add)).toBe(false);
+    fireEvent.click(add);
+
+    expect(onAddTask).toHaveBeenCalledTimes(1);
   });
 });
 

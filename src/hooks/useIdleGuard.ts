@@ -55,9 +55,22 @@ export function useIdleGuard({
   const [autoStopped, setAutoStopped] = useState<TimeEntry | null>(null);
   const lastActivity = useActivityTracker();
 
+  // A session counts as activity from the moment it begins. Starting one here
+  // is a click, so this changes nothing in the tab that started it; it is for
+  // the tab the session *arrives* in through the storage event, which may not
+  // have been touched for hours. Its stale `lastActivity` raised the idle
+  // prompt at once, offering to trim the session back to before it began
+  // (#192). Declared before the monitor so it lands ahead of the monitor's
+  // first check in the same commit.
+  useEffect(() => {
+    if (timer.startTime) lastActivity.current = Date.now();
+  }, [timer.startTime, lastActivity]);
+
   const handleIdleDetected = useCallback((lastActiveAt: number) => {
     if (timer.startTime) {
-      setIdleAlert({ lastActiveAt, startTime: timer.startTime });
+      // Idle time before the session began is not the session's to lose.
+      const startMs = new Date(timer.startTime).getTime();
+      setIdleAlert({ lastActiveAt: Math.max(lastActiveAt, startMs), startTime: timer.startTime });
     }
   }, [timer.startTime]);
 
@@ -98,20 +111,37 @@ export function useIdleGuard({
   // stop arriving via the storage-event sync. Without this the modal would sit
   // over a stopped timer and its buttons would silently no-op. A save in flight
   // (pendingStopAt set) is left alone so the modal doesn't flicker mid-stop.
+  //
+  // Likewise when the session on the clock is no longer the one the prompt
+  // was raised for — another tab stopped it and started another. Trim and
+  // Discard act on whatever is running *now*, so a prompt left over the new
+  // session would cut it back to the old one's idle point and discard it as
+  // 0m, or throw it away outright.
   useEffect(() => {
-    if (!timer.isRunning && !timer.pendingStopAt && idleAlert) {
-      setIdleAlert(null);
-    }
-  }, [timer.isRunning, timer.pendingStopAt, idleAlert]);
+    if (!idleAlert) return;
+    const ended = !timer.isRunning && !timer.pendingStopAt;
+    const replaced = timer.startTime !== idleAlert.startTime;
+    if (ended || replaced) setIdleAlert(null);
+  }, [timer.isRunning, timer.pendingStopAt, timer.startTime, idleAlert]);
 
   const onTrim = useCallback(async () => {
     if (!idleAlert) return;
     setIdleAlert(null);
+    // Never before the session began: a trim point earlier than the start
+    // would save a row that ends before it starts, in place of the real
+    // session (#192). The alert is clamped when raised; this holds the line
+    // if a different session has started under it since.
+    const startMs = new Date(idleAlert.startTime).getTime();
+    const trimAt = Math.max(idleAlert.lastActiveAt, startMs);
+    // stopAt returns nothing both when the timer was already stopped and when
+    // the trimmed span rounds to 0m, which it discards and says so itself
+    // (#188). Only the first still needs saying here.
+    const roundsToNothing = Math.round((trimAt - startMs) / 60000) === 0;
     try {
-      const entry = await stopAt(new Date(idleAlert.lastActiveAt).toISOString());
+      const entry = await stopAt(new Date(trimAt).toISOString());
       // stopAt no-ops (returns undefined) when the timer was already stopped —
       // tell the user rather than leaving the click with no visible effect.
-      if (!entry) toast("Timer was already stopped — nothing to trim.", "info");
+      if (!entry && !roundsToNothing) toast("Timer was already stopped — nothing to trim.", "info");
     } catch {
       // toasted by stopAt
     }

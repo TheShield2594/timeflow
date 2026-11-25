@@ -29,11 +29,25 @@ vi.mock("../services/dataverseService", () => ({
 
 const TIMER_STORAGE_KEY = "tt_active_timer:env-1:user-1";
 
+// Only Date is faked, so waitFor's own timers still run. A stop at the same
+// instant as its start rounds to 0m and is discarded rather than saved
+// (#188); the tests that mean "a normal stop" move the clock on first.
+const T0 = new Date("2026-09-08T16:00:00.000Z");
+const LATER = new Date("2026-09-08T16:45:00.000Z");
+
+/** A plain Stop, pressed 45 minutes after the session began. */
+function stopLater(timer: ReturnType<typeof useTimer>) {
+  vi.setSystemTime(LATER);
+  return timer.stop();
+}
+
 beforeEach(() => {
   localStorage.clear();
+  vi.useFakeTimers({ toFake: ["Date"], now: T0 });
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   vi.clearAllMocks();
 });
@@ -121,12 +135,12 @@ describe("useTimer", () => {
     await waitFor(() => expect(result.current.timer.draftEntryId).toBe("draft-1"));
 
     await act(async () => {
-      await result.current.stop();
+      await stopLater(result.current);
     });
 
     expect(result.current.timer.isRunning).toBe(false);
     expect(localStorage.getItem(TIMER_STORAGE_KEY)).toBeNull();
-    expect(onStop).toHaveBeenCalledWith(savedEntry);
+    expect(onStop).toHaveBeenCalledWith(savedEntry, [savedEntry]);
     expect(svc.updateTimeEntry).toHaveBeenCalledWith(
       "draft-1",
       expect.objectContaining({ description: "Working" })
@@ -197,7 +211,7 @@ describe("useTimer", () => {
     await waitFor(() => expect(result.current.timer.draftEntryId).toBe("draft-1"));
 
     await act(async () => {
-      await expect(result.current.stop()).rejects.toThrow("offline");
+      await expect(stopLater(result.current)).rejects.toThrow("offline");
     });
 
     expect(onStop).not.toHaveBeenCalled();
@@ -270,13 +284,13 @@ describe("useTimer", () => {
     await waitFor(() => expect(result.current.timer.draftEntryId).toBe("draft-1"));
 
     await act(async () => {
-      await result.current.stop();
+      await stopLater(result.current);
     });
 
     expect(svc.createTimeEntry).toHaveBeenCalledWith(
       expect.objectContaining({ projectId: "proj-1", description: "Working" })
     );
-    expect(onStop).toHaveBeenCalledWith(savedEntry);
+    expect(onStop).toHaveBeenCalledWith(savedEntry, [savedEntry]);
     expect(result.current.timer.isRunning).toBe(false);
     expect(localStorage.getItem(TIMER_STORAGE_KEY)).toBeNull();
   });
@@ -295,7 +309,7 @@ describe("useTimer", () => {
     // Stop before the draft create resolves — the completed entry is created
     // through the no-draft path.
     await act(async () => {
-      await result.current.stop();
+      await stopLater(result.current);
     });
     expect(svc.createTimeEntry).toHaveBeenCalled();
 
@@ -417,7 +431,7 @@ describe("useTimer", () => {
       vi.mocked(svc.getOpenTimerEntry).mockResolvedValue(
         open ? ({ projectId: "proj-1", date: "2026-01-01", ...open, startTime: open.startTime ?? startedAt } as TimeEntry) : null
       );
-      await act(async () => { await result.current.stop(); });
+      await act(async () => { await stopLater(result.current); });
       return result;
     }
 
@@ -445,7 +459,9 @@ describe("useTimer", () => {
       vi.mocked(svc.getOpenTimerEntry).mockImplementationOnce(
         () => new Promise<TimeEntry | null>((res) => { resolveOpen = res; })
       );
-      await act(async () => { await result.current.stop(); });
+      await act(async () => { await stopLater(result.current); });
+      // Back inside the first session's second, which is the point.
+      vi.setSystemTime(T0);
       await act(async () => { result.current.start("proj-1", null, "Next"); });
       await waitFor(() => expect(result.current.timer.draftEntryId).toBe("draft-1"));
 
@@ -465,9 +481,9 @@ describe("useTimer", () => {
       await act(async () => { result.current.start("proj-1", null, "Working"); });
       vi.mocked(svc.getOpenTimerEntry).mockRejectedValue(new Error("throttled"));
 
-      await act(async () => { await result.current.stop(); });
+      await act(async () => { await stopLater(result.current); });
 
-      expect(onStop).toHaveBeenCalledWith({ id: "entry-1" });
+      expect(onStop).toHaveBeenCalledWith({ id: "entry-1" }, [{ id: "entry-1" }]);
       expect(result.current.timer.isRunning).toBe(false);
       await waitFor(() => expect(warn).toHaveBeenCalled());
       expect(svc.deleteTimeEntry).not.toHaveBeenCalled();
@@ -479,7 +495,7 @@ describe("useTimer", () => {
       const { result } = renderHook(() => useTimer(vi.fn()));
       await act(async () => { result.current.start("proj-1", null, "Working"); });
       await waitFor(() => expect(result.current.timer.draftEntryId).toBe("draft-1"));
-      await act(async () => { await result.current.stop(); });
+      await act(async () => { await stopLater(result.current); });
       // Once on mount, never after.
       expect(svc.getOpenTimerEntry).toHaveBeenCalledTimes(1);
     });
@@ -548,14 +564,14 @@ describe("useTimer", () => {
     });
     try {
       await act(async () => {
-        await result.current.stop();
+        await stopLater(result.current);
       });
     } finally {
       setItem.mockRestore();
     }
 
     expect(svc.updateTimeEntry).toHaveBeenCalledWith("draft-1", expect.objectContaining({ endTime: expect.any(String) }));
-    expect(onStop).toHaveBeenCalledWith(savedEntry);
+    expect(onStop).toHaveBeenCalledWith(savedEntry, [savedEntry]);
     expect(result.current.timer.isRunning).toBe(false);
     expect(toastSpy).not.toHaveBeenCalledWith(expect.stringMatching(/retry/i), "error");
     // The save above only proves the stop path survived; this proves it
@@ -664,5 +680,200 @@ describe("useTimer restore", () => {
     expect(result.current.timer.projectId).toBe("proj-2");
     expect(svc.createDraftTimerEntry).not.toHaveBeenCalled();
     expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining("already running"), "error");
+  });
+});
+
+describe("useTimer — a stop that rounds to nothing (#188)", () => {
+  it("discards the session and its draft row instead of filing 0m", async () => {
+    const onStop = vi.fn();
+    const { result } = renderHook(() => useTimer(onStop));
+    await act(async () => { result.current.start("proj-1", null, "Oops"); });
+    await waitFor(() => expect(result.current.timer.draftEntryId).toBe("draft-1"));
+
+    vi.setSystemTime(new Date(T0.getTime() + 20_000));
+    let returned: TimeEntry | undefined;
+    await act(async () => { returned = await result.current.stop(); });
+
+    expect(returned).toBeUndefined();
+    expect(onStop).not.toHaveBeenCalled();
+    expect(svc.updateTimeEntry).not.toHaveBeenCalled();
+    expect(svc.createTimeEntry).not.toHaveBeenCalled();
+    expect(svc.deleteTimeEntry).toHaveBeenCalledWith("draft-1");
+    expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining("nothing was saved"), "info");
+    expect(result.current.timer.isRunning).toBe(false);
+    expect(localStorage.getItem(TIMER_STORAGE_KEY)).toBeNull();
+  });
+
+  it("tells the caller, so the discarded draft's \"Running…\" row leaves the timesheet", async () => {
+    const onDiscard = vi.fn();
+    const { result } = renderHook(() => useTimer(vi.fn(), onDiscard));
+    await act(async () => { result.current.start("proj-1", null, "Oops"); });
+    await waitFor(() => expect(result.current.timer.draftEntryId).toBe("draft-1"));
+
+    await act(async () => { await result.current.stop(); });
+
+    expect(onDiscard).toHaveBeenCalledTimes(1);
+    // After the row is gone, or the re-read would still find it.
+    expect(vi.mocked(svc.deleteTimeEntry).mock.invocationCallOrder[0])
+      .toBeLessThan(onDiscard.mock.invocationCallOrder[0]);
+  });
+
+  it("still saves a session that rounds up to a minute", async () => {
+    vi.mocked(svc.updateTimeEntry).mockResolvedValue({ id: "draft-1" } as TimeEntry);
+    const onStop = vi.fn();
+    const { result } = renderHook(() => useTimer(onStop));
+    await act(async () => { result.current.start("proj-1", null, "Quick"); });
+    await waitFor(() => expect(result.current.timer.draftEntryId).toBe("draft-1"));
+
+    vi.setSystemTime(new Date(T0.getTime() + 40_000));
+    await act(async () => { await result.current.stop(); });
+
+    expect(svc.updateTimeEntry).toHaveBeenCalledWith("draft-1", expect.objectContaining({ durationMinutes: 1 }));
+    expect(onStop).toHaveBeenCalled();
+  });
+});
+
+describe("useTimer — a session that crosses midnight (#185)", () => {
+  // Local wall-clock times; the suite runs in America/New_York.
+  const SUN_10PM = new Date(2026, 10, 22, 22, 0);
+  const MON_MIDNIGHT = new Date(2026, 10, 23, 0, 0).toISOString();
+  const MON_2AM = new Date(2026, 10, 23, 2, 0).toISOString();
+
+  it("saves one row per day: the draft up to midnight, a new row after", async () => {
+    vi.setSystemTime(SUN_10PM);
+    const before = { id: "draft-1", durationMinutes: 120 } as TimeEntry;
+    const after = { id: "entry-2", durationMinutes: 120 } as TimeEntry;
+    vi.mocked(svc.updateTimeEntry).mockResolvedValue(before);
+    vi.mocked(svc.createTimeEntry).mockResolvedValue(after);
+    const onStop = vi.fn();
+    const { result } = renderHook(() => useTimer(onStop));
+    await act(async () => { result.current.start("proj-1", null, "Late one"); });
+    await waitFor(() => expect(result.current.timer.draftEntryId).toBe("draft-1"));
+
+    await act(async () => { await result.current.stopAt(MON_2AM); });
+
+    expect(svc.updateTimeEntry).toHaveBeenCalledWith("draft-1", expect.objectContaining({
+      endTime: MON_MIDNIGHT, durationMinutes: 120,
+    }));
+    expect(svc.createTimeEntry).toHaveBeenCalledTimes(1);
+    expect(svc.createTimeEntry).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: "proj-1", description: "Late one",
+      date: "2026-11-23", startTime: MON_MIDNIGHT, endTime: MON_2AM, durationMinutes: 120,
+    }));
+    expect(onStop).toHaveBeenCalledWith(before, [before, after]);
+    expect(result.current.timer.isRunning).toBe(false);
+  });
+
+  it("does not write the first day twice when Retry follows a half-saved split", async () => {
+    // No draft row, so both halves are creates — and the second one fails.
+    vi.setSystemTime(SUN_10PM);
+    vi.mocked(svc.createDraftTimerEntry).mockRejectedValueOnce(new Error("offline"));
+    vi.mocked(svc.createTimeEntry)
+      .mockResolvedValueOnce({ id: "entry-1" } as TimeEntry)
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce({ id: "entry-2" } as TimeEntry);
+    vi.mocked(svc.updateTimeEntry).mockResolvedValue({ id: "entry-1" } as TimeEntry);
+    const onStop = vi.fn();
+    const { result } = renderHook(() => useTimer(onStop));
+    await act(async () => { result.current.start("proj-1", null, "Late one"); });
+
+    await act(async () => { await expect(result.current.stopAt(MON_2AM)).rejects.toThrow("offline"); });
+    expect(result.current.timer.pendingStopAt).toBe(MON_2AM);
+
+    await act(async () => { await result.current.stopAt(MON_2AM); });
+
+    // The first day's row was updated in place on the retry, not re-created.
+    expect(svc.updateTimeEntry).toHaveBeenCalledWith("entry-1", expect.objectContaining({ endTime: MON_MIDNIGHT }));
+    const creates = vi.mocked(svc.createTimeEntry).mock.calls.map(([row]) => row.date);
+    expect(creates).toEqual(["2026-11-22", "2026-11-23", "2026-11-23"]);
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useTimer — split stops, the harder cases (#185)", () => {
+  afterEach(() => { vi.mocked(svc.getOpenTimerEntry).mockResolvedValue(null); });
+
+  it("does not file a middle day twice when a later day fails and Retry follows", async () => {
+    // Sunday 10 PM to Tuesday 1 AM: three pieces. Monday saves, Tuesday fails.
+    vi.setSystemTime(new Date(2026, 10, 22, 22, 0));
+    const TUE_1AM = new Date(2026, 10, 24, 1, 0).toISOString();
+    vi.mocked(svc.updateTimeEntry).mockImplementation(async (id) => ({ id } as TimeEntry));
+    vi.mocked(svc.createTimeEntry)
+      .mockResolvedValueOnce({ id: "mon" } as TimeEntry)
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce({ id: "tue" } as TimeEntry);
+    const onStop = vi.fn();
+    const { result } = renderHook(() => useTimer(onStop));
+    await act(async () => { result.current.start("proj-1", null, "Long one"); });
+    await waitFor(() => expect(result.current.timer.draftEntryId).toBe("draft-1"));
+
+    await act(async () => { await expect(result.current.stopAt(TUE_1AM)).rejects.toThrow("offline"); });
+    // Survives a reload: it is in storage, not only in memory.
+    expect(JSON.parse(localStorage.getItem(TIMER_STORAGE_KEY)!).splitEntryIds).toEqual(["mon"]);
+
+    await act(async () => { await result.current.stopAt(TUE_1AM); });
+
+    expect(svc.updateTimeEntry).toHaveBeenCalledWith("mon", expect.objectContaining({ date: "2026-11-23", durationMinutes: 1440 }));
+    const created = vi.mocked(svc.createTimeEntry).mock.calls.map(([row]) => row.date);
+    expect(created).toEqual(["2026-11-23", "2026-11-24", "2026-11-24"]);
+    expect(onStop).toHaveBeenCalledWith({ id: "draft-1" }, [{ id: "draft-1" }, { id: "mon" }, { id: "tue" }]);
+  });
+
+  it("sweeps an orphaned draft only once every day is saved", async () => {
+    // No draft id (its create's response was lost), so both pieces are
+    // creates — and the second is still on the wire when the sweep's read
+    // comes back. Swept then, the session was still "live" and was spared.
+    vi.setSystemTime(new Date(2026, 10, 22, 22, 0));
+    vi.mocked(svc.createDraftTimerEntry).mockResolvedValueOnce(null);
+    let landMonday!: (e: TimeEntry) => void;
+    vi.mocked(svc.createTimeEntry)
+      .mockResolvedValueOnce({ id: "sun" } as TimeEntry)
+      .mockReturnValueOnce(new Promise<TimeEntry>((r) => { landMonday = r; }));
+    const { result } = renderHook(() => useTimer(vi.fn()));
+    await act(async () => { result.current.start("proj-1", null, "Late one"); });
+    const startedAt = result.current.timer.startTime!;
+    vi.mocked(svc.getOpenTimerEntry).mockResolvedValue({ id: "orphan", projectId: "proj-1", startTime: startedAt, date: "2026-11-22" } as TimeEntry);
+
+    let stopped!: Promise<unknown>;
+    await act(async () => { stopped = result.current.stopAt(new Date(2026, 10, 23, 2, 0).toISOString()); });
+    await act(async () => { landMonday({ id: "mon" } as TimeEntry); await stopped; });
+
+    await waitFor(() => expect(svc.deleteTimeEntry).toHaveBeenCalledWith("orphan"));
+  });
+
+  it("starts the draft row at midnight when the session began seconds before it", async () => {
+    vi.setSystemTime(new Date(2026, 10, 22, 23, 59, 50));
+    vi.mocked(svc.updateTimeEntry).mockResolvedValue({ id: "draft-1" } as TimeEntry);
+    const { result } = renderHook(() => useTimer(vi.fn()));
+    await act(async () => { result.current.start("proj-1", null, "Just after"); });
+    await waitFor(() => expect(result.current.timer.draftEntryId).toBe("draft-1"));
+
+    await act(async () => { await result.current.stopAt(new Date(2026, 10, 23, 1, 0).toISOString()); });
+
+    expect(svc.updateTimeEntry).toHaveBeenCalledWith("draft-1", expect.objectContaining({
+      startTime: new Date(2026, 10, 23, 0, 0).toISOString(),
+      date: "2026-11-23",
+      durationMinutes: 60,
+    }));
+    expect(svc.createTimeEntry).not.toHaveBeenCalled();
+  });
+
+  it("discarding a half-saved split removes the later days it already wrote", async () => {
+    vi.setSystemTime(new Date(2026, 10, 22, 22, 0));
+    vi.mocked(svc.updateTimeEntry).mockImplementation(async (id) => ({ id } as TimeEntry));
+    vi.mocked(svc.createTimeEntry)
+      .mockResolvedValueOnce({ id: "mon" } as TimeEntry)
+      .mockRejectedValueOnce(new Error("offline"));
+    const { result } = renderHook(() => useTimer(vi.fn()));
+    await act(async () => { result.current.start("proj-1", null, "Long one"); });
+    await waitFor(() => expect(result.current.timer.draftEntryId).toBe("draft-1"));
+    await act(async () => {
+      await expect(result.current.stopAt(new Date(2026, 10, 24, 1, 0).toISOString())).rejects.toThrow("offline");
+    });
+
+    await act(async () => { await result.current.cancel(); });
+
+    expect(svc.deleteTimeEntry).toHaveBeenCalledWith("draft-1");
+    expect(svc.deleteTimeEntry).toHaveBeenCalledWith("mon");
   });
 });
