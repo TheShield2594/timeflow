@@ -3,7 +3,7 @@ import type { NewTimeEntry, TimeEntry, TimerState } from "../types";
 import * as svc from "../services/dataverseService";
 import { getCurrentUser } from "../services/userService";
 import { useToast } from "../contexts/ToastContext";
-import { localDateStr, sameInstant } from "../utils/dates";
+import { localDateStr, sameInstant, splitAtMidnights } from "../utils/dates";
 
 const TIMER_KEY_PREFIX = "tt_active_timer:";
 
@@ -12,7 +12,14 @@ const RESET_TIMER: TimerState = {
   ratio: undefined, jiraTicket: undefined,
 };
 
-export function useTimer(onStop: (entry: TimeEntry) => void) {
+/**
+ * Called once a stop is saved, with the first row it wrote and every row.
+ * One stop is usually one row; a session that crossed midnight is one per
+ * day (#185), and a caller that confirms "the entry" needs to know that.
+ */
+export type OnTimerStop = (entry: TimeEntry, all: TimeEntry[]) => void;
+
+export function useTimer(onStop: OnTimerStop) {
   const user = getCurrentUser();
   const timerKey = `${TIMER_KEY_PREFIX}${user.environmentId}:${user.id}`;
   const toast = useToast();
@@ -327,9 +334,30 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
     if (!activeTimer.startTime || !activeTimer.projectId) return;
     if (!activeTimer.isRunning && !activeTimer.pendingStopAt) return;
 
-    const startMs = new Date(activeTimer.startTime).getTime();
-    const endMs = new Date(endIso).getTime();
-    const durationMinutes = Math.max(0, Math.round((endMs - startMs) / 60000));
+    const pieces = splitAtMidnights(activeTimer.startTime, endIso);
+    const totalMinutes = Math.max(0, Math.round(
+      (new Date(endIso).getTime() - new Date(activeTimer.startTime).getTime()) / 60000,
+    ));
+
+    // A session that rounds to nothing is a mis-click — Stop pressed straight
+    // after Start — not time worked. Filing it put a 0m row in the timesheet
+    // and the CSV under a "Saved 0m" toast (#188). It is discarded the way
+    // cancel() discards: the draft row goes too, or it would come back as a
+    // phantom running timer on the next reload.
+    if (totalMinutes === 0) {
+      if (timerRef.current.startTime === activeTimer.startTime) {
+        applyTimer(RESET_TIMER);
+        persistTimer(null);
+      }
+      if (activeTimer.draftEntryId) {
+        await svc.deleteTimeEntry(activeTimer.draftEntryId).catch(() => { /* best effort */ });
+      } else {
+        // No id, but the create may have landed with its response lost.
+        void sweepOrphanedDraft(activeTimer.startTime, "");
+      }
+      toast("Stopped under a minute — nothing was saved.", "info");
+      return undefined;
+    }
 
     const stoppedTimer: TimerState = { ...activeTimer, isRunning: false, pendingStopAt: endIso };
     applyTimer(stoppedTimer);
@@ -337,26 +365,30 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
 
     // No userId/userDisplayName: the service stamps ownership from the
     // resolved current user and overwrites anything passed here (#115).
-    const completed: NewTimeEntry = {
-      projectId: activeTimer.projectId,
+    const rowFor = (piece: (typeof pieces)[number]): NewTimeEntry => ({
+      projectId: activeTimer.projectId!,
       taskId: activeTimer.taskId || undefined,
       description: activeTimer.description,
-      startTime: activeTimer.startTime,
-      endTime: endIso,
-      durationMinutes,
+      startTime: piece.startTime,
+      endTime: piece.endTime,
+      durationMinutes: piece.durationMinutes,
       ratio: activeTimer.ratio,
       jiraTicket: activeTimer.jiraTicket,
-      date: localDateStr(new Date(activeTimer.startTime)),
-    };
+      date: piece.date,
+    });
+    const [first, ...rest] = pieces;
 
     try {
       let entry: TimeEntry;
       let created = false;
+      // The first piece goes onto the draft row, which already carries the
+      // session's start and date. Updating it is safe to repeat, which is
+      // what makes a retry after a half-saved split safe.
       if (activeTimer.draftEntryId) {
         try {
           entry = await svc.updateTimeEntry(activeTimer.draftEntryId, {
-            endTime: endIso,
-            durationMinutes,
+            endTime: first.endTime,
+            durationMinutes: first.durationMinutes,
             description: activeTimer.description,
             ratio: activeTimer.ratio,
             jiraTicket: activeTimer.jiraTicket,
@@ -367,23 +399,38 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
           // tab, or by an admin). Falling back to a create keeps stop from
           // retrying an update that will 404 forever.
           if (!svc.isNotFoundError(err)) throw err;
-          entry = await svc.createTimeEntry(completed);
+          entry = await svc.createTimeEntry(rowFor(first));
           created = true;
         }
       } else {
-        entry = await svc.createTimeEntry(completed);
+        entry = await svc.createTimeEntry(rowFor(first));
         created = true;
       }
       // Not awaited: the entry is saved, and the stop shouldn't wait on a
       // clean-up read before saying so.
       if (created) void sweepOrphanedDraft(activeTimer.startTime, entry.id);
+
+      const saved: TimeEntry[] = [entry];
+      if (rest.length) {
+        // From here a failure leaves the first piece written and the rest
+        // not. Pointing the session at the row just written makes Retry
+        // update it rather than create a second copy of it — the same way
+        // a draft row is updated rather than duplicated.
+        if (created && timerRef.current.startTime === activeTimer.startTime) {
+          const anchored: TimerState = { ...timerRef.current, draftEntryId: entry.id };
+          applyTimer(anchored);
+          persistTimer(anchored);
+        }
+        for (const piece of rest) saved.push(await svc.createTimeEntry(rowFor(piece)));
+      }
+
       // Only if this is still the session on screen: a newer one, arrived
       // from another tab while the save was in flight, is not ours to clear.
       if (timerRef.current.startTime === activeTimer.startTime) {
         applyTimer(RESET_TIMER);
         persistTimer(null);
       }
-      onStop(entry);
+      onStop(entry, saved);
       return entry;
     } catch (err) {
       toast("Couldn’t save the entry. Your time is kept — press Retry save.", "error");

@@ -140,16 +140,29 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void; userName: 
   // net), so the stop sheet doesn't open on top of a more specific one.
   const saveToastSuppressed = useRef(false);
 
-  const handleNewEntry = useCallback((entry: TimeEntry) => {
+  const handleNewEntry = useCallback((entry: TimeEntry, all: TimeEntry[]) => {
     refreshEntries();
     if (saveToastSuppressed.current) {
       saveToastSuppressed.current = false;
       return;
     }
+    // A session that crossed midnight was saved as one row per day (#185).
+    // The stop sheet edits one row, and opening it on either half would let
+    // a project or description change reach that half alone — so a split
+    // says what it did instead, and the rows are edited where they're listed.
+    if (all.length > 1) {
+      const total = all.reduce((sum, e) => sum + (e.durationMinutes ?? 0), 0);
+      const project = projects.find((p) => p.id === entry.projectId);
+      toast(
+        `Saved ${formatMinutes(total)}${project ? ` to ${project.name}` : ""}, split at midnight into ${all.length} entries.`,
+        "success",
+      );
+      return;
+    }
     // Replaces the bare success toast: a confirmation nobody could act on,
     // for an entry that on most screens wasn't even visible.
     setStopSheetEntry(entry);
-  }, [refreshEntries]);
+  }, [refreshEntries, projects, toast]);
 
   // Neither of these ticks: nothing in AppContent re-renders on the second,
   // so a running timer no longer re-reconciles the whole page tree underneath

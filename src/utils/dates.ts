@@ -200,3 +200,63 @@ export function sameInstant(a: string | undefined, b: string | undefined): boole
   if (!Number.isFinite(ta) || !Number.isFinite(tb)) return false;
   return Math.abs(ta - tb) < 1000;
 }
+
+export interface DaySegment {
+  /** The local calendar day this piece falls on. */
+  date: string;
+  startTime: string;
+  endTime: string;
+  durationMinutes: number;
+}
+
+/**
+ * One span of time, cut at each local midnight it crosses.
+ *
+ * A row is dated by one day, and every total in the app — the week, Reports'
+ * buckets, the Team rollup, the day bar's coverage — attributes a row's
+ * minutes to that day. A span that crosses midnight therefore has to become
+ * one row per day, or the hours after midnight are counted on the day before
+ * (#185). Midnight comes off the calendar, not by adding 24h, so it lands
+ * right on the days the clocks move.
+ *
+ * A piece that would round to zero minutes is folded into its neighbour
+ * rather than filed: stopping ten seconds after midnight should not leave a
+ * 0m row behind on the new day (#188). An empty or inverted span comes back
+ * as a single piece on the start date, so callers never have to special-case
+ * it.
+ */
+export function splitAtMidnights(startIso: string, endIso: string): DaySegment[] {
+  const startMs = new Date(startIso).getTime();
+  const endMs = new Date(endIso).getTime();
+  const cuts: number[] = [];
+  let day = localDateStr(new Date(startMs));
+  for (;;) {
+    day = addDaysStr(day, 1);
+    const midnight = new Date(`${day}T00:00:00`).getTime();
+    if (midnight >= endMs) break;
+    cuts.push(midnight);
+  }
+  // Drop any cut that would leave a piece shorter than half a minute on
+  // either side — that piece would be stored as 0m.
+  const HALF_MINUTE = 30_000;
+  const kept: number[] = [];
+  for (const cut of cuts) {
+    const prev = kept.length ? kept[kept.length - 1] : startMs;
+    if (cut - prev < HALF_MINUTE) continue;
+    if (endMs - cut < HALF_MINUTE) continue;
+    kept.push(cut);
+  }
+  const bounds = [startMs, ...kept, endMs];
+  const pieces: DaySegment[] = [];
+  for (let i = 0; i < bounds.length - 1; i++) {
+    const a = new Date(bounds[i]);
+    const b = new Date(bounds[i + 1]);
+    pieces.push({
+      date: localDateStr(a),
+      startTime: a.toISOString(),
+      endTime: b.toISOString(),
+      durationMinutes: Math.max(0, minutesBetween(a, b)),
+    });
+  }
+  return pieces;
+}
