@@ -55,9 +55,22 @@ export function useIdleGuard({
   const [autoStopped, setAutoStopped] = useState<TimeEntry | null>(null);
   const lastActivity = useActivityTracker();
 
+  // A session counts as activity from the moment it begins. Starting one here
+  // is a click, so this changes nothing in the tab that started it; it is for
+  // the tab the session *arrives* in through the storage event, which may not
+  // have been touched for hours. Its stale `lastActivity` raised the idle
+  // prompt at once, offering to trim the session back to before it began
+  // (#192). Declared before the monitor so it lands ahead of the monitor's
+  // first check in the same commit.
+  useEffect(() => {
+    if (timer.startTime) lastActivity.current = Date.now();
+  }, [timer.startTime, lastActivity]);
+
   const handleIdleDetected = useCallback((lastActiveAt: number) => {
     if (timer.startTime) {
-      setIdleAlert({ lastActiveAt, startTime: timer.startTime });
+      // Idle time before the session began is not the session's to lose.
+      const startMs = new Date(timer.startTime).getTime();
+      setIdleAlert({ lastActiveAt: Math.max(lastActiveAt, startMs), startTime: timer.startTime });
     }
   }, [timer.startTime]);
 
@@ -107,11 +120,21 @@ export function useIdleGuard({
   const onTrim = useCallback(async () => {
     if (!idleAlert) return;
     setIdleAlert(null);
+    // Never before the session began: a trim point earlier than the start
+    // would save a row that ends before it starts, in place of the real
+    // session (#192). The alert is clamped when raised; this holds the line
+    // if a different session has started under it since.
+    const startMs = new Date(idleAlert.startTime).getTime();
+    const trimAt = Math.max(idleAlert.lastActiveAt, startMs);
+    // stopAt returns nothing both when the timer was already stopped and when
+    // the trimmed span rounds to 0m, which it discards and says so itself
+    // (#188). Only the first still needs saying here.
+    const roundsToNothing = Math.round((trimAt - startMs) / 60000) === 0;
     try {
-      const entry = await stopAt(new Date(idleAlert.lastActiveAt).toISOString());
+      const entry = await stopAt(new Date(trimAt).toISOString());
       // stopAt no-ops (returns undefined) when the timer was already stopped —
       // tell the user rather than leaving the click with no visible effect.
-      if (!entry) toast("Timer was already stopped — nothing to trim.", "info");
+      if (!entry && !roundsToNothing) toast("Timer was already stopped — nothing to trim.", "info");
     } catch {
       // toasted by stopAt
     }

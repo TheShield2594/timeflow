@@ -188,3 +188,47 @@ describe("useIdleGuard — safety net", () => {
     expect(result.current.guard.idleAlert).toBeNull();
   });
 });
+
+describe("useIdleGuard — a session that arrives from another tab (#192)", () => {
+  it("does not hold the tab's stale idle time against a session it just received", async () => {
+    // Tab B, visible but untouched for two hours, with no timer of its own.
+    const { result, rerender } = setup(STOPPED);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2 * 60 * 60 * 1000); });
+
+    // Tab A starts a timer; it reaches B through the storage event.
+    const arrived: TimerState = { ...RUNNING, startTime: new Date().toISOString() };
+    rerender({ t: arrived });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2 * 60 * 1000); });
+    rerender({ t: arrived });
+
+    expect(result.current.guard.idleAlert).toBeNull();
+  });
+
+  it("never trims to a moment before the session began", async () => {
+    const started: TimerState = { ...RUNNING, startTime: new Date().toISOString() };
+    const { result, rerender, stopAt } = setup(started);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(31 * 60 * 1000); });
+    rerender({ t: started });
+    const alert = result.current.guard.idleAlert;
+    expect(alert).not.toBeNull();
+    expect(alert!.lastActiveAt).toBeGreaterThanOrEqual(new Date(started.startTime!).getTime());
+
+    await act(async () => { await result.current.guard.onTrim(); });
+    const trimmedTo = new Date(stopAt.mock.calls[0][0]).getTime();
+    expect(trimmedTo).toBeGreaterThanOrEqual(new Date(started.startTime!).getTime());
+  });
+
+  it("leaves a trim that rounds to nothing to the timer's own message (#188)", async () => {
+    const started: TimerState = { ...RUNNING, startTime: new Date().toISOString() };
+    const { result, rerender, stopAt, toast } = setup(started);
+    // The timer discards a 0m span and toasts that itself.
+    stopAt.mockResolvedValue(undefined);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(31 * 60 * 1000); });
+    rerender({ t: started });
+    await act(async () => { await result.current.guard.onTrim(); });
+
+    expect(toast).not.toHaveBeenCalledWith(expect.stringContaining("nothing to trim"), "info");
+  });
+});
