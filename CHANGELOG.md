@@ -13,6 +13,19 @@ against user-visible behaviour, as described in
 
 ## Unreleased
 
+### Added
+
+- The sidebar's *Timer* item shows the running timer's project dot and
+  elapsed time on every page, and "Not saved" when a stop's save failed
+  (#203).
+- A calendar drag, resize or Shift + arrow nudge, and a Save in the entry
+  sheet, now toast what changed with Undo, as delete and archive already did
+  (#205).
+- The entry sheet says when the entry overlaps another one that day, without
+  blocking the save, and a day total that counts overlapping time twice
+  carries a quiet "… overlap" mark on the Timer, Timesheet and Calendar
+  (#206).
+
 ### Fixed
 
 Six defects from the [2026-11-20 review](docs/reviews/2026-11-20-full-review.md),
@@ -42,6 +55,11 @@ each of which lost time, changed a duration, or left a control dead:
   untracked gap, and its *Log* / *Hide* controls could be clipped (#189).
 - Projects listed only a project's first five tasks, with no way to reach the
   rest. "Show N more tasks" now reveals them (#190).
+- A timer whose draft row was written but whose response was lost left that
+  row open after Stop; on the next load it came back as a timer started
+  hours earlier, and the 12-hour safety net saved it as a 720-minute entry.
+  Stop now deletes the session's own leftover draft, and the reload-time
+  adoption of a draft compares start times as instants (#193).
 
 ---
 

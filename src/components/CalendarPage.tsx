@@ -27,6 +27,8 @@ import { useDragCreate, useEntryMove, useEntryResize } from "../hooks/useCalenda
 import { useGridRovingFocus } from "../hooks/useGridRovingFocus";
 import { useRangeRequest } from "../contexts/DataRangeContext";
 import { useData } from "../contexts/DataContext";
+import { overlappingMinutes } from "../utils/overlaps";
+import { OverlapMark } from "./OverlapMark";
 import { useEntriesOnDate } from "../hooks/useEntriesOnDate";
 import type { WorkingHours } from "../hooks/useWorkingHours";
 import { EntrySheet, EntryDraft, EntrySaveData } from "./EntrySheet";
@@ -513,6 +515,18 @@ export const CalendarPage: React.FC<Props> = ({ workingHours }) => {
     return map;
   }, [entries, runningEntry, runningMinutes]);
 
+  // Per day, the minutes the total above counts twice (#206).
+  const dayOverlaps = useMemo(() => {
+    const byDate = new Map<string, TimeEntry[]>();
+    for (const e of entries) {
+      if (!byDate.has(e.date)) byDate.set(e.date, []);
+      byDate.get(e.date)!.push(e);
+    }
+    const map = new Map<string, number>();
+    byDate.forEach((list, date) => map.set(date, overlappingMinutes(list)));
+    return map;
+  }, [entries]);
+
   const weekTotal = useMemo(
     () => weekDays.reduce((s, d) => s + (dayTotals.get(localDateStr(d)) || 0), 0),
     [weekDays, dayTotals]
@@ -920,6 +934,7 @@ export const CalendarPage: React.FC<Props> = ({ workingHours }) => {
                   {day.getDate()}
                 </div>
                 <div className="calendar__day-total">{total > 0 ? formatMinutes(total) : " "}</div>
+                <OverlapMark minutes={dayOverlaps.get(ds) ?? 0} className="overlap-mark--block" />
                 {/* One click to walk the day's unaccounted-for meetings,
                     instead of hunting each ghost down individually. */}
                 {(unloggedByDate.get(ds)?.length ?? 0) > 0 && (

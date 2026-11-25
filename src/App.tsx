@@ -4,6 +4,7 @@ import { IdleSheet } from "./components/IdleSheet";
 import { AutoStopSheet } from "./components/AutoStopSheet";
 import { EntrySheet, draftForEntry, draftForSpan, type EntryDraft } from "./components/EntrySheet";
 import { SettingsSheet } from "./components/SettingsSheet";
+import { TimerNavStatus } from "./components/TimerNavStatus";
 import { formatMinutes, useTimer } from "./hooks";
 import { useTeamContext } from "./hooks/useTeam";
 import { useIdleGuard } from "./hooks/useIdleGuard";
@@ -237,6 +238,12 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void; userName: 
               aria-current={page === key ? "page" : undefined}
             >
               {label}
+              {key === "timer" && (
+                <TimerNavStatus
+                  timer={timer}
+                  projectColor={projects.find((p) => p.id === timer.projectId)?.color}
+                />
+              )}
             </button>
           ))}
         </nav>

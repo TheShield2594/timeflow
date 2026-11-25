@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { TimeEntry } from "../types";
 import { formatMinutes } from "../hooks";
 import { useData } from "../contexts/DataContext";
+import { overlappingMinutes } from "../utils/overlaps";
+import { OverlapMark } from "./OverlapMark";
 import { useRangeRequest } from "../contexts/DataRangeContext";
 import { useToday } from "../hooks/useToday";
 import { useEntriesOnDate } from "../hooks/useEntriesOnDate";
@@ -163,6 +165,7 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
       date,
       rows: [{ kind: "gap" as const, at: gap.startMin, gap }] as Row[],
       total: 0,
+      overlap: 0,
     }));
     return [...byDate.entries()]
       .sort((a, b) => b[0].localeCompare(a[0]))
@@ -197,6 +200,9 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
           date,
           rows,
           total: dayEntries.reduce((sum, e) => sum + (e.durationMinutes || 0), 0),
+          // Over the same rows the total sums, so the mark explains *this*
+          // number — under a search, the overlap among what is shown (#206).
+          overlap: overlappingMinutes(dayEntries),
         };
       })
       .concat(missedDays)
@@ -290,7 +296,10 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
             <div key={day.date} className="timesheet__group">
               <div className="timesheet__group-head">
                 <span className="timesheet__group-day t-group-label">{friendlyDate(day.date)}</span>
-                <span className="timesheet__group-total">{formatMinutes(day.total)}</span>
+                <span className="timesheet__group-total">
+                  {formatMinutes(day.total)}
+                  <OverlapMark minutes={day.overlap} />
+                </span>
               </div>
               <ListCard>
                 {day.rows.map((row) => {

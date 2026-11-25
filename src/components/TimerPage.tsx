@@ -2,8 +2,11 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { TimeEntry, TimerState } from "../types";
 import { formatElapsed, formatMinutes } from "../hooks";
 import { useData } from "../contexts/DataContext";
+import { overlappingMinutes } from "../utils/overlaps";
+import { OverlapMark } from "./OverlapMark";
 import { useToday } from "../hooks/useToday";
 import { useEntriesOnDate } from "../hooks/useEntriesOnDate";
+import { useElapsed } from "../hooks/useElapsed";
 import { useRangeRequest } from "../contexts/DataRangeContext";
 import type { WorkingHours } from "../hooks/useWorkingHours";
 import {
@@ -18,30 +21,6 @@ import { ListCard, ListRow } from "./ListCard";
 import { WeekRail } from "./WeekRail";
 import { Pill } from "./Pill";
 import { EntrySheet, draftForSpan, type EntryDraft, type EntrySaveData } from "./EntrySheet";
-
-/**
- * Seconds since `startTime`, ticked here rather than higher up.
- *
- * The clock is the only thing on the screen that changes every second, so it
- * is the only thing that should re-render every second — a counter held in the
- * app shell re-reconciled every mounted page once a second for the whole
- * length of a session (#95).
- */
-function useElapsed(startTime: string | null, isRunning: boolean): number {
-  const [elapsed, setElapsed] = useState(0);
-  useEffect(() => {
-    if (!isRunning || !startTime) {
-      setElapsed(0);
-      return;
-    }
-    const startMs = new Date(startTime).getTime();
-    const tick = () => setElapsed(Math.floor((Date.now() - startMs) / 1000));
-    tick();
-    const handle = setInterval(tick, 1000);
-    return () => clearInterval(handle);
-  }, [startTime, isRunning]);
-  return elapsed;
-}
 
 /** Minutes since local midnight, re-read once a minute so the day bar's
  *  running segment and the gap search stay current without a 1Hz tick. */
@@ -159,6 +138,7 @@ export const TimerPage: React.FC<Props> = ({
     () => todayEntries.reduce((sum, e) => sum + (e.durationMinutes || 0), 0),
     [todayEntries]
   );
+  const overlapMinutes = useMemo(() => overlappingMinutes(todayEntries), [todayEntries]);
   const gaps = useMemo(() => findUntrackedGaps({
     entries: todayEntries, date: today, nowMinutes, upperBoundMin: nowMinutes,
     workDayStartMin: workingHours.startMin,
@@ -315,7 +295,10 @@ export const TimerPage: React.FC<Props> = ({
           {completedToday.length > 0 || timer.isRunning ? (
             <>
               <div className="timer-page__day-head">
-                <span className="t-title2">{formatMinutes(trackedMinutes)} tracked</span>
+                <span className="t-title2">
+                  {formatMinutes(trackedMinutes)} tracked
+                  <OverlapMark minutes={overlapMinutes} />
+                </span>
                 {gaps.length > 0 && (
                   <span className="t-subhead t-secondary">
                     {gaps.length} {gaps.length === 1 ? "gap" : "gaps"} · {formatMinutes(untrackedMinutes)} untracked

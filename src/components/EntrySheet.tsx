@@ -7,6 +7,8 @@ import {
 } from "../utils/dates";
 import { isDirtyDraft } from "../utils/forms";
 import { findUntrackedGaps, type Gap } from "../utils/gaps";
+import { findOverlapping } from "../utils/overlaps";
+import { useToast } from "../contexts/ToastContext";
 import type { WorkingHours } from "../hooks/useWorkingHours";
 import { DayBar } from "./DayBar";
 import { Sheet } from "./Sheet";
@@ -109,6 +111,7 @@ export const EntrySheet: React.FC<Props> = ({
 }) => {
   const [draft, setDraft] = useState<EntryDraft>(initial);
   const [saving, setSaving] = useState(false);
+  const toast = useToast();
   // The draft as it was when the sheet opened. A ref, not the `initial` prop:
   // the prop is re-created by the parent on every render, and `draft` is
   // seeded from it exactly once, so this is the only stable pristine copy.
@@ -227,6 +230,26 @@ export const EntrySheet: React.FC<Props> = ({
     return [...others, preview];
   }, [dayEntries, entryId, startDt, endDt, durationMinutes, draft.projectId, draft.taskId, draft.description, draft.date]);
 
+  /**
+   * The entry this one would share time with, said once and never blocking
+   * (#206). Two things at once is sometimes true; double-counting it without
+   * a word is not. An entry carried past midnight is checked against the next
+   * day's entries as well, since that is where its tail lands.
+   */
+  const overlapNote = useMemo(() => {
+    if (!startDt || !endDt || durationMinutes === null || durationMinutes <= 0 || !dayEntries) return null;
+    const candidates = endsNextDay
+      ? [...dayEntries, ...(entriesOnDate(addDaysStr(draft.date, 1)) ?? [])]
+      : dayEntries;
+    const hits = findOverlapping(startDt, endDt, candidates, entryId);
+    if (hits.length === 0) return null;
+    const first = hits[0];
+    const name = first.description?.trim() || projects.find((p) => p.id === first.projectId)?.name || "another entry";
+    const span = `${clockAt(minutesOfDay(first.startTime))}–${clockAt(minutesOfDay(first.endTime!))}`;
+    const more = hits.length > 1 ? `, and ${hits.length - 1} more` : "";
+    return `Overlaps ${name}, ${span}${more}.`;
+  }, [startDt, endDt, durationMinutes, dayEntries, endsNextDay, entriesOnDate, draft.date, entryId, projects]);
+
   // Today is capped at the current minute so the rest of it isn't offered
   // before it has happened; a past day is fair game to its own end, and
   // reading today's clock onto it would invent an untracked afternoon.
@@ -322,6 +345,12 @@ export const EntrySheet: React.FC<Props> = ({
           startTime: midnightIso, endTime: endDt.toISOString(),
           durationMinutes: Math.round((endDt.getTime() - midnight) / 60000),
         });
+        // Editing an entry into two leaves the edit's Undo toast offering to
+        // put back only the first half — and taking it would leave the new
+        // second half on top of the restored original, double-counting the
+        // overlap. Replace that offer with a plain confirmation; the user
+        // undoes a split by deleting the half they don't want (#205).
+        if (entryId) toast("Split at midnight into two entries.", "success");
       } else {
         await onSave({
           ...common, date: draft.date,
@@ -556,6 +585,7 @@ export const EntrySheet: React.FC<Props> = ({
         </p>
       )}
 
+      {overlapNote && <p className="sheet__note sheet__note--warn">{overlapNote}</p>}
       {dateError && <p className="form-error" role="alert">{dateError}</p>}
       {timeError && <p className="form-error" role="alert">{timeError}</p>}
       {overnightMode === "ask" && (
