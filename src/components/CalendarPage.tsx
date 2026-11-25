@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import type { OutlookEvent, TimeEntry } from "../types";
 import { useOutlookOverlay } from "../hooks/useOutlookOverlay";
 import {
-  DATE_LOCALE, clockAt, localDateStr, minutesOfDay, toTimeInput,
+  DATE_LOCALE, clockAt, dateAtMinutes, localDateStr, minutesOfDay, toTimeInput,
 } from "../utils/dates";
 import { Gap, findUntrackedGaps } from "../utils/gaps";
 import { rangeLabel } from "../utils/ranges";
@@ -26,7 +26,9 @@ import { formatMinutes } from "../hooks";
 import { useDragCreate, useEntryMove, useEntryResize } from "../hooks/useCalendarDrag";
 import { useGridRovingFocus } from "../hooks/useGridRovingFocus";
 import { useRangeRequest } from "../contexts/DataRangeContext";
-import { useData } from "../contexts/DataContext";
+import { useData, type EditOptions } from "../contexts/DataContext";
+import { overlappingMinutes } from "../utils/overlaps";
+import { OverlapMark } from "./OverlapMark";
 import { useEntriesOnDate } from "../hooks/useEntriesOnDate";
 import type { WorkingHours } from "../hooks/useWorkingHours";
 import { EntrySheet, EntryDraft, EntrySaveData } from "./EntrySheet";
@@ -513,6 +515,24 @@ export const CalendarPage: React.FC<Props> = ({ workingHours }) => {
     return map;
   }, [entries, runningEntry, runningMinutes]);
 
+  // Per day, the minutes the total above counts twice (#206). The running
+  // entry is in that total, so it is in this too: given the same provisional
+  // end runningMinutes counts to — now, or midnight of its own date.
+  const dayOverlaps = useMemo(() => {
+    const runningEnd = runningEntry
+      ? (runningEntry.date === today ? new Date(tick) : dateAtMinutes(runningEntry.date, MINUTES_PER_DAY)).toISOString()
+      : null;
+    const byDate = new Map<string, TimeEntry[]>();
+    for (const e of entries) {
+      const counted = e === runningEntry && runningEnd ? { ...e, endTime: runningEnd } : e;
+      if (!byDate.has(e.date)) byDate.set(e.date, []);
+      byDate.get(e.date)!.push(counted);
+    }
+    const map = new Map<string, number>();
+    byDate.forEach((list, date) => map.set(date, overlappingMinutes(list)));
+    return map;
+  }, [entries, runningEntry, today, tick]);
+
   const weekTotal = useMemo(
     () => weekDays.reduce((s, d) => s + (dayTotals.get(localDateStr(d)) || 0), 0),
     [weekDays, dayTotals]
@@ -745,9 +765,9 @@ export const CalendarPage: React.FC<Props> = ({ workingHours }) => {
   // cancelling or pressing Escape abandons the rest of the run, as it should.
   const queueAdvanceRef = useRef<{ next: OutlookEvent; rest: OutlookEvent[]; step: { at: number; total: number } } | null>(null);
 
-  const handleModalSave = async (data: EntrySaveData) => {
+  const handleModalSave = async (data: EntrySaveData, opts?: EditOptions) => {
     if (modal?.editingId) {
-      await onEdit(modal.editingId, data);
+      await onEdit(modal.editingId, data, opts);
     } else {
       await onCreateEntry(data);
     }
@@ -920,6 +940,7 @@ export const CalendarPage: React.FC<Props> = ({ workingHours }) => {
                   {day.getDate()}
                 </div>
                 <div className="calendar__day-total">{total > 0 ? formatMinutes(total) : " "}</div>
+                <OverlapMark minutes={dayOverlaps.get(ds) ?? 0} className="overlap-mark--block" />
                 {/* One click to walk the day's unaccounted-for meetings,
                     instead of hunting each ghost down individually. */}
                 {(unloggedByDate.get(ds)?.length ?? 0) > 0 && (

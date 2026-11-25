@@ -629,6 +629,7 @@ button.day-bar__seg--gap:hover { background: color-mix(in srgb, var(--warn) 30%,
 .sheet__eyebrow { color: var(--label-secondary); margin-bottom: 10px; }
 .sheet__meta { color: var(--label-secondary); margin-top: 4px; }
 .sheet__note { margin-top: 10px; font-size: 13px; line-height: 18px; color: var(--label-secondary); }
+.sheet__note--warn { color: var(--warn); }
 .sheet__section { margin-top: 24px; }
 .sheet__foot {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
@@ -720,6 +721,13 @@ button.day-bar__seg--gap:hover { background: color-mix(in srgb, var(--warn) 30%,
 .sidebar__link:hover { background: var(--accent-tint-hover); }
 .sidebar__link--active { background: var(--accent-tint); color: var(--accent); font-weight: 600; }
 .sidebar__link--active:hover { background: var(--accent-tint); }
+/* The running timer on the Timer item (#203). Regular weight even on the
+   active item: it is a reading, not part of the label. */
+.sidebar__timer {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 400; color: var(--label-secondary);
+}
+.sidebar__timer--warn { color: var(--warn); font-weight: 600; }
 
 .sidebar__foot { margin-top: auto; padding: 0 12px; }
 .sidebar__foot-sep { height: 1px; background: var(--separator); margin-bottom: 14px; }
@@ -933,6 +941,10 @@ input.timer-hero__desc::placeholder { color: var(--label-secondary); }
 }
 .timesheet__group-day { color: var(--label-secondary); }
 .timesheet__group-total { font-size: 14px; font-weight: 600; color: var(--label); }
+/* Beside a day total that counts overlapping entries twice (#206). Regular
+   weight and the warning colour: a note on the number, not a second number. */
+.overlap-mark { margin-left: 8px; font-size: 13px; line-height: 18px; font-weight: 400; color: var(--warn); }
+.overlap-mark--block { display: block; margin-left: 0; }
 .timesheet__gap-text { font-size: 15px; line-height: 20px; color: var(--label-secondary); }
 
 /* =====================================================================

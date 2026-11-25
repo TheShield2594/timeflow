@@ -89,7 +89,12 @@ describe("TimesheetPage totals", () => {
     renderPage([
       entry({ id: "a", date: daysAgo(3), durationMinutes: 60, description: "Older" }),
       entry({ id: "b", date: daysAgo(1), durationMinutes: 30, description: "Newer" }),
-      entry({ id: "c", date: daysAgo(1), durationMinutes: 45, description: "Newer too" }),
+      // Its own slot: two entries on the fixture's default 9–10 would overlap,
+      // and the total would rightly carry the overlap mark (#206).
+      entry({
+        id: "c", date: daysAgo(1), durationMinutes: 45, description: "Newer too",
+        startTime: `${daysAgo(1)}T11:00:00`, endTime: `${daysAgo(1)}T11:45:00`,
+      }),
     ]);
 
     // Weekdays with nothing logged get a group of their own (see "missed
@@ -98,6 +103,23 @@ describe("TimesheetPage totals", () => {
       .filter((group) => group.querySelector(".list-row"))
       .map((group) => group.querySelector(".timesheet__group-total")!.textContent);
     expect(totals).toEqual(["1h 15m", "1h"]);
+  });
+
+  it("marks a day total that counts overlapping entries twice (#206)", () => {
+    // An 8-hour entry laid over a normal morning: the total is the sum of the
+    // durations, as before, but no longer silent about it.
+    renderPage([
+      entry({ id: "a", date: daysAgo(1), description: "Morning" }),
+      entry({
+        id: "b", date: daysAgo(1), description: "Firewall rules", durationMinutes: 480,
+        startTime: `${daysAgo(1)}T08:00:00`, endTime: `${daysAgo(1)}T16:00:00`,
+      }),
+    ]);
+    const group = Array.from(document.querySelectorAll(".timesheet__group"))
+      .find((g) => g.querySelector(".list-row"))!;
+    const total = group.querySelector(".timesheet__group-total")!;
+    expect(total.textContent).toBe("9h, including 1h overlap");
+    expect(total.querySelector(".overlap-mark")).toBeTruthy();
   });
 });
 

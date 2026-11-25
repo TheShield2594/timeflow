@@ -3,7 +3,9 @@ import type { NewTimeEntry, Project, Task, TimeEntry } from "../types";
 import { useProjects } from "../hooks/useProjects";
 import { useTasks } from "../hooks/useTasks";
 import { useTimeEntries } from "../hooks/useTimeEntries";
-import { useUndoableMutations } from "../hooks/useUndoableMutations";
+import { useUndoableMutations, type EditOptions } from "../hooks/useUndoableMutations";
+
+export type { EditOptions };
 import { useDataRange } from "./DataRangeContext";
 
 /**
@@ -47,7 +49,8 @@ export interface DataApi {
   isolationBreach: boolean;
 
   createEntry: (data: NewTimeEntry) => Promise<TimeEntry>;
-  editEntry: (id: string, data: Partial<TimeEntry>) => Promise<TimeEntry>;
+  /** Edits, then offers Undo unless told not to. See useUndoableMutations. */
+  editEntry: (id: string, data: Partial<TimeEntry>, opts?: EditOptions) => Promise<TimeEntry>;
   /** Deletes, then offers Undo. See useUndoableMutations. */
   deleteEntry: (id: string) => Promise<void>;
   /** Re-read the current range from the server. */
@@ -89,7 +92,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   } = useTimeEntries(from, to);
 
   const undoable = useUndoableMutations({
-    entries, deleteEntry, createEntry, deleteTask, restoreTask, archiveProject, restoreProject,
+    entries, deleteEntry, createEntry, editEntry, deleteTask, restoreTask, archiveProject, restoreProject,
   });
 
   const value = useMemo<DataApi>(() => ({
@@ -101,12 +104,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     loadedRange: covered,
     rangeLoadFailed: loadFailed,
     isolationBreach,
-    createEntry, editEntry, deleteEntry: undoable.deleteEntry, refreshEntries: refresh,
+    createEntry, editEntry: undoable.editEntry, deleteEntry: undoable.deleteEntry, refreshEntries: refresh,
     addProject, editProject, archiveProject: undoable.archiveProject, restoreProject,
     addTask, deleteTask: undoable.deleteTask, renameTask, loadTasksForProject,
   }), [
     entries, projects, tasks, loading, isFetching, covered, loadFailed, isolationBreach,
-    createEntry, editEntry, refresh, undoable,
+    createEntry, refresh, undoable,
     addProject, editProject, restoreProject,
     addTask, renameTask, loadTasksForProject,
   ]);

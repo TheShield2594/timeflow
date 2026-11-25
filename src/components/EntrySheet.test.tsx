@@ -8,6 +8,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
 import { EntrySheet, draftForEntry, draftForSpan } from "./EntrySheet";
 import { DEFAULT_WORKING_HOURS } from "../hooks/useWorkingHours";
+import { ToastProvider } from "../contexts/ToastContext";
 import type { Project, Task, TimeEntry } from "../types";
 
 vi.mock("@microsoft/power-apps/app", () => ({ getContext: vi.fn() }));
@@ -34,20 +35,22 @@ function renderSheet(over: Partial<React.ComponentProps<typeof EntrySheet>> = {}
   const onSave = vi.fn().mockResolvedValue({});
   const onClose = vi.fn();
   const view = render(
-    <EntrySheet
-      mode="create"
-      initial={draftForSpan(DATE, 10 * 60, 11 * 60, "p1")}
-      projects={projects}
-      tasks={tasks}
-      entriesOnDate={() => []}
-      workingHours={DEFAULT_WORKING_HOURS}
-      nowMinutes={18 * 60}
-      onSave={onSave}
-      // A creating sheet hands the same function to both, as the pages do.
-      onCreateRemainder={over.onSave ?? onSave}
-      onClose={onClose}
-      {...over}
-    />
+    <ToastProvider>
+      <EntrySheet
+        mode="create"
+        initial={draftForSpan(DATE, 10 * 60, 11 * 60, "p1")}
+        projects={projects}
+        tasks={tasks}
+        entriesOnDate={() => []}
+        workingHours={DEFAULT_WORKING_HOURS}
+        nowMinutes={18 * 60}
+        onSave={onSave}
+        // A creating sheet hands the same function to both, as the pages do.
+        onCreateRemainder={over.onSave ?? onSave}
+        onClose={onClose}
+        {...over}
+      />
+    </ToastProvider>
   );
   return { ...view, onSave, onClose };
 }
@@ -149,6 +152,78 @@ describe("EntrySheet overnight split while editing", () => {
     // 3:05 PM to midnight stays on the entry; midnight to 2 AM is new.
     expect(onSave.mock.calls[0][0]).toMatchObject({ date: DATE, durationMinutes: 8 * 60 + 55 });
     expect(onCreateRemainder.mock.calls[0][0]).toMatchObject({ date: "2026-09-09", durationMinutes: 2 * 60 });
+  });
+
+  it("replaces the edit's Undo with a plain confirmation (#205)", async () => {
+    // Undo would put back only the first half, leaving the new second half on
+    // top of the restored original — double-counted time.
+    renderSheet({
+      mode: "edit", initial: draftForEntry(saved), entryId: saved.id,
+      onCreateRemainder: vi.fn().mockResolvedValue({}),
+    });
+    fireEvent.change(screen.getByLabelText("End time"), { target: { value: "02:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Split at midnight" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("Split at midnight into two entries.")).toBeTruthy();
+  });
+
+  it("writes the first half without an Undo offer", async () => {
+    const { onSave } = renderSheet({
+      mode: "edit", initial: draftForEntry(saved), entryId: saved.id,
+      onCreateRemainder: vi.fn().mockResolvedValue({}),
+    });
+    fireEvent.change(screen.getByLabelText("End time"), { target: { value: "02:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Split at midnight" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][1]).toEqual({ undoable: false });
+  });
+});
+
+describe("EntrySheet overlaps (#206)", () => {
+  const other: TimeEntry = {
+    id: "e2", projectId: "p1", description: "Firewall rules",
+    startTime: `${DATE}T16:00:00`, endTime: `${DATE}T17:00:00`, durationMinutes: 60,
+    date: DATE, userId: "u1", userDisplayName: "U",
+  };
+
+  it("names the entry this one would share time with, without blocking the save", () => {
+    renderSheet({
+      mode: "edit", initial: draftForEntry(saved), entryId: saved.id,
+      entriesOnDate: (d) => (d === DATE ? [saved, other] : []),
+    });
+    expect(screen.getByText("Overlaps Firewall rules, 4:00 PM–5:00 PM.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("goes quiet once the times no longer overlap — and never flags the entry against itself", () => {
+    renderSheet({
+      mode: "edit", initial: draftForEntry(saved), entryId: saved.id,
+      entriesOnDate: (d) => (d === DATE ? [saved, other] : []),
+    });
+    fireEvent.change(screen.getByLabelText("End time"), { target: { value: "16:00" } });
+    expect(screen.queryByText(/^Overlaps/)).toBeNull();
+  });
+
+  it("catches an entry from the day before that runs past midnight into this one", () => {
+    // Filed under the date it started, so it isn't among this date's entries.
+    const lateNight: TimeEntry = { ...other, id: "e9", description: "Cutover", date: "2026-09-07",
+      startTime: "2026-09-07T22:00:00", endTime: "2026-09-08T02:00:00", durationMinutes: 240 };
+    renderSheet({
+      initial: draftForSpan(DATE, 60, 3 * 60, "p1"),
+      entriesOnDate: (d) => (d === "2026-09-07" ? [lateNight] : []),
+    });
+    expect(screen.getByText("Overlaps Cutover, 10:00 PM–2:00 AM.")).toBeTruthy();
+  });
+
+  it("counts the rest when there is more than one", () => {
+    const third: TimeEntry = { ...other, id: "e3", description: "Standup",
+      startTime: `${DATE}T10:15:00`, endTime: `${DATE}T10:30:00` };
+    renderSheet({ entriesOnDate: (d) => (d === DATE ? [other, third] : []) });
+    fireEvent.change(screen.getByLabelText("End time"), { target: { value: "16:30" } });
+    expect(screen.getByText("Overlaps Standup, 10:15 AM–10:30 AM, and 1 more.")).toBeTruthy();
   });
 });
 

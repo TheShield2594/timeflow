@@ -3,7 +3,7 @@ import type { NewTimeEntry, TimeEntry, TimerState } from "../types";
 import * as svc from "../services/dataverseService";
 import { getCurrentUser } from "../services/userService";
 import { useToast } from "../contexts/ToastContext";
-import { localDateStr } from "../utils/dates";
+import { localDateStr, sameInstant } from "../utils/dates";
 
 const TIMER_KEY_PREFIX = "tt_active_timer:";
 
@@ -106,7 +106,10 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
         // caught the draft this tab just created): adopt the row id so stop
         // updates that draft instead of creating a second row. Everything else
         // stays local, since description/ratio may have been edited since.
-        if (local.isRunning && local.startTime === open.startTime && !local.draftEntryId) {
+        // Compared as instants: the row comes back at second precision, and
+        // a string compare against our millisecond start never matched in the
+        // host, so this adoption never happened there (#193).
+        if (local.isRunning && sameInstant(local.startTime ?? undefined, open.startTime) && !local.draftEntryId) {
           const adopted: TimerState = { ...local, draftEntryId: open.id };
           applyTimer(adopted);
           persistTimer(adopted);
@@ -278,6 +281,37 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
    * is not the same stop either: it waits its turn, then finds the session
    * either saved (and says so) or still pending (and saves its own end).
    */
+  /**
+   * After a stop that had to *create* its entry, delete the session's draft
+   * row if it exists after all (#193).
+   *
+   * The create path runs when the session has no draftEntryId — and one way
+   * to get there is a draft create that landed in Dataverse but whose
+   * response was lost. That row is still open, and on the next clean load
+   * bootstrap restores it as a timer started hours ago; the 12-hour safety
+   * net then stops it into a 720-minute entry on top of the real one.
+   * Fabricated time in the billing record, so it is swept here, at the one
+   * moment we know the session it belongs to is finished.
+   *
+   * Only an open row on this session's start instant qualifies — never the
+   * entry just saved, and never a newer session's draft. Best effort: a
+   * failure leaves things exactly as they were before this existed.
+   */
+  const sweepOrphanedDraft = useCallback(async (startTime: string, savedId: string) => {
+    try {
+      const open = await svc.getOpenTimerEntry();
+      if (!open?.id || open.id === savedId || open.endTime) return;
+      if (!sameInstant(open.startTime, startTime)) return;
+      // A session started since — inside the same second, at the server's
+      // precision — would match too. Its draft is live, not an orphan.
+      const current = timerRef.current;
+      if (current.startTime && (open.id === current.draftEntryId || sameInstant(open.startTime, current.startTime))) return;
+      await svc.deleteTimeEntry(open.id);
+    } catch {
+      console.warn("Could not check for an orphaned timer draft after stopping.");
+    }
+  }, []);
+
   const stopping = useRef<{
     session: string | null;
     endIso: string;
@@ -317,6 +351,7 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
 
     try {
       let entry: TimeEntry;
+      let created = false;
       if (activeTimer.draftEntryId) {
         try {
           entry = await svc.updateTimeEntry(activeTimer.draftEntryId, {
@@ -333,10 +368,15 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
           // retrying an update that will 404 forever.
           if (!svc.isNotFoundError(err)) throw err;
           entry = await svc.createTimeEntry(completed);
+          created = true;
         }
       } else {
         entry = await svc.createTimeEntry(completed);
+        created = true;
       }
+      // Not awaited: the entry is saved, and the stop shouldn't wait on a
+      // clean-up read before saying so.
+      if (created) void sweepOrphanedDraft(activeTimer.startTime, entry.id);
       // Only if this is still the session on screen: a newer one, arrived
       // from another tab while the save was in flight, is not ours to clear.
       if (timerRef.current.startTime === activeTimer.startTime) {
@@ -349,7 +389,7 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       toast("Couldn’t save the entry. Your time is kept — press Retry save.", "error");
       throw err;
     }
-  }, [onStop, persistTimer, applyTimer, toast]);
+  }, [onStop, persistTimer, applyTimer, toast, sweepOrphanedDraft]);
 
   const stopAt = useCallback((endIso: string) => {
     const session = timerRef.current.startTime;

@@ -4,6 +4,7 @@ import { IdleSheet } from "./components/IdleSheet";
 import { AutoStopSheet } from "./components/AutoStopSheet";
 import { EntrySheet, draftForEntry, draftForSpan, type EntryDraft } from "./components/EntrySheet";
 import { SettingsSheet } from "./components/SettingsSheet";
+import { TimerNavStatus } from "./components/TimerNavStatus";
 import { formatMinutes, useTimer } from "./hooks";
 import { useTeamContext } from "./hooks/useTeam";
 import { useIdleGuard } from "./hooks/useIdleGuard";
@@ -237,6 +238,12 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void; userName: 
               aria-current={page === key ? "page" : undefined}
             >
               {label}
+              {key === "timer" && (
+                <TimerNavStatus
+                  timer={timer}
+                  projectColor={projects.find((p) => p.id === timer.projectId)?.color}
+                />
+              )}
             </button>
           ))}
         </nav>
@@ -306,7 +313,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void; userName: 
           entriesOnDate={entriesOnDate}
           workingHours={workingHours}
           nowMinutes={nowMinutes}
-          onSave={(data) => editEntry(stopSheetEntry.id, data)}
+          onSave={(data, opts) => editEntry(stopSheetEntry.id, data, opts)}
           onCreateRemainder={createEntry}
           onSaved={() => closeStopSheet(stopSheetEntry)}
           onDelete={() => { deleteEntry(stopSheetEntry.id); setStopSheetEntry(null); }}
@@ -333,7 +340,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void; userName: 
           entriesOnDate={entriesOnDate}
           workingHours={workingHours}
           nowMinutes={nowMinutes}
-          onSave={(data) => (entrySheet.id ? editEntry(entrySheet.id, data) : createEntry(data))}
+          onSave={(data, opts) => (entrySheet.id ? editEntry(entrySheet.id, data, opts) : createEntry(data))}
           onCreateRemainder={createEntry}
           onClose={() => setEntrySheet(null)}
           onLoadTasksForProject={loadTasksForProject}
