@@ -375,6 +375,93 @@ describe("useTimer", () => {
     expect(svc.deleteTimeEntry).not.toHaveBeenCalled();
   });
 
+  it("adopts its own draft when the server hands the start back at second precision (#193)", async () => {
+    // We send toISOString() with milliseconds; Dataverse returns the column
+    // to the second. A string compare never matched in the host.
+    let resolveOpen!: (entry: TimeEntry | null) => void;
+    vi.mocked(svc.getOpenTimerEntry).mockImplementationOnce(
+      () => new Promise<TimeEntry | null>((res) => { resolveOpen = res; })
+    );
+    vi.mocked(svc.createDraftTimerEntry).mockImplementationOnce(() => new Promise<string>(() => {}));
+    const { result } = renderHook(() => useTimer(vi.fn()));
+    act(() => { result.current.start("proj-1", null, "Working"); });
+    const startedAt = result.current.timer.startTime!;
+    const truncated = new Date(Math.floor(new Date(startedAt).getTime() / 1000) * 1000)
+      .toISOString().replace(".000Z", "Z");
+
+    await act(async () => {
+      resolveOpen({
+        id: "server-draft", projectId: "proj-1", startTime: truncated,
+        date: "2026-01-01", userId: "user-1", userDisplayName: "User One",
+      } as TimeEntry);
+    });
+
+    expect(result.current.timer.draftEntryId).toBe("server-draft");
+  });
+
+  describe("an orphaned draft after a stop that had to create (#193)", () => {
+    // The draft create landed but its response was lost, so the session has
+    // no draftEntryId and stop creates a second, complete row. The open
+    // draft left behind would come back on the next load as a timer started
+    // hours ago — and the 12-hour safety net would save it as 720 minutes.
+    // clearAllMocks keeps implementations; put the module default back so the
+    // open rows planted here don't reach the bootstrap of later tests.
+    afterEach(() => { vi.mocked(svc.getOpenTimerEntry).mockResolvedValue(null); });
+
+    async function stopWithoutDraftId(open: Partial<TimeEntry> | null) {
+      vi.mocked(svc.createDraftTimerEntry).mockResolvedValueOnce(null);
+      vi.mocked(svc.createTimeEntry).mockResolvedValue({ id: "entry-1" } as TimeEntry);
+      const { result } = renderHook(() => useTimer(vi.fn()));
+      await act(async () => { result.current.start("proj-1", null, "Working"); });
+      const startedAt = result.current.timer.startTime!;
+      vi.mocked(svc.getOpenTimerEntry).mockResolvedValue(
+        open ? ({ projectId: "proj-1", date: "2026-01-01", ...open, startTime: open.startTime ?? startedAt } as TimeEntry) : null
+      );
+      await act(async () => { await result.current.stop(); });
+      return result;
+    }
+
+    it("deletes the session's open draft once the entry is saved", async () => {
+      await stopWithoutDraftId({ id: "orphan" });
+      await waitFor(() => expect(svc.deleteTimeEntry).toHaveBeenCalledWith("orphan"));
+      expect(svc.createTimeEntry).toHaveBeenCalledTimes(1);
+    });
+
+    it("leaves a different session's open draft alone", async () => {
+      await stopWithoutDraftId({ id: "someone-else", startTime: "2020-01-01T00:00:00Z" });
+      await waitFor(() => expect(svc.getOpenTimerEntry).toHaveBeenCalledTimes(2));
+      expect(svc.deleteTimeEntry).not.toHaveBeenCalled();
+    });
+
+    it("still reports the stop as saved when the clean-up read fails", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.mocked(svc.createDraftTimerEntry).mockResolvedValueOnce(null);
+      vi.mocked(svc.createTimeEntry).mockResolvedValue({ id: "entry-1" } as TimeEntry);
+      const onStop = vi.fn();
+      const { result } = renderHook(() => useTimer(onStop));
+      await act(async () => { result.current.start("proj-1", null, "Working"); });
+      vi.mocked(svc.getOpenTimerEntry).mockRejectedValue(new Error("throttled"));
+
+      await act(async () => { await result.current.stop(); });
+
+      expect(onStop).toHaveBeenCalledWith({ id: "entry-1" });
+      expect(result.current.timer.isRunning).toBe(false);
+      await waitFor(() => expect(warn).toHaveBeenCalled());
+      expect(svc.deleteTimeEntry).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    it("doesn't look when the stop updated its own draft", async () => {
+      vi.mocked(svc.updateTimeEntry).mockResolvedValue({ id: "draft-1" } as TimeEntry);
+      const { result } = renderHook(() => useTimer(vi.fn()));
+      await act(async () => { result.current.start("proj-1", null, "Working"); });
+      await waitFor(() => expect(result.current.timer.draftEntryId).toBe("draft-1"));
+      await act(async () => { await result.current.stop(); });
+      // Once on mount, never after.
+      expect(svc.getOpenTimerEntry).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("keeps the local timer when the open-draft check fails outright", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     let rejectOpen!: (err: unknown) => void;

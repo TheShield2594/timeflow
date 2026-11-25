@@ -186,3 +186,17 @@ export function timeInputAt(minutes: number): string {
   const total = Math.max(0, Math.min(MINUTES_PER_DAY, Math.round(minutes))) % MINUTES_PER_DAY;
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
+
+// Two timestamps naming the same moment, allowing for the sub-second precision
+// Dataverse drops on the round trip: it hands `ever_starttime` back at second
+// precision, so string equality against the toISOString() we sent never
+// matches (#193). Deliberately tight: anything looser risks matching a
+// *different* session's draft, which is worse than not matching at all.
+// Unparseable input is not a match.
+export function sameInstant(a: string | undefined, b: string | undefined): boolean {
+  if (!a || !b) return false;
+  const ta = new Date(a).getTime();
+  const tb = new Date(b).getTime();
+  if (!Number.isFinite(ta) || !Number.isFinite(tb)) return false;
+  return Math.abs(ta - tb) < 1000;
+}

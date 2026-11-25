@@ -30,7 +30,7 @@ import type { NewTimeEntry, Project, Task, TimeEntry } from "../types";
 import { getCurrentUser, isPowerAppsHost, getDataverseOrgUrl } from "./userService";
 import { MicrosoftDataverseService } from "../generated";
 import { DEFAULT_PROJECT_COLOR } from "../utils/colors";
-import { localDateStr } from "../utils/dates";
+import { localDateStr, sameInstant } from "../utils/dates";
 import { reportTelemetry } from "./telemetry";
 
 // ---------------------------------------------------------------------------
@@ -999,17 +999,6 @@ export async function updateTimeEntry(id: string, data: Partial<TimeEntry>): Pro
   return merged;
 }
 
-// Two timestamps naming the same moment, allowing for the sub-second precision
-// Dataverse drops on the round trip. Deliberately tight: anything looser risks
-// matching a *different* session's draft, which is worse than not matching at
-// all. Unparseable input is not a match.
-function sameInstant(a: string | undefined, b: string | undefined): boolean {
-  if (!a || !b) return false;
-  const ta = new Date(a).getTime();
-  const tb = new Date(b).getTime();
-  if (!Number.isFinite(ta) || !Number.isFinite(tb)) return false;
-  return Math.abs(ta - tb) < 1000;
-}
 
 /**
  * Creates a draft timer entry in Dataverse when the timer starts (#15).
