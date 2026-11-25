@@ -313,7 +313,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void; userName: 
           entriesOnDate={entriesOnDate}
           workingHours={workingHours}
           nowMinutes={nowMinutes}
-          onSave={(data) => editEntry(stopSheetEntry.id, data)}
+          onSave={(data, opts) => editEntry(stopSheetEntry.id, data, opts)}
           onCreateRemainder={createEntry}
           onSaved={() => closeStopSheet(stopSheetEntry)}
           onDelete={() => { deleteEntry(stopSheetEntry.id); setStopSheetEntry(null); }}
@@ -340,7 +340,7 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void; userName: 
           entriesOnDate={entriesOnDate}
           workingHours={workingHours}
           nowMinutes={nowMinutes}
-          onSave={(data) => (entrySheet.id ? editEntry(entrySheet.id, data) : createEntry(data))}
+          onSave={(data, opts) => (entrySheet.id ? editEntry(entrySheet.id, data, opts) : createEntry(data))}
           onCreateRemainder={createEntry}
           onClose={() => setEntrySheet(null)}
           onLoadTasksForProject={loadTasksForProject}

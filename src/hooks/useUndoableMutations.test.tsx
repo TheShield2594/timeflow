@@ -190,6 +190,17 @@ describe("editing an entry (#205)", () => {
     expect(toastSpy).not.toHaveBeenCalled();
   });
 
+  it("offers no undo for one step of a larger change", async () => {
+    // The first half of a midnight split: undoing it alone would restore the
+    // original span under the new remainder.
+    const { result, deps } = setup({ entries: [local] });
+    await act(async () => {
+      await result.current.editEntry("e1", { endTime: iso("2026-03-04T00:00:00"), durationMinutes: 900 }, { undoable: false });
+    });
+    expect(deps.editEntry).toHaveBeenCalledTimes(1);
+    expect(toastSpy).not.toHaveBeenCalled();
+  });
+
   it("rethrows a failed edit, so the sheet stays open to retry — and offers no undo", async () => {
     const { result } = setup({ entries: [local], editEntry: vi.fn().mockRejectedValue(new Error("offline")) });
     await act(async () => {

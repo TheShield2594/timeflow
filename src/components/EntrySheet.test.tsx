@@ -167,6 +167,19 @@ describe("EntrySheet overnight split while editing", () => {
 
     expect(await screen.findByText("Split at midnight into two entries.")).toBeTruthy();
   });
+
+  it("writes the first half without an Undo offer", async () => {
+    const { onSave } = renderSheet({
+      mode: "edit", initial: draftForEntry(saved), entryId: saved.id,
+      onCreateRemainder: vi.fn().mockResolvedValue({}),
+    });
+    fireEvent.change(screen.getByLabelText("End time"), { target: { value: "02:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Split at midnight" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][1]).toEqual({ undoable: false });
+  });
 });
 
 describe("EntrySheet overlaps (#206)", () => {
@@ -179,7 +192,7 @@ describe("EntrySheet overlaps (#206)", () => {
   it("names the entry this one would share time with, without blocking the save", () => {
     renderSheet({
       mode: "edit", initial: draftForEntry(saved), entryId: saved.id,
-      entriesOnDate: () => [saved, other],
+      entriesOnDate: (d) => (d === DATE ? [saved, other] : []),
     });
     expect(screen.getByText("Overlaps Firewall rules, 4:00 PM–5:00 PM.")).toBeTruthy();
     expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
@@ -188,16 +201,27 @@ describe("EntrySheet overlaps (#206)", () => {
   it("goes quiet once the times no longer overlap — and never flags the entry against itself", () => {
     renderSheet({
       mode: "edit", initial: draftForEntry(saved), entryId: saved.id,
-      entriesOnDate: () => [saved, other],
+      entriesOnDate: (d) => (d === DATE ? [saved, other] : []),
     });
     fireEvent.change(screen.getByLabelText("End time"), { target: { value: "16:00" } });
     expect(screen.queryByText(/^Overlaps/)).toBeNull();
   });
 
+  it("catches an entry from the day before that runs past midnight into this one", () => {
+    // Filed under the date it started, so it isn't among this date's entries.
+    const lateNight: TimeEntry = { ...other, id: "e9", description: "Cutover", date: "2026-09-07",
+      startTime: "2026-09-07T22:00:00", endTime: "2026-09-08T02:00:00", durationMinutes: 240 };
+    renderSheet({
+      initial: draftForSpan(DATE, 60, 3 * 60, "p1"),
+      entriesOnDate: (d) => (d === "2026-09-07" ? [lateNight] : []),
+    });
+    expect(screen.getByText("Overlaps Cutover, 10:00 PM–2:00 AM.")).toBeTruthy();
+  });
+
   it("counts the rest when there is more than one", () => {
     const third: TimeEntry = { ...other, id: "e3", description: "Standup",
       startTime: `${DATE}T10:15:00`, endTime: `${DATE}T10:30:00` };
-    renderSheet({ entriesOnDate: () => [other, third] });
+    renderSheet({ entriesOnDate: (d) => (d === DATE ? [other, third] : []) });
     fireEvent.change(screen.getByLabelText("End time"), { target: { value: "16:30" } });
     expect(screen.getByText("Overlaps Standup, 10:15 AM–10:30 AM, and 1 more.")).toBeTruthy();
   });

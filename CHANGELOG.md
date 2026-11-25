@@ -19,8 +19,9 @@ against user-visible behaviour, as described in
   elapsed time on every page, and "Not saved" when a stop's save failed
   (#203).
 - A calendar drag, resize or Shift + arrow nudge, and a Save in the entry
-  sheet, now toast what changed with Undo, as delete and archive already did
-  (#205).
+  sheet, now toast what changed with Undo, as delete and archive already did.
+  An edit split at midnight gets a plain confirmation instead: undoing only
+  its first half would count the after-midnight hours twice (#205).
 - The entry sheet says when the entry overlaps another one that day, without
   blocking the save, and a day total that counts overlapping time twice
   carries a quiet "… overlap" mark on the Timer, Timesheet and Calendar
@@ -58,7 +59,8 @@ each of which lost time, changed a duration, or left a control dead:
 - A timer whose draft row was written but whose response was lost left that
   row open after Stop; on the next load it came back as a timer started
   hours earlier, and the 12-hour safety net saved it as a 720-minute entry.
-  Stop now deletes the session's own leftover draft, and the reload-time
+  Stop now tries to delete the session's own leftover draft (best effort: if
+  that lookup or delete fails, the draft stays as before), and the reload-time
   adoption of a draft compares start times as instants (#193).
 
 ---

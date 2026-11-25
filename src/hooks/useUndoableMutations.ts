@@ -14,9 +14,17 @@ interface Deps {
   restoreProject: (project: Project) => Promise<void>;
 }
 
+export interface EditOptions {
+  /**
+   * False for a write that is one step of a larger change, whose undo would
+   * only take back part of it — the first half of a midnight split (#205).
+   */
+  undoable?: boolean;
+}
+
 export interface UndoableMutations {
   deleteEntry: (id: string) => Promise<void>;
-  editEntry: (id: string, data: Partial<TimeEntry>) => Promise<TimeEntry>;
+  editEntry: (id: string, data: Partial<TimeEntry>, opts?: EditOptions) => Promise<TimeEntry>;
   deleteTask: (task: Task) => Promise<void>;
   archiveProject: (project: Project) => Promise<void>;
 }
@@ -124,10 +132,10 @@ export function useUndoableMutations({
    * undefined, because undefined means "leave alone" to the service and the
    * whole point is to clear what the edit filled in.
    */
-  const editEntryWithUndo = useCallback(async (id: string, data: Partial<TimeEntry>) => {
+  const editEntryWithUndo = useCallback(async (id: string, data: Partial<TimeEntry>, opts?: EditOptions) => {
     const snapshot = entries.find((e) => e.id === id);
     const updated = await editEntry(id, data);
-    if (!snapshot) return updated;
+    if (!snapshot || opts?.undoable === false) return updated;
     const changed: Partial<TimeEntry> = {};
     const previous: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(data)) {

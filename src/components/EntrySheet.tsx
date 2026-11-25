@@ -62,7 +62,13 @@ interface Props {
   nowMinutes: number;
   /** The record this sheet is about, so the bar can draw it in the accent. */
   entryId?: string;
-  onSave: (data: EntrySaveData) => Promise<unknown>;
+  /**
+   * The second argument says whether this write may offer Undo. The first
+   * half of a midnight split may not: taking it back while the second half is
+   * still saving would restore the original span under the new remainder, and
+   * count those hours twice (#205).
+   */
+  onSave: (data: EntrySaveData, opts?: { undoable?: boolean }) => Promise<unknown>;
   /**
    * Writes the after-midnight half of an overnight split, which is always a
    * *new* record.
@@ -233,14 +239,19 @@ export const EntrySheet: React.FC<Props> = ({
   /**
    * The entry this one would share time with, said once and never blocking
    * (#206). Two things at once is sometimes true; double-counting it without
-   * a word is not. An entry carried past midnight is checked against the next
-   * day's entries as well, since that is where its tail lands.
+   * a word is not. Entries are filed under the date they start, so the
+   * previous day's are candidates too (one running past midnight reaches into
+   * this one), and so are the next day's when this draft runs past midnight.
+   * findOverlapping compares instants, so the extra days only ever add real
+   * overlaps.
    */
   const overlapNote = useMemo(() => {
     if (!startDt || !endDt || durationMinutes === null || durationMinutes <= 0 || !dayEntries) return null;
-    const candidates = endsNextDay
-      ? [...dayEntries, ...(entriesOnDate(addDaysStr(draft.date, 1)) ?? [])]
-      : dayEntries;
+    const candidates = [
+      ...(entriesOnDate(addDaysStr(draft.date, -1)) ?? []),
+      ...dayEntries,
+      ...(endsNextDay ? entriesOnDate(addDaysStr(draft.date, 1)) ?? [] : []),
+    ];
     const hits = findOverlapping(startDt, endDt, candidates, entryId);
     if (hits.length === 0) return null;
     const first = hits[0];
@@ -337,7 +348,7 @@ export const EntrySheet: React.FC<Props> = ({
             ...common, date: draft.date,
             startTime: startDt.toISOString(), endTime: midnightIso,
             durationMinutes: Math.round((midnight - startDt.getTime()) / 60000),
-          });
+          }, { undoable: false });
           splitFirstSaved.current = true;
         }
         await onCreateRemainder({
@@ -345,11 +356,9 @@ export const EntrySheet: React.FC<Props> = ({
           startTime: midnightIso, endTime: endDt.toISOString(),
           durationMinutes: Math.round((endDt.getTime() - midnight) / 60000),
         });
-        // Editing an entry into two leaves the edit's Undo toast offering to
-        // put back only the first half — and taking it would leave the new
-        // second half on top of the restored original, double-counting the
-        // overlap. Replace that offer with a plain confirmation; the user
-        // undoes a split by deleting the half they don't want (#205).
+        // The first half was written without an Undo offer (see onSave), so
+        // say once that the split happened; the user undoes a split by
+        // deleting the half they don't want (#205).
         if (entryId) toast("Split at midnight into two entries.", "success");
       } else {
         await onSave({

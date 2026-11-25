@@ -386,7 +386,7 @@ export const TimesheetPage: React.FC<Props> = ({ workingHours, onGoToProjects })
           entriesOnDate={entriesOnDate}
           workingHours={workingHours}
           nowMinutes={nowMinutes}
-          onSave={(data) => (sheet.id ? editEntry(sheet.id, data) : createEntry(data))}
+          onSave={(data, opts) => (sheet.id ? editEntry(sheet.id, data, opts) : createEntry(data))}
           onCreateRemainder={createEntry}
           onDelete={sheet.id ? () => { deleteEntry(sheet.id!); setSheet(null); } : undefined}
           // A save still in flight when "Fill it" replaced this sheet closes

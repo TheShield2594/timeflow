@@ -433,6 +433,29 @@ describe("useTimer", () => {
       expect(svc.deleteTimeEntry).not.toHaveBeenCalled();
     });
 
+    it("spares a session started since, inside the same second", async () => {
+      // At the server's second precision a restart within that second matches
+      // the stopped session's start; its draft is live, not an orphan.
+      vi.mocked(svc.createDraftTimerEntry).mockResolvedValueOnce(null);
+      vi.mocked(svc.createTimeEntry).mockResolvedValue({ id: "entry-1" } as TimeEntry);
+      const { result } = renderHook(() => useTimer(vi.fn()));
+      await act(async () => { result.current.start("proj-1", null, "Working"); });
+      const firstStart = result.current.timer.startTime!;
+      let resolveOpen!: (e: TimeEntry | null) => void;
+      vi.mocked(svc.getOpenTimerEntry).mockImplementationOnce(
+        () => new Promise<TimeEntry | null>((res) => { resolveOpen = res; })
+      );
+      await act(async () => { await result.current.stop(); });
+      await act(async () => { result.current.start("proj-1", null, "Next"); });
+      await waitFor(() => expect(result.current.timer.draftEntryId).toBe("draft-1"));
+
+      await act(async () => {
+        resolveOpen({ id: "draft-1", projectId: "proj-1", startTime: firstStart, date: "2026-01-01" } as TimeEntry);
+      });
+
+      expect(svc.deleteTimeEntry).not.toHaveBeenCalled();
+    });
+
     it("still reports the stop as saved when the clean-up read fails", async () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       vi.mocked(svc.createDraftTimerEntry).mockResolvedValueOnce(null);

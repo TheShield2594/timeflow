@@ -302,6 +302,10 @@ export function useTimer(onStop: (entry: TimeEntry) => void) {
       const open = await svc.getOpenTimerEntry();
       if (!open?.id || open.id === savedId || open.endTime) return;
       if (!sameInstant(open.startTime, startTime)) return;
+      // A session started since — inside the same second, at the server's
+      // precision — would match too. Its draft is live, not an orphan.
+      const current = timerRef.current;
+      if (current.startTime && (open.id === current.draftEntryId || sameInstant(open.startTime, current.startTime))) return;
       await svc.deleteTimeEntry(open.id);
     } catch {
       console.warn("Could not check for an orphaned timer draft after stopping.");

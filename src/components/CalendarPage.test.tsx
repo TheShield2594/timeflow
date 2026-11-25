@@ -584,6 +584,25 @@ describe("CalendarPage totals include the running session (#74)", () => {
     expect(document.querySelector(".calendar__week-total")!.textContent).toBe("4h");
   });
 
+  it("marks the overlap when the running entry is over a completed one (#206)", () => {
+    // 09:00–10:00 done, and a timer running since 09:00: at noon the total
+    // reads 4h, of which the hour both cover is counted twice.
+    const ds = freezeAtNoon();
+    renderCalendarWith([
+      {
+        id: "done", projectId: "p1", description: "Done",
+        startTime: `${ds}T09:00:00`, endTime: `${ds}T10:00:00`,
+        durationMinutes: 60, date: ds, userId: "u1", userDisplayName: "U",
+      },
+      {
+        id: "run", projectId: "p1", description: "In progress",
+        startTime: `${ds}T09:00:00`, date: ds, userId: "u1", userDisplayName: "U",
+      },
+    ]);
+
+    expect(document.querySelector(".overlap-mark")!.textContent).toBe(", including 1h overlap");
+  });
+
   it("leaves totals alone when nothing is running", () => {
     const ds = freezeAtNoon();
     renderCalendarWith([
