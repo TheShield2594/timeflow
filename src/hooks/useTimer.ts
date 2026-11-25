@@ -19,7 +19,7 @@ const RESET_TIMER: TimerState = {
  */
 export type OnTimerStop = (entry: TimeEntry, all: TimeEntry[]) => void;
 
-export function useTimer(onStop: OnTimerStop) {
+export function useTimer(onStop: OnTimerStop, onDiscard?: () => void) {
   const user = getCurrentUser();
   const timerKey = `${TIMER_KEY_PREFIX}${user.environmentId}:${user.id}`;
   const toast = useToast();
@@ -268,7 +268,9 @@ export function useTimer(onStop: OnTimerStop) {
       toast("Timer is already running. Stop it first.", "error");
       return false;
     }
-    await beginSession({ ...session, isRunning: true, pendingStopAt: undefined, draftEntryId: undefined });
+    await beginSession({
+      ...session, isRunning: true, pendingStopAt: undefined, draftEntryId: undefined, splitEntryIds: undefined,
+    });
     return true;
   }, [beginSession, toast]);
 
@@ -356,6 +358,9 @@ export function useTimer(onStop: OnTimerStop) {
         void sweepOrphanedDraft(activeTimer.startTime, "");
       }
       toast("Stopped under a minute — nothing was saved.", "info");
+      // The draft row was on the timesheet as "Running…"; onStop never runs
+      // on this path, so the caller is told separately to re-read.
+      onDiscard?.();
       return undefined;
     }
 
@@ -378,16 +383,29 @@ export function useTimer(onStop: OnTimerStop) {
     });
     const [first, ...rest] = pieces;
 
+    // Progress through a split, kept on the session itself (and so in
+    // storage) as each row lands: a retry, even after a reload, updates the
+    // rows already written instead of filing their days twice.
+    const recordProgress = (patch: Partial<TimerState>) => {
+      if (timerRef.current.startTime !== activeTimer.startTime) return;
+      const next: TimerState = { ...timerRef.current, ...patch };
+      applyTimer(next);
+      persistTimer(next);
+    };
+
     try {
       let entry: TimeEntry;
       let created = false;
-      // The first piece goes onto the draft row, which already carries the
-      // session's start and date. Updating it is safe to repeat, which is
-      // what makes a retry after a half-saved split safe.
+      // The first piece goes onto the draft row. Its bounds and date are
+      // written too, not only its end: a piece can start later than the
+      // session did (see splitAtMidnights). Updating is safe to repeat, which
+      // is what makes a retry after a half-saved split safe.
       if (activeTimer.draftEntryId) {
         try {
           entry = await svc.updateTimeEntry(activeTimer.draftEntryId, {
+            startTime: first.startTime,
             endTime: first.endTime,
+            date: first.date,
             durationMinutes: first.durationMinutes,
             description: activeTimer.description,
             ratio: activeTimer.ratio,
@@ -406,22 +424,33 @@ export function useTimer(onStop: OnTimerStop) {
         entry = await svc.createTimeEntry(rowFor(first));
         created = true;
       }
-      // Not awaited: the entry is saved, and the stop shouldn't wait on a
-      // clean-up read before saying so.
-      if (created) void sweepOrphanedDraft(activeTimer.startTime, entry.id);
 
       const saved: TimeEntry[] = [entry];
-      if (rest.length) {
-        // From here a failure leaves the first piece written and the rest
-        // not. Pointing the session at the row just written makes Retry
-        // update it rather than create a second copy of it — the same way
-        // a draft row is updated rather than duplicated.
-        if (created && timerRef.current.startTime === activeTimer.startTime) {
-          const anchored: TimerState = { ...timerRef.current, draftEntryId: entry.id };
-          applyTimer(anchored);
-          persistTimer(anchored);
+      // Indexed by piece, after the first. A retry for a different end (the
+      // 12h net after a failed plain stop) can cut fewer pieces, so rows past
+      // the new count are deleted below rather than left as stray time.
+      const restIds = [...(activeTimer.splitEntryIds ?? [])];
+      if (rest.length && created) recordProgress({ draftEntryId: entry.id });
+      for (let i = 0; i < rest.length; i++) {
+        const row = rowFor(rest[i]);
+        let written: TimeEntry;
+        const existing = restIds[i];
+        if (existing) {
+          try {
+            written = await svc.updateTimeEntry(existing, row);
+          } catch (err) {
+            if (!svc.isNotFoundError(err)) throw err;
+            written = await svc.createTimeEntry(row);
+          }
+        } else {
+          written = await svc.createTimeEntry(row);
         }
-        for (const piece of rest) saved.push(await svc.createTimeEntry(rowFor(piece)));
+        restIds[i] = written.id;
+        saved.push(written);
+        recordProgress({ splitEntryIds: [...restIds] });
+      }
+      for (const stray of restIds.slice(rest.length)) {
+        if (stray) await svc.deleteTimeEntry(stray).catch(() => { /* best effort */ });
       }
 
       // Only if this is still the session on screen: a newer one, arrived
@@ -430,13 +459,19 @@ export function useTimer(onStop: OnTimerStop) {
         applyTimer(RESET_TIMER);
         persistTimer(null);
       }
+      // After the reset, not before: the sweep spares an open row on the
+      // session still on screen, and until now that was this one — so a
+      // sweep started before the later days were saved found its own orphan
+      // "live" and left it to come back as a phantom timer. Not awaited: the
+      // entry is saved, and the stop shouldn't wait on a clean-up read.
+      if (created) void sweepOrphanedDraft(activeTimer.startTime, entry.id);
       onStop(entry, saved);
       return entry;
     } catch (err) {
       toast("Couldn’t save the entry. Your time is kept — press Retry save.", "error");
       throw err;
     }
-  }, [onStop, persistTimer, applyTimer, toast, sweepOrphanedDraft]);
+  }, [onStop, onDiscard, persistTimer, applyTimer, toast, sweepOrphanedDraft]);
 
   const stopAt = useCallback((endIso: string) => {
     const session = timerRef.current.startTime;
@@ -465,8 +500,14 @@ export function useTimer(onStop: OnTimerStop) {
     const active = timerRef.current;
     const hadSession = active.isRunning || !!active.pendingStopAt || !!active.draftEntryId;
     const draftId = active.draftEntryId;
+    // Rows a half-saved split already wrote for later days belong to the
+    // session being thrown away, exactly as its draft row does.
+    const splitIds = active.splitEntryIds ?? [];
     applyTimer(RESET_TIMER);
     persistTimer(null);
+    for (const id of splitIds) {
+      if (id) await svc.deleteTimeEntry(id).catch(() => { /* best effort */ });
+    }
     // Discarding the session must also remove the draft row, or it would be
     // restored as a phantom running timer on the next reload. deleteTimeEntry
     // already retries transient failures and tolerates 404s.

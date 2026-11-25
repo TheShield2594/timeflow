@@ -466,6 +466,22 @@ describe("EntrySheet task creation commits only when asked (#195)", () => {
     expect(onAddTask).toHaveBeenCalledTimes(1);
     expect(onAddTask).toHaveBeenCalledWith({ projectId: "p1", name: "Discovery call", isActive: true });
   });
+
+  it("keeps the field focused through a pointer press on Add", () => {
+    const onAddTask = vi.fn().mockResolvedValue({ id: "t9", projectId: "p1", name: "Call", isActive: true });
+    renderSheet({ onAddTask });
+
+    fireEvent.click(screen.getByRole("button", { name: /New task/ }));
+    fireEvent.change(screen.getByLabelText("New task name"), { target: { value: "Call" } });
+    const add = screen.getByRole("button", { name: "Add" });
+    // fireEvent returns false when the handler prevented the default — the
+    // focus move that would otherwise blur the field and close it before the
+    // click lands (Safari never focuses the button, so blur can't tell).
+    expect(fireEvent.mouseDown(add)).toBe(false);
+    fireEvent.click(add);
+
+    expect(onAddTask).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("EntrySheet gap nudge", () => {

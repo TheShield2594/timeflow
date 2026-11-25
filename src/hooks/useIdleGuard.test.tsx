@@ -204,6 +204,21 @@ describe("useIdleGuard — a session that arrives from another tab (#192)", () =
     expect(result.current.guard.idleAlert).toBeNull();
   });
 
+  it("drops the prompt when another tab has replaced the session it was raised for", async () => {
+    const { result, rerender, stopAt, cancel } = setup();
+    await act(async () => { await vi.advanceTimersByTimeAsync(31 * 60 * 1000); });
+    rerender({ t: RUNNING });
+    expect(result.current.guard.idleAlert).not.toBeNull();
+
+    // Stopped and restarted elsewhere, arriving here as one state change.
+    rerender({ t: { ...RUNNING, startTime: new Date().toISOString(), draftEntryId: "draft-2" } });
+
+    expect(result.current.guard.idleAlert).toBeNull();
+    await act(async () => { await result.current.guard.onTrim(); });
+    expect(stopAt).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
   it("never trims to a moment before the session began", async () => {
     const started: TimerState = { ...RUNNING, startTime: new Date().toISOString() };
     const { result, rerender, stopAt } = setup(started);

@@ -167,7 +167,9 @@ const AppContent: React.FC<{ theme: Theme; onToggleTheme: () => void; userName: 
   // Neither of these ticks: nothing in AppContent re-renders on the second,
   // so a running timer no longer re-reconciles the whole page tree underneath
   // it (#95). The clock lives on the timer screen, next to the digits.
-  const { timer, start, stop, stopAt, cancel, restore, update } = useTimer(handleNewEntry);
+  // A stop under a minute is discarded rather than saved (#188); its draft
+  // row was on the timesheet as "Running…" and has to go from there too.
+  const { timer, start, stop, stopAt, cancel, restore, update } = useTimer(handleNewEntry, refreshEntries);
 
   const handleStart = useCallback(() => {
     if (!draft.projectId) {

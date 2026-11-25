@@ -219,14 +219,22 @@ export interface DaySegment {
  * (#185). Midnight comes off the calendar, not by adding 24h, so it lands
  * right on the days the clocks move.
  *
- * A piece that would round to zero minutes is folded into its neighbour
- * rather than filed: stopping ten seconds after midnight should not leave a
- * 0m row behind on the new day (#188). An empty or inverted span comes back
- * as a single piece on the start date, so callers never have to special-case
- * it.
+ * No piece is filed that would round to zero minutes (#188):
+ *  - A trailing sliver (stopped ten seconds after midnight) is folded into
+ *    the day before, as an entry that ends just past midnight — the shape
+ *    the entry sheet's "keep" already stores.
+ *  - A leading sliver (started ten seconds before midnight) is dropped, and
+ *    the first piece starts at midnight. Folding it forward instead would
+ *    date the row by the day most of it fell on while it *starts* on the day
+ *    before, and everything that draws a row assumes its date is the day it
+ *    starts. Under half a minute is below the rounding every row already has.
+ *
+ * Pieces therefore don't always start at `startIso`; callers write each
+ * piece's own bounds. An empty or inverted span comes back as a single piece
+ * on the start date, so callers never have to special-case it.
  */
 export function splitAtMidnights(startIso: string, endIso: string): DaySegment[] {
-  const startMs = new Date(startIso).getTime();
+  let startMs = new Date(startIso).getTime();
   const endMs = new Date(endIso).getTime();
   const cuts: number[] = [];
   let day = localDateStr(new Date(startMs));
@@ -239,6 +247,9 @@ export function splitAtMidnights(startIso: string, endIso: string): DaySegment[]
   // Drop any cut that would leave a piece shorter than half a minute on
   // either side — that piece would be stored as 0m.
   const HALF_MINUTE = 30_000;
+  if (cuts.length && cuts[0] - startMs < HALF_MINUTE && endMs - cuts[0] >= HALF_MINUTE) {
+    startMs = cuts.shift()!;
+  }
   const kept: number[] = [];
   for (const cut of cuts) {
     const prev = kept.length ? kept[kept.length - 1] : startMs;

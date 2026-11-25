@@ -111,11 +111,18 @@ export function useIdleGuard({
   // stop arriving via the storage-event sync. Without this the modal would sit
   // over a stopped timer and its buttons would silently no-op. A save in flight
   // (pendingStopAt set) is left alone so the modal doesn't flicker mid-stop.
+  //
+  // Likewise when the session on the clock is no longer the one the prompt
+  // was raised for — another tab stopped it and started another. Trim and
+  // Discard act on whatever is running *now*, so a prompt left over the new
+  // session would cut it back to the old one's idle point and discard it as
+  // 0m, or throw it away outright.
   useEffect(() => {
-    if (!timer.isRunning && !timer.pendingStopAt && idleAlert) {
-      setIdleAlert(null);
-    }
-  }, [timer.isRunning, timer.pendingStopAt, idleAlert]);
+    if (!idleAlert) return;
+    const ended = !timer.isRunning && !timer.pendingStopAt;
+    const replaced = timer.startTime !== idleAlert.startTime;
+    if (ended || replaced) setIdleAlert(null);
+  }, [timer.isRunning, timer.pendingStopAt, timer.startTime, idleAlert]);
 
   const onTrim = useCallback(async () => {
     if (!idleAlert) return;
